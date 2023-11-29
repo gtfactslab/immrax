@@ -1,0 +1,22 @@
+# [build-system]
+# requires = [""]
+
+[tool.setuptools]
+packages = ["immrax"]
+
+[project]
+name = "immrax"
+version = "0.0.1"
+dependencies = [
+    "numpy",
+    "scipy",
+    "tqdm",
+    "shapely",
+    "matplotlib",
+    "tabulate",
+    "sympy",
+    "sympy2jax",
+    "jaxtyping",
+    "diffrax",
+    "equinox",
+]
