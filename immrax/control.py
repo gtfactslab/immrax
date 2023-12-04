@@ -4,8 +4,7 @@ import jax.numpy as jnp
 from jaxtyping import Integer, Float
 from typing import Union
 from sympy2jax import SymbolicModule
-from JaxMM.system import System, OpenLoopSystem
-import jax_verify as jv
+from immrax.system import System, OpenLoopSystem
 
 class Control (abc.ABC) :
     """Control

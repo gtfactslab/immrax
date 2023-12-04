@@ -10,13 +10,21 @@ from jax._src.util import safe_map
 from jax.tree_util import register_pytree_node_class
 from typing import Tuple, Callable, Sequence, Iterable
 import numpy as np
-from pprint import pformat
 from functools import partial
 from itertools import accumulate
 from jax._src import ad_util
+from jax._src.api import api_boundary
 
 @register_pytree_node_class
 class Interval :
+    """Interval: A class to represent an interval in :math:`\\mathbb{R}^n`.
+
+    Use the helper functions :func:`interval`, :func:`icentpert`, :func:`i2centpert`,:func:`i2lu`, :func:`i2ut`, and :func:`ut2i` to create and manipulate intervals.
+
+    Use the transforms :func:`natif`, :func:`jacif`, :func:`mjacif`, :func:`mjacM`, :func:`if_emb`, :func:`natemb`, :func:`jacemb`, and :func:`mjacemb` to create inclusion functions.
+
+    Composable with typical jax transforms, such as :func:`jax.jit`, :func:`jax.grad`, and :func:`jax.vmap`.
+    """
     lower: jax.Array
     upper: jax.Array
     def __init__(self, lower:jax.Array, upper:jax.Array) -> None:
@@ -53,16 +61,14 @@ class Interval :
         return self.transpose()
   
     def __str__(self) -> str:
-        return pformat(np.array([[(l,u)] for (l,u) in 
-                                zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
-                                dtype=np.dtype([('f1',float), ('f2', float)]))
-                                .reshape(self.shape + (1,)).tolist())
+        return np.array([[(l,u)] for (l,u) in 
+                        zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
+                        dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__str__()
     
     def __repr__(self) -> str:
-        return pformat(np.array([[(l,u)] for (l,u) in 
-                                zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
-                                dtype=np.dtype([('f1',float), ('f2', float)]))
-                                .reshape(self.shape + (1,)).tolist())
+        return np.array([[(l,u)] for (l,u) in 
+                        zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
+                        dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__repr__()
     
     def __getitem__(self, i:int) :
         return Interval(self.lower[i], self.upper[i])
@@ -128,6 +134,18 @@ def i2lu (i:Interval) -> Tuple[jax.Array, jax.Array] :
     """
     return (i.lower, i.upper)
 
+def lu2i (l:jax.Array, u:jax.Array) -> Interval :
+    """lu2i: Helper to create a jax_verify.IntervalBound from a lower and upper bound.
+
+    Args:
+        l (jax.Array): Lower bound of the interval.
+        u (jax.Array): Upper bound of the interval.
+
+    Returns:
+        Interval: [l, u]
+    """
+    return interval(l, u)
+
 def i2ut (i:Interval) -> jax.Array :
     """i2ut: Helper to convert an interval to an upper triangular coordinate in :math:`\\mathbb{R}\\times\\mathbb{R}`.
 
@@ -162,7 +180,7 @@ def _make_inclusion_passthrough_p (primitive:Primitive) -> Callable[..., Interva
         primitive (Primitive): Primitive to wrap
 
     Returns:
-        Callable[..., Interval]: Inclusion Function to bind in nat_if
+        Callable[..., Interval]: Inclusion Function to bind in natif
     """
     def _inclusion_p (*args, **kwargs) -> Interval :
         args_l = [(arg.lower if isinstance(arg, Interval) else arg) for arg in args]
@@ -421,7 +439,7 @@ def _inclusion_sqrt_p (x:Interval) -> Interval :
     return Interval (ol, ou)
 inclusion_registry[lax.sqrt_p] = _inclusion_sqrt_p
 
-def nat_if (fun:Callable[..., jax.Array]) -> Callable[..., Interval] :
+def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Natural Inclusion Function of f using jax_verify.interval_bound_propogation.
 
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
@@ -432,7 +450,7 @@ def nat_if (fun:Callable[..., jax.Array]) -> Callable[..., Interval] :
     Returns:
         Callable[..., Interval]: Natural Inclusion Function of f
     """
-    def nat_if_jaxpr (jaxpr, consts, *args) :
+    def natif_jaxpr (jaxpr, consts, *args) :
         env = {}
         def read (var) :
             # Literals are values baked into the Jaxpr
@@ -463,19 +481,24 @@ def nat_if (fun:Callable[..., jax.Array]) -> Callable[..., Interval] :
         return safe_map(read, jaxpr.outvars)
     
     @jit
-    @wraps(fun)
+    @api_boundary
     def wrapped (*args, **kwargs) :
+        f"""Natural inclusion function of {f.__name__}.
+
+        Returns:
+            _type_: _description_
+        """
         # args = [interval(arg) for arg in args]
         buildargs = [(arg.lower if isinstance(arg, Interval) else arg) for arg in args]
-        closed_jaxpr = jax.make_jaxpr(fun)(*buildargs, **kwargs)
-        out = nat_if_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.literals, *args)
+        closed_jaxpr = jax.make_jaxpr(f)(*buildargs, **kwargs)
+        out = natif_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.literals, *args)
         return out[0]
 
     return wrapped
 
-Interval.__matmul__ = nat_if(jnp.matmul)
+Interval.__matmul__ = natif(jnp.matmul)
 
-def jac_if (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
+def jacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Jacobian Inclusion Function of f using jax_verify.interval_bound_propogation.
 
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
@@ -488,6 +511,7 @@ def jac_if (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """
 
     @jit
+    @api_boundary
     def F (*args, centers:jax.Array|Sequence[jax.Array]|None = None, **kwargs) -> Interval :
         """Jacobian-based Inclusion Function of f.
 
@@ -507,14 +531,14 @@ def jac_if (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
 
         retl, retu = [], []
-        df = [nat_if(jax.jacfwd(f, i))(*args) for i in range(len(args))]
+        df = [natif(jax.jacfwd(f, i))(*args) for i in range(len(args))]
         for center in centers :
             if len(center) != len(args) :
                 raise Exception(f'Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around')
             f0 = f(*center)
             sum = interval(f0)
             for i in range(len(args)) :
-                # sum = nat_if(jnp.add)(sum, nat_if(jnp.matmul)(df[i], (interval(args[i].lower - center[i], args[i].upper - center[i]))))
+                # sum = natif(jnp.add)(sum, natif(jnp.matmul)(df[i], (interval(args[i].lower - center[i], args[i].upper - center[i]))))
                 sum = sum + df[i] @ (interval(args[i].lower - center[i], args[i].upper - center[i]))
             retl.append(sum.lower)
             retu.append(sum.upper)
@@ -539,7 +563,7 @@ def two_orderings (n:int) -> Tuple[Ordering] :
     """Returns the two standard n-orderings :math:`(0,\\dots,n-1)` and :math:`(n-1,\\dots,0)`"""
     return (Ordering(range(n)), Ordering(tuple(reversed(range(n)))))
 
-def mixjac_M (f:Callable[..., jax.Array]) -> Callable :
+def mjacM (f:Callable[..., jax.Array]) -> Callable :
     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
 
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
@@ -551,9 +575,8 @@ def mixjac_M (f:Callable[..., jax.Array]) -> Callable :
         Callable[..., Interval]: Mixed Jacobian-Based Inclusion Function of f
     """
 
-    # @wraps(f)
-    # @api_boundary
     @partial(jit,static_argnames=['orderings'])
+    @api_boundary
     def F (*args, orderings:Tuple[Ordering]|None=None, centers:jax.Array|Sequence[jax.Array]|None = None, **kwargs) -> Interval :
         """Mixed Jacobian-based Inclusion Function of f.
 
@@ -601,7 +624,7 @@ def mixjac_M (f:Callable[..., jax.Array]) -> Callable :
         # multiple orderings/centers
         ret = []
 
-        df_func = [nat_if(jax.jacfwd(f, i)) for i in range(len(args))]
+        df_func = [natif(jax.jacfwd(f, i)) for i in range(len(args))]
         # centers is an array of centers to check
         for center in centers :
             if len(center) != len(args) :
@@ -627,7 +650,7 @@ def mixjac_M (f:Callable[..., jax.Array]) -> Callable :
         return ret
     return F
 
-def mixjac_if (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
+def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Mixed Jacobian Inclusion Function of f using jax_verify.interval_bound_propogation.
 
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
@@ -640,8 +663,8 @@ def mixjac_if (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """
 
     # @wraps(f)
-    # @api_boundary
     @partial(jit,static_argnames=['orderings'])
+    @api_boundary
     def F (*args, orderings:Tuple[Ordering]|None=None, centers:jax.Array|Sequence[jax.Array]|None = None, **kwargs) -> Interval :
         """Mixed Jacobian-based Inclusion Function of f.
 
@@ -694,7 +717,7 @@ def mixjac_if (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         retl, retu = [], []
 
         # This is the \sfJ_x for each argument. Natural inclusion on the Jacobian tree.
-        df_func = [nat_if(jax.jacfwd(f, i)) for i in range(len(args))]
+        df_func = [natif(jax.jacfwd(f, i)) for i in range(len(args))]
 
         # centers is an array of centers to check
         for center in centers :
@@ -718,7 +741,7 @@ def mixjac_if (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
                     # Extracting a column here for the right shape for the multiplication
                     Mi = df_func[argi](*argr, **kwargs)[:,(subi,)]
                     # Mi ([\ulx,\olx]_i - \overcirc{x}_i)
-                    val = nat_if(jnp.add)(val, nat_if(jnp.matmul)(Mi, (interval(args[argi].lower[subi] - center[argi][subi], args[argi].upper[subi] - center[argi][subi]).reshape(-1))))
+                    val = natif(jnp.add)(val, natif(jnp.matmul)(Mi, (interval(args[argi].lower[subi] - center[argi][subi], args[argi].upper[subi] - center[argi][subi]).reshape(-1))))
 
                 # (\sfJ_x, \overcirc{x}, \calO)-Mixed Jacobian-based added to the potential
                 retl.append(val.lower)

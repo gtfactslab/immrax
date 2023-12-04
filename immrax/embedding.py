@@ -6,9 +6,8 @@ from jaxtyping import Integer, Float
 import sympy
 from typing import List, Literal, Union, Any, Callable, Tuple
 from .system import System
-from .inclusion import interval, nat_if, jac_if, mixjac_if, i2ut, ut2i, Interval
+from .inclusion import interval, natif, jacif, mjacif, i2ut, ut2i, Interval
 from .control import Control, ControlledSystem
-import jax_verify as jv
 from functools import partial
 
 class EmbeddingSystem (System, abc.ABC) :
@@ -126,12 +125,12 @@ class InclusionEmbedding (EmbeddingSystem) :
 
 
 class TransformEmbedding (InclusionEmbedding) :
-    def __init__(self, sys:System, if_transform = nat_if) -> None:
+    def __init__(self, sys:System, if_transform = natif) -> None:
         """Initialize an EmbeddingSystem using a System and an inclusion function transform.
 
         Args:
             sys (System): _description_
-            if_transform (IFTransform, optional): _description_. Defaults to nat_if.
+            if_transform (IFTransform, optional): _description_. Defaults to natif.
         """
         F = if_transform(sys.f)
         # def Fi (i:int, *args, **kwargs) :
@@ -150,7 +149,7 @@ def if_emb (sys:System, if_transform) -> TransformEmbedding :
     """
     return TransformEmbedding(sys, if_transform)
 
-def nat_emb (sys:System) :
+def natemb (sys:System) :
     """Creates an EmbeddingSystem using the natural inclusion function of the dynamics of a System.
 
     Args:
@@ -159,9 +158,9 @@ def nat_emb (sys:System) :
     Returns:
         EmbeddingSystem: Embedding system from the natural inclusion function transform.
     """
-    return TransformEmbedding(sys, if_transform=nat_if)
+    return TransformEmbedding(sys, if_transform=natif)
 
-def jac_emb (sys:System) :
+def jacemb (sys:System) :
     """Creates an EmbeddingSystem using the Jacobian-based inclusion function of the dynamics of a System.
 
     Args:
@@ -170,9 +169,9 @@ def jac_emb (sys:System) :
     Returns:
         EmbeddingSystem: Embedding system from the Jacobian-based inclusion function transform.
     """
-    return TransformEmbedding(sys, if_transform=jac_if)
+    return TransformEmbedding(sys, if_transform=jacif)
 
-def mixjac_emb (sys:System) :
+def mjacemb (sys:System) :
     """Creates an EmbeddingSystem using the Mixed Jacobian-based inclusion function of the dynamics of a System.
 
     Args:
@@ -181,10 +180,10 @@ def mixjac_emb (sys:System) :
     Returns:
         EmbeddingSystem: Embedding system from the Mixed Jacobian-based inclusion function transform.
     """
-    return TransformEmbedding(sys, if_transform=mixjac_if)
+    return TransformEmbedding(sys, if_transform=mjacif)
 
 # class InterconnectedEmbedding (EmbeddingSystem) :
-#     def __init__(self, sys:System, if_transform:IFTransform = nat_if) -> None:
+#     def __init__(self, sys:System, if_transform:IFTransform = natif) -> None:
 #         self.sys = sys
 #         self.F = if_transform(sys.f)
 #         self.Fi = [if_transform(partial(sys.fi, i)) for i in range(sys.xlen)]

@@ -5,12 +5,26 @@ Interval Analysis and Mixed Monotone Reachability in JAX
 
 ## Create a conda environment (recommended)
 ```shell
-conda create -n immrax python=3.10
+conda create -n immrax python=3.12
 conda activate immrax
 ```
 
 ## Install Jax
-Follow instructions from [https://jax.readthedocs.io/en/latest/installation.html](https://jax.readthedocs.io/en/latest/installation.html). For a local CUDA installation, this link may be helpful [https://gist.github.com/denguir/b21aa66ae7fb1089655dd9de8351a202](https://gist.github.com/denguir/b21aa66ae7fb1089655dd9de8351a202).
+Follow instructions from [https://jax.readthedocs.io/en/latest/installation.html](https://jax.readthedocs.io/en/latest/installation.html). 
+For a local CUDA installation, this link may be helpful [https://gist.github.com/denguir/b21aa66ae7fb1089655dd9de8351a202](https://gist.github.com/denguir/b21aa66ae7fb1089655dd9de8351a202).
+
+For a full installation of CUDA into the conda environment,
+```shell
+pip install --upgrade pip
+
+# CUDA 12 installation
+# Note: wheels only available on linux.
+pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+# CUDA 11 installation
+# Note: wheels only available on linux.
+pip install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+```
 
 With a local CUDA installation, 
 ```shell
@@ -25,7 +39,10 @@ pip install --upgrade "jax[cuda12_local]" -f https://storage.googleapis.com/jax-
 pip install --upgrade "jax[cuda11_local]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
-## Install cyipopt and HSL (optional)
+## Install jax_verify (optional, for immrax.neural module)
+
+
+## Install cyipopt and HSL (optional, for pendulum planning example)
 ```shell
 conda install -c conda-forge cyipopt
 ```
@@ -35,7 +52,6 @@ While there are instructions [here](https://cyipopt.readthedocs.io/en/stable/ins
 ```shell
 ln -s /usr/local/lib/libcoinhsl.so $CONDA_PREFIX/lib/libcoinhsl.so
 ```
-
 
 ## To use ssh instead of https for submodules (for pushing code)
 ```shell

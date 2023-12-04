@@ -3,8 +3,8 @@ import jax.numpy as jnp
 import time
 from jax._src.util import wraps
 from jax._src.traceback_util import api_boundary
-import jax_verify as jv
-from JaxMM.inclusion import i2ut, i2lu, i2centpert, ut2i, icentpert
+from immrax.inclusion import Interval
+from immrax.inclusion import i2ut, i2lu, i2centpert, ut2i, icentpert
 from typing import Callable, List
 import shapely.geometry as sg
 import shapely.ops as so
@@ -63,7 +63,7 @@ def plot_interval_t (ax, tt, x, **kwargs) :
 
 
 # @ijit
-def get_half_intervals (x:jv.IntervalBound, N=1, ut=False) :
+def get_half_intervals (x:Interval, N=1, ut=False) :
     _xx_0 = i2ut(x) if ut is False else x
     n = len(_xx_0) // 2
     ret = [_xx_0]

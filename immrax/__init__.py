@@ -12,31 +12,37 @@ from .control import (
     # FOHControlledSystem,
 )
 
-from . import neural as neural
-from .neural import (
-    NeuralNetwork,
-    crown,
-    fastlin,
-    NNCSystem,
-    NNCEmbeddingSystem,
-)
+try : 
+    import jax_verify
+    print('here')
+    from . import neural as neural
+    from .neural import (
+        NeuralNetwork,
+        crown,
+        fastlin,
+        NNCSystem,
+        NNCEmbeddingSystem,
+    )
+except ImportError:
+    pass
 
 from . import inclusion as inclusion
 from .inclusion import (
     Interval,
-    nat_if,
-    jac_if,
+    natif,
+    jacif,
     Ordering,
     standard_ordering,
     two_orderings,
-    mixjac_if,
-    mixjac_M,
+    mjacif,
+    mjacM,
     # crown_if,
     # fastlin_if,
     interval,
     icentpert,
     i2centpert,
     i2lu,
+    lu2i,
     i2ut,
     ut2i,
 )
@@ -47,9 +53,9 @@ from .embedding import (
     InclusionEmbedding,
     TransformEmbedding,
     if_emb,
-    nat_emb,
-    jac_emb,
-    mixjac_emb
+    natemb,
+    jacemb,
+    mjacemb
 )
 
 from . import utils as utils

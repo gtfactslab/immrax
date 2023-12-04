@@ -4,24 +4,24 @@ import jax.numpy as jnp
 import equinox as eqx
 import equinox.nn as nn
 import jax_verify as jv
-from JaxMM.control import Control, ControlledSystem
-from JaxMM.inclusion import interval, nat_if, jac_if, mixjac_if, mixjac_M
-from JaxMM.inclusion import ut2i, i2ut, i2lu
-from JaxMM.inclusion import Ordering
-from JaxMM.embedding import EmbeddingSystem, InclusionEmbedding
-from JaxMM.utils import d_metzler, d_positive
+from immrax.control import Control, ControlledSystem
+from immrax.inclusion import interval, natif, jacif, mjacif, mjacM
+from immrax.inclusion import ut2i, i2ut, i2lu
+from immrax.inclusion import Ordering
+from immrax.embedding import EmbeddingSystem, InclusionEmbedding
+from immrax.utils import d_metzler, d_positive
 from jaxtyping import Integer, Float
 from typing import Any, List, Literal, Callable, NamedTuple, Union, Tuple, Sequence
 from pathlib import Path
 from functools import partial
 from collections import namedtuple
 
-from JaxMM.system import OpenLoopSystem
+from immrax.system import OpenLoopSystem
 
 class NeuralNetwork (Control, eqx.Module) :
     """NeuralNetwork
     
-    A fully connected neural network, that extends JaxMM.Control and eqx.Module. Loads from a directory.
+    A fully connected neural network, that extends immrax.Control and eqx.Module. Loads from a directory.
 
     Expects the following in the directory inputted:
 
@@ -383,14 +383,14 @@ class NNCSystem (ControlledSystem) :
 
 class NNCEmbeddingSystem (EmbeddingSystem) :
     sys:NNCSystem
-    sys_mixjac_M:Callable
+    sys_mjacM:Callable
     net_fastlin:Callable
     def __init__(self, sys:NNCSystem, nn_verifier:Literal['crown', 'fastlin'] = 'fastlin',
                    nn_locality:Literal['local', 'hybrid'] = 'hybrid') -> None:
         self.sys = sys
         self.evolution = sys.evolution
         self.xlen = sys.xlen * 2
-        self.sys_mixjac_M = mixjac_M(sys.olsystem.f)
+        self.sys_mjacM = mjacM(sys.olsystem.f)
         self.net_crown = crown(sys.control)
     # def Fi (i:int, t:jv.IntervalBound, x:jv.IntervalBound, w:jv.IntervalBound) :
     #     pass
@@ -405,7 +405,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     #     global_crown_res = self.net_crown(ix)
     #     uglobal = global_crown_res(ix)
     #     corners = ((t.lower, ix.lower, uglobal.lower, w.lower), (t.upper, ix.upper, uglobal.upper, w.upper))
-    #     Mpre = self.sys_mixjac_M(t, ix, uglobal, w, orderings=orderings, centers=corners)
+    #     Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=corners)
     #     # Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]
     #     # tc, xc, uc, wc = tuple([(a.lower + a.upper)/2 for a in [t, ix, uglobal, w]])
 
@@ -468,7 +468,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
         global_crown_res = self.net_crown(ix)
         uglobal = global_crown_res(ix)
         corners = ((t.lower, ix.lower, uglobal.lower, w.lower), (t.upper, ix.upper, uglobal.upper, w.upper))
-        Mpre = self.sys_mixjac_M(t, ix, uglobal, w, orderings=orderings, centers=corners)
+        Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=corners)
         # Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]
         # tc, xc, uc, wc = tuple([(a.lower + a.upper)/2 for a in [t, ix, uglobal, w]])
 
@@ -549,7 +549,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     #     # global_crown_res = self.net_crown(ix)
     #     # uglobal = global_crown_res(ix)
     #     corners = ((t.lower, ix.lower, w.lower), (t.upper, ix.upper, w.upper))
-    #     # Mpre = self.sys_mixjac_M(t, ix, uglobal, w, orderings=orderings, centers=corners)
+    #     # Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=corners)
     #     # Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]
     #     # tc, xc, uc, wc = tuple([(a.lower + a.upper)/2 for a in [t, ix, uglobal, w]])
 
@@ -573,7 +573,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     #         ulocal = local_crown_res(_xi)
     #         uc = ulocal.lower
 
-    #         Mpre = self.sys_mixjac_M(t, _xi, ulocal, w, orderings=orderings, centers=((tc,xc,uc,wc),))
+    #         Mpre = self.sys_mjacM(t, _xi, ulocal, w, orderings=orderings, centers=((tc,xc,uc,wc),))
 
     #         fc = self.sys.olsystem.f(tc, xc, uc, wc)
     #         Jt, Jx, Ju, Jw = Mpre[0]
@@ -605,7 +605,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     #         ulocal = local_crown_res(_xi)
     #         uc = ulocal.upper
 
-    #         Mpre = self.sys_mixjac_M(t, _xi, ulocal, w, orderings=orderings, centers=((tc,xc,uc,wc),))
+    #         Mpre = self.sys_mjacM(t, _xi, ulocal, w, orderings=orderings, centers=((tc,xc,uc,wc),))
 
     #         fc = self.sys.olsystem.f(tc, xc, uc, wc)
     #         Jt, Jx, Ju, Jw = Mpre[0]
@@ -631,7 +631,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
 
     #     return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
 
-    # FASTLIN CL MIXJAC IMPLEMENTATION
+    # FASTLIN CL mjac IMPLEMENTATION
     # @partial(ijit, static_argnums=(0,), static_argnames=['orderings'])
     # def E (self, t:jv.IntervalBound, x:jax.Array, w:jv.IntervalBound,
     #        orderings:Tuple[Ordering] =  None, centers:jax.Array|Sequence[jax.Array]|None = None) :
@@ -640,7 +640,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
 
     #     global_fastlin_res = self.net_fastlin(ix)
     #     uglobal = global_fastlin_res(ix)
-    #     Mpre = self.sys_mixjac_M(t, ix, uglobal, w, orderings=orderings, centers=centers)
+    #     Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=centers)
     #     Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]
     #     tc, xc, uc, wc = tuple([(a.lower + a.upper)/2 for a in [t, ix, uglobal, w]])
 
