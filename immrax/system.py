@@ -63,7 +63,7 @@ class System (abc.ABC) :
     # Thus, recompiled for every new time horizon.
     
     # @partial(jax.jit, static_argnums=(0,1,2,4,5), static_argnames=('f_kwargs',))
-    @partial(jax.jit, static_argnums=(0,4), static_argnames=('f_kwargs','inputs','solver'))
+    @partial(jax.jit, static_argnums=(0,4), static_argnames=('solver','f_kwargs'))
     def compute_trajectory (self, t0:Union[Integer,Float], tf:Union[Integer,Float], x0:jax.Array, 
                             # inputs:Optional[Dict[str, Callable[[Union[Integer,Float], jax.Array], jax.Array]]] = [],
                             inputs:Tuple[Callable[[int,jax.Array], jax.Array]] = (),

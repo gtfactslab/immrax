@@ -97,8 +97,10 @@ class InclusionEmbedding (EmbeddingSystem) :
             for i in range(n) :
                 _xi = jnp.copy(x).at[i+n].set(x[i])
                 ret = ret.at[i].set(self.Fi(i, interval(t), ut2i(_xi), *args, **kwargs).lower)
+                # ret = ret.at[i].set(self.F(interval(t), ut2i(_xi), *args, **kwargs).lower[i])
                 x_i = jnp.copy(x).at[i].set(x[i+n])
                 ret = ret.at[i+n].set(self.Fi(i, interval(t), ut2i(x_i), *args, **kwargs).upper)
+                # ret = ret.at[i+n].set(self.F(interval(t), ut2i(x_i), *args, **kwargs).upper[i])
             return ret
         elif self.evolution == 'discrete' :
             # Convert x from ut to i, compute through F, convert back to ut.

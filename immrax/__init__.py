@@ -45,6 +45,7 @@ from .inclusion import (
     lu2i,
     i2ut,
     ut2i,
+    izeros,
 )
 
 from . import embedding as embedding

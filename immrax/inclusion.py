@@ -11,7 +11,7 @@ from jax.tree_util import register_pytree_node_class
 from typing import Tuple, Callable, Sequence, Iterable
 import numpy as np
 from functools import partial
-from itertools import accumulate
+from itertools import accumulate, permutations
 from jax._src import ad_util
 from jax._src.api import api_boundary
 
@@ -61,14 +61,16 @@ class Interval :
         return self.transpose()
   
     def __str__(self) -> str:
-        return np.array([[(l,u)] for (l,u) in 
-                        zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
-                        dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__str__()
+        # return np.array([[(l,u)] for (l,u) in 
+        #                 zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
+        #                 dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__str__()
+        return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
     
     def __repr__(self) -> str:
-        return np.array([[(l,u)] for (l,u) in 
-                        zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
-                        dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__repr__()
+        # return np.array([[(l,u)] for (l,u) in 
+        #                 zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
+        #                 dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__repr__()
+        return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
     
     def __getitem__(self, i:int) :
         return Interval(self.lower[i], self.upper[i])
@@ -171,6 +173,18 @@ def ut2i (coordinate:jax.Array, n:int=None) -> Interval :
         n = len(coordinate) // 2
     return interval(coordinate[:n], coordinate[n:])
 
+def izeros (shape:Tuple[int], dtype:np.dtype=jnp.float32) -> Interval :
+    """izeros: Helper to create a Interval of zeros.
+
+    Args:
+        shape (Tuple[int]): shape of the interval
+        dtype (np.dtype, optional): dtype of the interval. Defaults to jnp.float32.
+
+    Returns:
+        Interval: interval of zeros
+    """
+    return interval(jnp.zeros(shape, dtype), jnp.zeros(shape, dtype))
+
 inclusion_registry = {}
 
 def _make_inclusion_passthrough_p (primitive:Primitive) -> Callable[..., Interval] :
@@ -234,6 +248,11 @@ def _inclusion_sub_p (x:Interval, y:Interval) -> Interval :
         return x - y
 inclusion_registry[lax.sub_p] = _inclusion_sub_p
 Interval.__sub__ = _inclusion_sub_p
+
+def _inclusion_neg_p (x:Interval) -> Interval :
+    return Interval(-x.upper, -x.lower)
+inclusion_registry[lax.neg_p] = _inclusion_neg_p
+Interval.__neg__ = _inclusion_neg_p
 
 def _inclusion_mul_p (x:Interval, y:Interval) -> Interval :
     if isinstance(x, Interval) and isinstance(y, Interval) :
@@ -562,6 +581,10 @@ def standard_ordering (n:int) -> Tuple[Ordering] :
 def two_orderings (n:int) -> Tuple[Ordering] :
     """Returns the two standard n-orderings :math:`(0,\\dots,n-1)` and :math:`(n-1,\\dots,0)`"""
     return (Ordering(range(n)), Ordering(tuple(reversed(range(n)))))
+
+def all_orderings (n:int) -> Tuple[Ordering] :
+    """Returns all n-orderings."""
+    return tuple(Ordering(x) for x in permutations(range(n)))
 
 def mjacM (f:Callable[..., jax.Array]) -> Callable :
     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
