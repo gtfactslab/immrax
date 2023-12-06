@@ -68,7 +68,7 @@ class System (abc.ABC) :
                             # inputs:Optional[Dict[str, Callable[[Union[Integer,Float], jax.Array], jax.Array]]] = [],
                             inputs:Tuple[Callable[[int,jax.Array], jax.Array]] = (),
                             dt:float = 0.1, * ,
-                            solver:Literal['euler', 'rk45', 'tsit5']|AbstractSolver = 'tsit5', f_kwargs={}, **kwargs) -> Trajectory :
+                            solver:Union[Literal['euler', 'rk45', 'tsit5'],AbstractSolver] = 'tsit5', f_kwargs={}, **kwargs) -> Trajectory :
         def func (t, x, args) :
             # inputargs = {k: v(t, x) for k,v in inputs.items()}
             return self.f(t, x, *[u(t, x) for u in inputs], **f_kwargs)

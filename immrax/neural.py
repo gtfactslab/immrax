@@ -18,7 +18,7 @@ from collections import namedtuple
 
 from immrax.system import OpenLoopSystem
 
-class NeuralNetwork (Control, eqx.Module) :
+class NeuralNetwork (Control, metaclass=eqx.Module) :
     """NeuralNetwork
     
     A fully connected neural network, that extends immrax.Control and eqx.Module. Loads from a directory.
@@ -461,7 +461,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     # LOCAL MIXED-CORNERED
     @partial(jit, static_argnums=(0,), static_argnames=['orderings'])
     def E (self, t:jv.IntervalBound, x:jax.Array, w:jv.IntervalBound,
-           orderings:Tuple[Ordering] =  None, centers:jax.Array|Sequence[jax.Array]|None = None) :
+           orderings:Tuple[Ordering] =  None, centers:Union[jax.Array,Sequence[jax.Array],None] = None) :
         t = interval(t)
         ix = ut2i(x)
 

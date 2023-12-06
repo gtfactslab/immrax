@@ -5,7 +5,7 @@ Submodules
 ----------
 
 immrax.inclusion module
----------------------
+-----------------------
 
 .. automodule:: immrax.inclusion
    :members:
