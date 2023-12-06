@@ -64,5 +64,6 @@ git config url."ssh://git@".insteadOf https://
 
 ## To build the docs:
 ```shell
-sphinx-build -M html docs/source docs/build
+pip install -U sphinx
+$CONDA_PREFIX/bin/sphinx-build -M html docs/source docs/build
 ```

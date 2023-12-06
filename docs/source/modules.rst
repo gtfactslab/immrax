@@ -1,7 +1,7 @@
-JaxMM
-=====
+immrax
+======
 
 .. toctree::
    :maxdepth: 4
 
-   JaxMM
+   immrax

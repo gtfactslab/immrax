@@ -19,7 +19,7 @@ from jax._src.api import api_boundary
 class Interval :
     """Interval: A class to represent an interval in :math:`\\mathbb{R}^n`.
 
-    Use the helper functions :func:`interval`, :func:`icentpert`, :func:`i2centpert`,:func:`i2lu`, :func:`i2ut`, and :func:`ut2i` to create and manipulate intervals.
+    Use the helper functions :func:`interval`, :func:`icentpert`, :func:`i2centpert`, :func:`i2lu`, :func:`i2ut`, and :func:`ut2i` to create and manipulate intervals.
 
     Use the transforms :func:`natif`, :func:`jacif`, :func:`mjacif`, :func:`mjacM`, to create inclusion functions.
 
@@ -50,13 +50,13 @@ class Interval :
     def reshape(self, *args, **kwargs) :
         return interval(self.lower.reshape(*args, **kwargs), self.upper.reshape(*args, **kwargs))
     
-    def atleast_1d(self) :
+    def atleast_1d(self) -> 'Interval' :
         return interval(jnp.atleast_1d(self.lower), jnp.atleast_1d(self.upper))
     
-    def atleast_2d(self) :
+    def atleast_2d(self) -> 'Interval' :
         return interval(jnp.atleast_2d(self.lower), jnp.atleast_2d(self.upper))
     
-    def atleast_3d(self) :
+    def atleast_3d(self) -> 'Interval' :
         return interval(jnp.atleast_3d(self.lower), jnp.atleast_3d(self.upper))
     
     @property
@@ -87,7 +87,7 @@ class Interval :
 # HELPER FUNCTIONS 
 
 def interval (lower:ArrayLike, upper:ArrayLike=None) :
-    """interval: Helper to create a jax_verify.IntervalBound from a lower and upper bound.
+    """interval: Helper to create a Interval from a lower and upper bound.
 
     Args:
         lower (ArrayLike): Lower bound of the interval.
@@ -109,7 +109,7 @@ def interval (lower:ArrayLike, upper:ArrayLike=None) :
     return Interval(jnp.asarray(lower), jnp.asarray(upper))
 
 def icentpert (cent:ArrayLike, pert:ArrayLike) -> Interval :
-    """icentpert: Helper to create a jax_verify.IntervalBound from a center of an interval and a perturbation.
+    """icentpert: Helper to create a Interval from a center of an interval and a perturbation.
 
     Args:
         cent (ArrayLike): Center of the interval, i.e., (l + u)/2
@@ -118,13 +118,13 @@ def icentpert (cent:ArrayLike, pert:ArrayLike) -> Interval :
     Returns:
         Interval: Interval [cent - pert, cent + pert]
     """
-    cent = jnp.atleast_1d(cent)
-    pert = jnp.atleast_1d(pert)
+    # cent = jnp.atleast_1d(cent)
+    # pert = jnp.atleast_1d(pert)
     return interval(cent - pert, cent + pert)
 
 
 def i2centpert (i:Interval) -> Tuple[jax.Array, jax.Array] :
-    """i2centpert: Helper to get the center and perturbation from the center of a jax_verify.IntervalBound.
+    """i2centpert: Helper to get the center and perturbation from the center of a Interval.
 
     Args:
         interval (Interval): _description_
@@ -135,7 +135,7 @@ def i2centpert (i:Interval) -> Tuple[jax.Array, jax.Array] :
     return (i.lower + i.upper)/2, (i.upper - i.lower)/2
 
 def i2lu (i:Interval) -> Tuple[jax.Array, jax.Array] :
-    """i2lu: Helper to get the lower and upper bound of a jax_verify.IntervalBound.
+    """i2lu: Helper to get the lower and upper bound of a Interval.
 
     Args:
         interval (Interval): _description_
@@ -146,7 +146,7 @@ def i2lu (i:Interval) -> Tuple[jax.Array, jax.Array] :
     return (i.lower, i.upper)
 
 def lu2i (l:jax.Array, u:jax.Array) -> Interval :
-    """lu2i: Helper to create a jax_verify.IntervalBound from a lower and upper bound.
+    """lu2i: Helper to create a Interval from a lower and upper bound.
 
     Args:
         l (jax.Array): Lower bound of the interval.
@@ -468,7 +468,7 @@ def _inclusion_sqrt_p (x:Interval) -> Interval :
 inclusion_registry[lax.sqrt_p] = _inclusion_sqrt_p
 
 def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
-    """Creates a Natural Inclusion Function of f using jax_verify.interval_bound_propogation.
+    """Creates a Natural Inclusion Function of f using natif.
 
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
 
@@ -527,7 +527,7 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
 Interval.__matmul__ = natif(jnp.matmul)
 
 def jacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
-    """Creates a Jacobian Inclusion Function of f using jax_verify.interval_bound_propogation.
+    """Creates a Jacobian Inclusion Function of f using natif.
 
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
 
@@ -684,7 +684,7 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
     return F
 
 def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
-    """Creates a Mixed Jacobian Inclusion Function of f using jax_verify.interval_bound_propogation.
+    """Creates a Mixed Jacobian Inclusion Function of f using natif.
 
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
 

@@ -11,11 +11,11 @@ from matplotlib.patches import Circle, Wedge
 from immrax.inclusion import *
 from immrax.utils import plot_interval_t, get_partitions_ut
 from immrax.embedding import natemb, ifemb
+from jax.experimental.compilation_cache import compilation_cache as cc
 
 # Enable 64 bit floating point precision
 jax.config.update("jax_enable_x64", True)
-# # We use the CPU instead of GPU und mute all warnings if no GPU/TPU is found.
-# config.update('jax_platform_name', 'cpu')
+cc.initialize_cache('./cache')
 
 g = 9.81
 
@@ -41,68 +41,25 @@ class Pendulum (OpenLoopSystem) :
     def get_xy (self, x:jax.Array) :
         return self.l*jnp.sin(x[0]), -self.l*jnp.cos(x[0])
 
-
-
-# class CLEmbeddingPendulum (EmbeddingSystem) :
-#     sys:Pendulum
-#     def __init__(self, sys:Pendulum) -> None:
-#         self.sys = sys
-#         self.evolution = self.sys.evolution
-#         self.xlen = self.sys.xlen * 2
-#         self.sys_mjacM = mjacM (sys.f)
-    
-#     @partial(jit, static_argnums=(0,), static_argnames=['orderings'])
-#     def E (self, t:Interval, x:jax.Array, u:Interval, w:Interval,
-#            K:jax.Array, nominal:Sequence[jax.Array], orderings:Tuple[Ordering] = None) :
-#         t = interval(t)
-#         ix = ut2i(x)
-#         K = interval(K)
-
-#         Jt, Jx, Ju, Jw = self.sys_mjacM(t, ix, u, w, orderings=orderings, centers=(nominal,))[0]
-#         # Jt, Jx, Ju, Jw = [Interval.from_jittable(Mi) for Mi in Mpre[0]]
-#         tc, xc, uc, wc = nominal
-
-#         def F (t:Interval, x:Interval, u:Interval, w:Interval) :
-#             return (
-#                 # ([Jx] + [Ju]K)([\ulx,\olx] - x_nom)
-#                 (Jx + Ju @ K) @ (x - xc)
-#                 # + [Ju](u - u_nom)
-#                 + Ju @ (u - uc)
-#                 # + [Jw]([\ulw,\olw] - w_nom)
-#                 + Jw @ (w - wc)
-#                 # + f(xc, uc, wc)
-#                 + self.sys.f(tc, xc, uc, wc)
-#             )
-
-#         n = self.sys.xlen
-#         ret = jnp.empty(self.xlen)
-#         for i in range(n) :
-#             _xi = jnp.copy(x).at[i+n].set(x[i])
-#             ret = ret.at[i].set(F(interval(t), ut2i(_xi), u, w).lower[i])
-#             x_i = jnp.copy(x).at[i].set(x[i+n])
-#             ret = ret.at[i+n].set(F(interval(t), ut2i(x_i), u, w).upper[i])
-#         return ret
-
 sys = Pendulum(m=0.15)
 sys_mjacM = mjacM(sys.f)
+
+@jit
 def F (t:Interval, x:Interval, u:Interval, w:Interval, K:jnp.ndarray, nominal:jnp.ndarray) :
-    Mt, Mx, Mu, Mw = sys_mjacM(t, x, u, w, orderings=None, centers=(jnp.array([0.]),))[0]
-    Jt, Jx, Ju, Jw = self.sys_mjacM(t, ix, u, w, orderings=orderings, centers=(nominal,))[0]
+    Mt, Mx, Mu, Mw = sys_mjacM(t, x, u, w, centers=(nominal,))[0]
     # Jt, Jx, Ju, Jw = [Interval.from_jittable(Mi) for Mi in Mpre[0]]
     tc, xc, uc, wc = nominal
     return (
         # ([Jx] + [Ju]K)([\ulx,\olx] - x_nom)
-        (Jx + Ju @ K) @ (x - xc)
+        (Mx + Mu @ interval(K)) @ (x - xc)
         # + [Ju](u - u_nom)
-        + Ju @ (u - uc)
+        + Mu @ (u - uc)
         # + [Jw]([\ulw,\olw] - w_nom)
-        + Jw @ (w - wc)
+        + Mw @ (w - wc)
         # + f(xc, uc, wc)
-        + self.sys.f(tc, xc, uc, wc)
+        + sys.f(tc, xc, uc, wc)
     )
-
-# embsys = CLEmbeddingPendulum(sys)
-natembsys = natemb(sys)
+embsys = ifemb(sys, F)
 
 # t0, tf = 0, 4.
 # t0, te, tf, dt = 0, 4., 4., 0.05
@@ -154,26 +111,11 @@ def rollout_cl_embsys (u:jax.Array) -> jax.Array :
     _, x = jax.lax.scan(f_euler, (x0ut,x0cent), u)
     return x
 
-@jit
-def rollout_natembsys (u:jax.Array) -> jax.Array :
-    u, K = split_u(u)
-    def f_euler (xt, ut) :
-        xtp1 = xt + dt*natembsys.E(0., xt, interval(jnp.array([ut])), w)
-        return (xtp1, xtp1)
-    _, x = jax.lax.scan(f_euler, x0ut, u)
-    return x
-
 # OBJECTIVE
 @jit
 def obj (u:jax.Array) -> jax.Array :
     x = rollout_cl_embsys(u)
     return jnp.sum(u**2) + jnp.sum((x[:,2:] - x[:,:2])**2)
-    # return 0.1*jnp.sum(u**2) + 0.01*jnp.sum((x[:,2:] - x[:,:2])**2)
-    # x_un = rollout_ol_sys_undisturbed(u)
-    # + 0.1*(jnp.sum(((x[-1,2:] + x[-1,:2])/2 - xfcent)**2))
-    # return 0.1*jnp.sum(u[:-2]**2) + 1*jnp.sum(jnp.sum((x[:,2:] - x[:,:2])**2)) + 10*jnp.sum(u[-2:]**2)
-    # return 0.1*jnp.sum(u[:-2]**2) + 0.1*jnp.sum(jnp.sum((x[:,2:] - x[:,:2])**2)) + 0.1*jnp.sum((x_un[-1] - xfcent)**2) + 10*jnp.sum(u[-2:]**2)
-    # return jnp.sum(0.1*u**2) + jnp.sum((x[-1] - xfcent)**2)
 
 # CONSTRAINTS 
 # Two inequality constraints: 
@@ -183,7 +125,6 @@ def obj (u:jax.Array) -> jax.Array :
 def con_ineq (u:jax.Array) :
     x = rollout_cl_embsys(u)
     return jnp.concatenate(((x[Ne:,:2] - xfl).reshape(-1), (xfu - x[Ne:,2:]).reshape(-1)))
-    # return jnp.concatenate((x[-1,:2] - xfl, xfu - x[-1,2:]))
 
 obj_grad = jit(grad(obj))  # objective gradient
 obj_hess = jit(jacfwd(jacrev(obj)))  # objective hessian
@@ -239,7 +180,6 @@ print(uu)
 
 unrolledout = rollout_ol_sys_undisturbed(uu)
 clrolledout = rollout_cl_embsys(uu)
-narolledout = rollout_natembsys(uu)
 
 if jnp.all(con_ineq(uu) >= 0) :
     print('Constraints satisfied!')
@@ -247,10 +187,6 @@ else :
     print('Constraints not satisfied!')
     print(con_ineq(uu))
 
-
-# print(unrolledout)
-# print(clrolledout)
-# print(narolledout)
 
 names = ['Undisturbed', 'Closed-loop (M-Jac)', 'Open-loop (Natural)']
 
@@ -262,12 +198,9 @@ plot_interval_t(axs[0], tt, xf[0]*jnp.ones(N), color='k')
 plot_interval_t(axs[1], tt, xf[1]*jnp.ones(N), color='k')
 plot_interval_t(axs[0], tt, interval(clrolledout[:,0], clrolledout[:,2]), color='tab:blue')
 plot_interval_t(axs[1], tt, interval(clrolledout[:,1], clrolledout[:,3]), color='tab:blue')
-# plot_interval_t(axs[0], tt, interval(narolledout[:,0], narolledout[:,2]), color='tab:red')
-# plot_interval_t(axs[1], tt, interval(narolledout[:,1], narolledout[:,3]), color='tab:red')
 
 fig1.savefig('figures/compared.png')
 
-# to_plot = [unrolledout, clrolledout, narolledout]
 to_plot = [unrolledout, clrolledout]
 th2deg = lambda th : (th * 180) / jnp.pi - 90
 fig2, anim = plt.subplots(1,len(to_plot),dpi=100,figsize=[8,4])
