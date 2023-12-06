@@ -17,7 +17,7 @@ class Mock(MagicMock):
     def __getattr__(cls, name):
         return MagicMock()
 MOCK_MODULES = ['jax', 'jax.lax', 'jax.numpy', 'jax.core', 'jax.experimental.compilation_cache', 'jax._src', 'jax._src.util', 'jax._src.api', 'jax._src.traceback_util', 'jax.tree_util',
-                 'jax.typing', 'jaxtyping', 'sympy', 'jax_verify', 'jax_verify.src', 'jax_verify.src.linear', 'sympy2jax', 'diffrax', 'equinox', 'equinox.nn']
+                'jax.typing', 'jaxtyping', 'sympy', 'jax_verify', 'jax_verify.src', 'jax_verify.src.linear', 'sympy2jax', 'diffrax', 'equinox', 'equinox.nn', 'numpy']
 sys.modules.update((mod_name, Mock()) for mod_name in MOCK_MODULES)
 
 project = 'immrax'
