@@ -21,7 +21,8 @@ class Mock(MagicMock):
 #                 'numpy', 'shapely', 'shapely.geometry', 'shapely.ops']
 # MOCK_MODULES = ['sympy', 'jax_verify', 'jax_verify.src', 'jax_verify.src.linear', 'sympy2jax', 'diffrax', 'equinox', 'equinox.nn', 
 #                 'numpy', 'shapely', 'shapely.geometry', 'shapely.ops']
-MOCK_MODULES = ['jax_verify', 'jax_verify.src', 'jax_verify.src.linear']
+# MOCK_MODULES = ['jax_verify', 'jax_verify.src', 'jax_verify.src.linear']
+MOCK_MODULES = []
 sys.modules.update((mod_name, Mock()) for mod_name in MOCK_MODULES)
 
 project = 'immrax'

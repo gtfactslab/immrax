@@ -18,7 +18,7 @@ from collections import namedtuple
 
 from immrax.system import OpenLoopSystem
 
-class NeuralNetwork (Control, metaclass=eqx.Module) :
+class NeuralNetwork (Control, eqx.Module) :
     """NeuralNetwork
     
     A fully connected neural network, that extends immrax.Control and eqx.Module. Loads from a directory.
