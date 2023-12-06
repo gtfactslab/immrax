@@ -36,14 +36,6 @@ immrax.neural module
    :undoc-members:
    :show-inheritance:
 
-immrax.time module
-------------------
-
-.. automodule:: immrax.time
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Module contents
 ---------------
 
