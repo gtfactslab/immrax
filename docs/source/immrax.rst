@@ -36,6 +36,14 @@ immrax.neural module
    :undoc-members:
    :show-inheritance:
 
+immrax.utils module
+--------------------
+
+.. automodule:: immrax.utils
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 
