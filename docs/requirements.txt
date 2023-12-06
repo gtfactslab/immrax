@@ -4,3 +4,4 @@ mock==4.0.3
 jax[cpu]==0.4.20
 jaxlib==0.4.20
 jaxtyping
+../

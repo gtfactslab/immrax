@@ -19,8 +19,9 @@ class Mock(MagicMock):
 # MOCK_MODULES = ['jax', 'jax.lax', 'jax.numpy', 'jax.core', 'jax.experimental.compilation_cache', 'jax._src', 'jax._src.util', 'jax._src.api', 'jax._src.traceback_util', 'jax.tree_util',
 #                 'jax.typing', 'jaxtyping', 'sympy', 'jax_verify', 'jax_verify.src', 'jax_verify.src.linear', 'sympy2jax', 'diffrax', 'equinox', 'equinox.nn', 
 #                 'numpy', 'shapely', 'shapely.geometry', 'shapely.ops']
-MOCK_MODULES = ['sympy', 'jax_verify', 'jax_verify.src', 'jax_verify.src.linear', 'sympy2jax', 'diffrax', 'equinox', 'equinox.nn', 
-                'numpy', 'shapely', 'shapely.geometry', 'shapely.ops']
+# MOCK_MODULES = ['sympy', 'jax_verify', 'jax_verify.src', 'jax_verify.src.linear', 'sympy2jax', 'diffrax', 'equinox', 'equinox.nn', 
+#                 'numpy', 'shapely', 'shapely.geometry', 'shapely.ops']
+MOCK_MODULES = ['jax_verify', 'jax_verify.src', 'jax_verify.src.linear']
 sys.modules.update((mod_name, Mock()) for mod_name in MOCK_MODULES)
 
 project = 'immrax'
