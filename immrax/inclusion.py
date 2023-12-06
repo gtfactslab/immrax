@@ -21,7 +21,7 @@ class Interval :
 
     Use the helper functions :func:`interval`, :func:`icentpert`, :func:`i2centpert`,:func:`i2lu`, :func:`i2ut`, and :func:`ut2i` to create and manipulate intervals.
 
-    Use the transforms :func:`natif`, :func:`jacif`, :func:`mjacif`, :func:`mjacM`, :func:`if_emb`, :func:`natemb`, :func:`jacemb`, and :func:`mjacemb` to create inclusion functions.
+    Use the transforms :func:`natif`, :func:`jacif`, :func:`mjacif`, :func:`mjacM`, to create inclusion functions.
 
     Composable with typical jax transforms, such as :func:`jax.jit`, :func:`jax.grad`, and :func:`jax.vmap`.
     """
@@ -49,6 +49,15 @@ class Interval :
 
     def reshape(self, *args, **kwargs) :
         return interval(self.lower.reshape(*args, **kwargs), self.upper.reshape(*args, **kwargs))
+    
+    def atleast_1d(self) :
+        return interval(jnp.atleast_1d(self.lower), jnp.atleast_1d(self.upper))
+    
+    def atleast_2d(self) :
+        return interval(jnp.atleast_2d(self.lower), jnp.atleast_2d(self.upper))
+    
+    def atleast_3d(self) :
+        return interval(jnp.atleast_3d(self.lower), jnp.atleast_3d(self.upper))
     
     @property
     def ndim (self) -> int :
@@ -612,6 +621,7 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
         Returns:
             Interval: Interval output from the Jacobian-based Inclusion Function
         """
+        args = [interval(arg).atleast_1d() for arg in args]
         leninputsfull = tuple([len(x) for x in args])
         leninputs = sum(leninputsfull)
 

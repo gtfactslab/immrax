@@ -53,7 +53,7 @@ from .embedding import (
     EmbeddingSystem,
     InclusionEmbedding,
     TransformEmbedding,
-    if_emb,
+    ifemb,
     natemb,
     jacemb,
     mjacemb

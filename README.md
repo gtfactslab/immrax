@@ -43,9 +43,12 @@ pip install --upgrade "jax[cuda11_local]" -f https://storage.googleapis.com/jax-
 
 
 ## Install cyipopt and HSL (optional, for pendulum planning example)
+[https://cyipopt.readthedocs.io/en/stable/install.html](https://cyipopt.readthedocs.io/en/stable/install.html)
 ```shell
 conda install -c conda-forge cyipopt
 ```
+This command can take some time to fully resolve.
+
 To use the MA57 linear solver, you'll need to install HSL. You'll need to acquire a package from [HSL](https://www.hsl.rl.ac.uk/).
 
 While there are instructions [here](https://cyipopt.readthedocs.io/en/stable/install.html#conda-forge-binaries-with-hsl), we recommend to instead use [ThirdParty-HSL](https://github.com/coin-or-tools/ThirdParty-HSL) to install HSL globally. Then, use a symbolic link to the `conda` environment:

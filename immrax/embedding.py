@@ -113,18 +113,29 @@ class InclusionEmbedding (EmbeddingSystem) :
             n = self.sys.xlen
             if i < n :
                 _xi = jnp.copy(x).at[i+n].set(x[i])
-                return self.Fi[i](interval(t), ut2i(_xi), *args, **kwargs).lower
+                return self.Fi(i, interval(t), ut2i(_xi), *args, **kwargs).lower
             else :
                 x_i = jnp.copy(x).at[i].set(x[i+n])
-                return self.Fi[i](interval(t), ut2i(x_i), *args, **kwargs).upper
+                return self.Fi(i, interval(t), ut2i(x_i), *args, **kwargs).upper
         elif self.evolution == 'discrete' :
             if i < self.sys.xlen :
-                return self.Fi[i](interval(t), ut2i(x), *args, **kwargs).lower
+                return self.Fi(i, interval(t), ut2i(x), *args, **kwargs).lower
             else :
-                return self.Fi[i](interval(t), ut2i(x), *args, **kwargs).upper
+                return self.Fi(i, interval(t), ut2i(x), *args, **kwargs).upper
         else :
             raise Exception("evolution needs to be 'continuous' or 'discrete'")
 
+def ifemb (sys:System, F:Callable[..., Interval]) :
+    """Creates an EmbeddingSystem using an inclusion function for the dynamics of a System.
+
+    Args:
+        sys (System): System to embed
+        F (Callable[..., Interval]): Inclusion function for the dynamics of sys.
+
+    Returns:
+        EmbeddingSystem: Embedding system from the inclusion function transform.
+    """
+    return InclusionEmbedding(sys, F)
 
 class TransformEmbedding (InclusionEmbedding) :
     def __init__(self, sys:System, if_transform = natif) -> None:
@@ -139,18 +150,6 @@ class TransformEmbedding (InclusionEmbedding) :
         #     return F(*args, **kwargs)[i]
         super().__init__(sys, F) 
     
-def if_emb (sys:System, if_transform) -> TransformEmbedding :
-    """Creates an EmbeddingSystem using an inclusion function transform for the dynamics of a System.
-
-    Args:
-        sys (System): System to embed
-        if_transform (IFTransform): Inclusion function transform to embed the system with.
-
-    Returns:
-        EmbeddingSystem: Embedding system from the inclusion function transform.
-    """
-    return TransformEmbedding(sys, if_transform)
-
 def natemb (sys:System) :
     """Creates an EmbeddingSystem using the natural inclusion function of the dynamics of a System.
 
