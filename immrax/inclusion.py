@@ -76,10 +76,10 @@ class Interval :
         # return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
     
     def __repr__(self) -> str:
-        return np.array([[(l,u)] for (l,u) in 
-                        zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
-                        dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__repr__()
-        # return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
+        # return np.array([[(l,u)] for (l,u) in 
+        #                 zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
+        #                 dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__repr__()
+        return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
     
     def __getitem__(self, i:int) :
         return Interval(self.lower[i], self.upper[i])
@@ -118,8 +118,8 @@ def icentpert (cent:ArrayLike, pert:ArrayLike) -> Interval :
     Returns:
         Interval: Interval [cent - pert, cent + pert]
     """
-    # cent = jnp.atleast_1d(cent)
-    # pert = jnp.atleast_1d(pert)
+    cent = jnp.asarray(cent)
+    pert = jnp.asarray(pert)
     return interval(cent - pert, cent + pert)
 
 
@@ -467,6 +467,31 @@ def _inclusion_sqrt_p (x:Interval) -> Interval :
     return Interval (ol, ou)
 inclusion_registry[lax.sqrt_p] = _inclusion_sqrt_p
 
+def _inclusion_pow_p(x:Interval, y: int) -> Interval :
+    # if isinstance (y, Interval) :
+    #     # if y.lower == y.upper :
+    #     if True :
+    #         y = y.upper
+    #     else :
+    #         raise Exception('y must be a constant')
+    def _inclusion_pow_impl (x:Interval, y:int) :
+        l_pow = lax.pow(x.lower, y)
+        u_pow = lax.pow(x.upper, y)
+        cond = jnp.logical_and(x.lower >= 0, x.upper >= 0)
+        ol = jnp.where(cond, l_pow, -jnp.inf)
+        ou = jnp.where(cond, u_pow, jnp.inf)
+        return (ol, ou)
+
+    def _pos_pow () :
+        return _inclusion_pow_impl(x, y)
+    def _neg_pow () :
+        return _inclusion_pow_impl(_inclusion_reciprocal_p(x), -y)
+
+    ol, ou = lax.cond(jnp.all(y < 0), _neg_pow, _pos_pow)
+    return Interval(ol, ou)
+inclusion_registry[lax.pow_p] = _inclusion_pow_p
+
+
 def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Natural Inclusion Function of f using natif.
 
@@ -703,7 +728,7 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
             for pairs in orderings_pairs :
                 val_lower = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
                 val_upper = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
-                argr = [interval(c) for c in center]
+                argr = [interval(c).atleast_1d() for c in center]
 
                 for argi, subi in pairs :
                     # Replacement operation
