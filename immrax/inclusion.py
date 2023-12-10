@@ -11,7 +11,7 @@ from jax.tree_util import register_pytree_node_class
 from typing import Tuple, Callable, Sequence, Iterable
 import numpy as np
 from functools import partial
-from itertools import accumulate, permutations
+from itertools import accumulate, permutations, product
 from jax._src import ad_util
 from jax._src.api import api_boundary
 
@@ -70,16 +70,16 @@ class Interval :
         return self.transpose()
   
     def __str__(self) -> str:
-        # return np.array([[(l,u)] for (l,u) in 
-        #                 zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
-        #                 dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__str__()
-        return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
+        return np.array([[(l,u)] for (l,u) in 
+                        zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
+                        dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__str__()
+        # return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
     
     def __repr__(self) -> str:
-        # return np.array([[(l,u)] for (l,u) in 
-        #                 zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
-        #                 dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__repr__()
-        return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
+        return np.array([[(l,u)] for (l,u) in 
+                        zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
+                        dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__repr__()
+        # return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
     
     def __getitem__(self, i:int) :
         return Interval(self.lower[i], self.upper[i])
@@ -595,6 +595,32 @@ def all_orderings (n:int) -> Tuple[Ordering] :
     """Returns all n-orderings."""
     return tuple(Ordering(x) for x in permutations(range(n)))
 
+class Corner (tuple) :
+    """A tuple of :math:`n` elements in :math:`\\{0,1\\}` representing the corners of an :math:`n`-dimensional hypercube. 0 is the lower bound, 1 is the upper bound"""
+    def __new__(cls, __iterable: Iterable = ()) -> 'Corner':
+        for x in __iterable :
+            if x not in (0,1) :
+                raise Exception(f'The corner elements need to be in 0,1: {__iterable}')
+        return tuple.__new__(Corner, (__iterable))
+    def __str__(self) -> str:
+        return 'Corner' + super().__str__()
+
+def bottom_corner (n:int) -> Tuple[Corner] :
+    """Returns the bottom corner of the n-dimensional hypercube."""
+    return (Corner((0,)*n),)
+
+def top_corner (n:int) -> Tuple[Corner] :
+    """Returns the top corner of the n-dimensional hypercube."""
+    return (Corner((1,)*n),)
+
+def two_corners (n:int) -> Tuple[Corner] :
+    """Returns the bottom and top corners of the n-dimensional hypercube."""
+    return (Corner((0,)*n), Corner((1,)*n))
+
+def all_corners (n:int) -> Tuple[Corner] :
+    """Returns all corners of the n-dimensional hypercube."""
+    return tuple(Corner(x) for x in product((0,1), repeat=n))
+
 def mjacM (f:Callable[..., jax.Array]) -> Callable :
     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
 
@@ -607,9 +633,10 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
         Callable[..., Interval]: Mixed Jacobian-Based Inclusion Function of f
     """
 
-    @partial(jit,static_argnames=['orderings'])
+    @partial(jit,static_argnames=['orderings', 'corners'])
     @api_boundary
-    def F (*args, orderings:Tuple[Ordering]|None=None, centers:jax.Array|Sequence[jax.Array]|None = None, **kwargs) -> Interval :
+    def F (*args, orderings:Tuple[Ordering]|None = None, centers:jax.Array|Sequence[jax.Array]|None = None, 
+           corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
         """Mixed Jacobian-based Inclusion Function of f.
 
         All positional arguments from f should be replaced with interval arguments for the inclusion function.
@@ -617,6 +644,7 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
         Additional Args:
             orderings (Tuple[Ordering] | None, optional): Tuple of Orderings to consider. Defaults to None.
             centers (jax.Array | Sequence[jax.Array] | None, optional): _description_. Defaults to None.
+            corners (Tuple[Corner] | None, optional): _description_. Defaults to None.
 
         Returns:
             Interval: Interval output from the Jacobian-based Inclusion Function
@@ -653,6 +681,15 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
             centers = [centers]
         elif not isinstance(centers, Sequence) :
             raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
+
+        # if corners is None :
+        #     corners = []
+        # elif isinstance(corners, Corner) :
+        #     corners = [corners]
+        # elif not isinstance(orderings, Tuple) :
+        #     raise Exception('Must pass jax.Array (one ordering), Sequence[jax.Array], or None (auto standard ordering) for the orderings argument')
+
+        # centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
 
         # multiple orderings/centers
         ret = []

@@ -3,9 +3,8 @@ from jax import jit
 import jax.numpy as jnp
 import equinox as eqx
 import equinox.nn as nn
-import jax_verify as jv
 from immrax.control import Control, ControlledSystem
-from immrax.inclusion import interval, natif, jacif, mjacif, mjacM
+from immrax.inclusion import interval, natif, jacif, mjacif, mjacM, Interval
 from immrax.inclusion import ut2i, i2ut, i2lu
 from immrax.inclusion import Ordering
 from immrax.embedding import EmbeddingSystem, InclusionEmbedding
@@ -15,6 +14,7 @@ from typing import Any, List, Literal, Callable, NamedTuple, Union, Tuple, Seque
 from pathlib import Path
 from functools import partial
 from collections import namedtuple
+from jax._src.api import api_boundary
 
 from immrax.system import OpenLoopSystem
 
@@ -108,6 +108,7 @@ class NeuralNetwork (Control, eqx.Module) :
 The following code was adapted from ______.
 """
 
+import jax_verify as jv
 from jax_verify.src import (
     bound_propagation,
     bound_utils,
@@ -115,6 +116,9 @@ from jax_verify.src import (
     synthetic_primitives,
 )
 from jax_verify.src.linear import backward_crown, linear_relaxations
+
+def to_jv_interval (x:Interval) -> jv.IntervalBound :
+    return jv.IntervalBound(x.lower, x.upper)
 
 class LinFunExtractionConcretizer(concretization.BackwardConcretizer):
     """Linear function extractor.
@@ -148,14 +152,9 @@ class LinFunExtractionConcretizer(concretization.BackwardConcretizer):
         )
         return target_linfun
 
-# TODO: Try to change jax_verify to use this framework. Will allow to jit without ijit.
-"""Things to try here:
-Make a namedtuple Bound, with lower, upper. Then, remove the abstract methods, etc.
-"""
-
 class CROWNResult (namedtuple('CROWNResult', ['lC', 'uC', 'ld', 'ud'])) :
-    def __call__(self, x:Union[jax.Array, jv.IntervalBound]) -> jv.IntervalBound:
-        if isinstance(x, jv.IntervalBound) :
+    def __call__(self, x:Union[jax.Array, Interval]) -> Interval:
+        if isinstance(x, Interval) :
             lCp = jnp.clip(self.lC, 0, jnp.inf)
             lCn = jnp.clip(self.lC, -jnp.inf, 0)
             uCp = jnp.clip(self.uC, 0, jnp.inf)
@@ -189,6 +188,8 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
         Returns:
         output_bound: Bounds on the output of the function obtained by FastLin
         """
+
+        bound = to_jv_interval(bound)
 
         # As we want to extract some linfuns that are in the middle of two linear
         # layers, we want to avoid the linear operator fusion.
@@ -266,8 +267,8 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
     return F
 
 class FastlinResult (namedtuple('FastlinResult', ['C', 'ld', 'ud'])) :
-    def __call__(self, x:Union[jax.Array, jv.IntervalBound]) -> jv.IntervalBound:
-        if isinstance(x, jv.IntervalBound) :
+    def __call__(self, x:Union[jax.Array, Interval]) -> Interval :
+        if isinstance(x, Interval) :
             Cp = jnp.clip(self.C, 0, jnp.inf)
             Cn = jnp.clip(self.C, -jnp.inf, 0)
             return interval(
@@ -289,6 +290,8 @@ def fastlin (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., Fa
     
     obj = jnp.vstack([jnp.eye(out_len), -jnp.eye(out_len)]) if out_len is not None else None
 
+    @jit
+    @api_boundary
     def F (
         bound
     ):
@@ -300,6 +303,8 @@ def fastlin (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., Fa
         Returns:
         output_bound: Bounds on the output of the function obtained by FastLin
         """
+
+        bound = to_jv_interval(bound)
 
         # As we want to extract some linfuns that are in the middle of two linear
         # layers, we want to avoid the linear operator fusion.
@@ -384,14 +389,32 @@ class NNCSystem (ControlledSystem) :
 class NNCEmbeddingSystem (EmbeddingSystem) :
     sys:NNCSystem
     sys_mjacM:Callable
-    net_fastlin:Callable
+    verifier:Callable
+    nn_verifier:Literal['crown', 'fastlin']
+    nn_locality:Literal['local', 'hybrid']
+
     def __init__(self, sys:NNCSystem, nn_verifier:Literal['crown', 'fastlin'] = 'fastlin',
-                   nn_locality:Literal['local', 'hybrid'] = 'hybrid') -> None:
+                 nn_locality:Literal['local', 'hybrid'] = 'hybrid') -> None:
         self.sys = sys
         self.evolution = sys.evolution
         self.xlen = sys.xlen * 2
         self.sys_mjacM = mjacM(sys.olsystem.f)
-        self.net_crown = crown(sys.control)
+        self.nn_verifier = nn_verifier
+        self.nn_locality = nn_locality
+        if nn_verifier == 'crown' :
+            self.verifier = crown(sys.control)
+        elif nn_verifier == 'fastlin' :
+            self.verifier = fastlin(sys.control)
+        else :
+            raise NotImplementedError(f'nn_verifier must be one of "crown" or "fastlin", {self.nn_verifier} not supported')
+
+    def E (self, t:Interval, x:jax.Array, w:Interval,
+           orderings:Tuple[Ordering] = None, centers:jax.Array|Sequence[jax.Array]|None = None) :
+
+        verifier_res = self.verifier(x)
+        uglobal = verifier_res(x)
+        
+    
     # def Fi (i:int, t:jv.IntervalBound, x:jv.IntervalBound, w:jv.IntervalBound) :
     #     pass
 

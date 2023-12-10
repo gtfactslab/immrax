@@ -11,11 +11,13 @@ from matplotlib.patches import Circle, Wedge
 from immrax.inclusion import *
 from immrax.utils import plot_interval_t, get_partitions_ut
 from immrax.embedding import natemb, ifemb
-from jax.experimental.compilation_cache import compilation_cache as cc
+import jax.experimental.compilation_cache.compilation_cache as cc
+import time
+import os
 
 # Enable 64 bit floating point precision
 jax.config.update("jax_enable_x64", True)
-cc.initialize_cache('./cache')
+# cc.initialize_cache('cache')
 
 g = 9.81
 
@@ -63,7 +65,8 @@ embsys = ifemb(sys, F)
 
 # t0, tf = 0, 4.
 # t0, te, tf, dt = 0, 4., 4., 0.05
-t0, te, tf, dt = 0, 4., 4.25, 0.05
+# t0, te, tf, dt = 0, 4., 4.25, 0.05
+t0, te, tf, dt = 0, 3., 3.25, 0.05
 # t0, te, tf, dt = 0, 4.25, 4.5, 0.05
 x0 = interval(jnp.array([0.,0.]))
 x0ut = i2ut(x0); x0cent, x0pert = i2centpert(x0)
@@ -141,6 +144,9 @@ def con_ineq_hessvp (u, v) :
         return hvp(v)[0] # One tangent, one output. u^T dc_v
     return jacrev(hessvp)(u) 
     
+
+time0 = time.time()
+
 print('JIT Compiling')
 obj_grad(u0)
 obj_hess(u0)
@@ -163,16 +169,22 @@ ipopt_opts = {
     b'disp': 5, 
     b'linear_solver': 'ma57', 
     b'hsllib': 'libcoinhsl.so', 
-    b'tol': 1e-5, 
-    b'max_iter': 10000,
+    b'tol': 1e-3,
+    b'max_iter': 1000,
+    # b'max_iter': 10,
 }
 
-print('Finished setup and compilation.')
+timef = time.time()
+print(f'Finished setup and compilation in {timef - time0} seconds.')
 
+time0 = time.time()
 # res = minimize_ipopt(obj, jac=obj_grad, hess=obj_hess, x0=u0, bounds=bnds,
 #                      constraints=cons, options=ipopt_opts)
 res = minimize_ipopt(obj, jac=obj_grad, hess=obj_hess, x0=u0,
                      constraints=cons, options=ipopt_opts)
+
+timef = time.time()
+print(f'Exited ipopt in {timef - time0} seconds.')
 
 uu = res.x
 # uu = 1.0*jnp.exp(-tt)
@@ -181,8 +193,9 @@ print(uu)
 unrolledout = rollout_ol_sys_undisturbed(uu)
 clrolledout = rollout_cl_embsys(uu)
 
+print(f'Constraints satisfied to {jnp.min(con_ineq(uu))}!')
 if jnp.all(con_ineq(uu) >= 0) :
-    print('Constraints satisfied!')
+    print(f'Constraints satisfied!')
 else :
     print('Constraints not satisfied!')
     print(con_ineq(uu))
@@ -190,23 +203,36 @@ else :
 
 names = ['Undisturbed', 'Closed-loop (M-Jac)', 'Open-loop (Natural)']
 
-fig1, axs = plt.subplots(1,2,dpi=100,figsize=[8,4])
+plt.rcParams.update({
+    "text.usetex": True,
+    "font.family": "Helvetica",
+    "font.size": 14
+})
 
+fig1, axs = plt.subplots(1,2,dpi=100,figsize=[8,4])
+fig1.subplots_adjust(top=0.95, bottom=0.15, left=0.075, right=0.975)
+
+axs[0].set_xlabel('$t$'); axs[1].set_xlabel('$t$')
+axs[0].set_ylabel('$\\theta$', rotation=0, labelpad=5)
+axs[1].set_ylabel('$\\dot{\\theta}$', rotation=0, labelpad=5)
 axs[0].plot(tt, unrolledout[:,0], color='k')
 axs[1].plot(tt, unrolledout[:,1], color='k')
 plot_interval_t(axs[0], tt, xf[0]*jnp.ones(N), color='k')
 plot_interval_t(axs[1], tt, xf[1]*jnp.ones(N), color='k')
 plot_interval_t(axs[0], tt, interval(clrolledout[:,0], clrolledout[:,2]), color='tab:blue')
 plot_interval_t(axs[1], tt, interval(clrolledout[:,1], clrolledout[:,3]), color='tab:blue')
+fig1.savefig('figures/pendulum.pdf')
 
-fig1.savefig('figures/compared.png')
 
-to_plot = [unrolledout, clrolledout]
+to_plot = [clrolledout]
 th2deg = lambda th : (th * 180) / jnp.pi - 90
-fig2, anim = plt.subplots(1,len(to_plot),dpi=100,figsize=[8,4])
+anifig, anim = plt.subplots(1,len(to_plot),dpi=100,figsize=[4,4], squeeze=False)
+anifig.subplots_adjust()
+anim = anim.reshape(-1)
 wedges = []
 for i, xx in enumerate(to_plot) :
-    if i == 0:
+    # if i == 0:
+    if False :
         wedges.append(anim[i].add_patch(Wedge((0,0),sys.l,th2deg(xx[0,0]),th2deg(xx[0,0]), lw=2, ec='k')))
     else:
         wedges.append(anim[i].add_patch(Wedge((0,0),sys.l,th2deg(xx[0,0]),th2deg(xx[0,2]), lw=2, ec='k')))
@@ -215,14 +241,15 @@ for i, xx in enumerate(to_plot) :
     anim[i].set_ylim(-sys.l*1.2, sys.l*1.2)
 def animate(t) :
     for i, xx in enumerate(to_plot) :
-        if i == 0 :
+        if False :
             wedges[i].set( theta1 = th2deg(xx[t,0]), theta2 = th2deg(xx[t,0]) )
         else :
             wedges[i].set( theta1 = th2deg(xx[t,0]), theta2 = th2deg(xx[t,2]) )
+    anifig.suptitle(f'$t = {t*dt:.2f}$')
+    anifig.savefig(f'figures/frames/pendulum_{t:05d}.pdf')
 
-interval = dt*1000
-ani = animation.FuncAnimation(fig2, animate, frames=N, repeat=True, interval=interval)
+ani = animation.FuncAnimation(anifig, animate, frames=N, repeat=True, interval=dt*1000)
 FFwriter = animation.FFMpegWriter(fps=(1/dt))
-ani.save('figures/compared.mp4', writer=FFwriter)
+ani.save('figures/pendulum.mp4', writer=FFwriter)
 
 plt.show()

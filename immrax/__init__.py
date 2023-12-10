@@ -14,7 +14,6 @@ from .control import (
 
 try : 
     import jax_verify
-    print('here')
     from . import neural as neural
     from .neural import (
         NeuralNetwork,

@@ -40,7 +40,23 @@ pip install --upgrade "jax[cuda11_local]" -f https://storage.googleapis.com/jax-
 ```
 
 ## Install jax_verify (optional, for immrax.neural module)
-
+Install the newest version:
+```shell
+git clone https://github.com/google-deepmind/jax_verify.git
+cd jax_verify
+```
+In the `requirements.txt` file, replace the following line
+```
+einshape @ git+git://github.com/deepmind/einshape.git
+```
+with 
+```
+einshape @ git+https://github.com/deepmind/einshape.git
+```
+Then run 
+```shell
+pip install .
+```
 
 ## Install cyipopt and HSL (optional, for pendulum planning example)
 [https://cyipopt.readthedocs.io/en/stable/install.html](https://cyipopt.readthedocs.io/en/stable/install.html)
