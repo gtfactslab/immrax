@@ -415,16 +415,81 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     #     uglobal = verifier_res(x)
         
     
-    # HYBRID MIXED-CORNERED
-    # @partial(ijit, static_argnums=(0,), static_argnames=['orderings'])
-    def E (self, t:Interval, x:jax.Array, w:Interval,
-           orderings:Tuple[Ordering] =  None, centers:jax.Array|Sequence[jax.Array]|None = None) :
+    # # HYBRID MIXED-CORNERED
+    # # @partial(ijit, static_argnums=(0,), static_argnames=['orderings'])
+    # def E (self, t:Interval, x:jax.Array, w:Interval,
+    #        orderings:Tuple[Ordering] =  None, centers:jax.Array|Sequence[jax.Array]|None = None) :
+    #     t = interval(t)
+    #     ix = ut2i(x)
+
+    #     global_crown_res = self.verifier(ix)
+    #     uglobal = global_crown_res(ix)
+    #     corners = ((t.lower, ix.lower, uglobal.lower, w.lower), (t.upper, ix.upper, uglobal.upper, w.upper))
+    #     Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=corners)
+    #     # Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]
+    #     # tc, xc, uc, wc = tuple([(a.lower + a.upper)/2 for a in [t, ix, uglobal, w]])
+
+    #     # print(uglobal)
+    #     # print(corners)
+
+    #     _x, x_ = i2lu(ix)
+    #     _w, w_ = i2lu(w)
+    #     _C, C_ = global_crown_res.lC, global_crown_res.uC
+    #     _d, d_ = global_crown_res.ld, global_crown_res.ud
+
+    #     _ret, ret_ = [], []
+
+    #     n = self.sys.xlen
+
+    #     for i, (tc, xc, uc, wc) in enumerate(corners) :
+    #         fc = self.sys.olsystem.f(tc, xc, uc, wc)
+    #         Jt, Jx, Ju, Jw = Mpre[i]
+    #         _Jx, J_x = i2lu(Jx)
+    #         _Ju, J_u = i2lu(Ju)
+    #         _Jw, J_w = i2lu(Jw)
+
+    #         _Bp, _Bn = d_positive(_Ju)
+    #         B_p, B_n = d_positive(J_u)
+
+    #         _K = _Bp@_C + _Bn@C_
+    #         K_ = B_p@C_ + B_n@_C
+    #         _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
+
+    #         _H = _Jx + _K
+    #         H_ = J_x + K_
+    #         _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
+
+    #         # # Bounding the difference: error dynamics for Holding effects
+    #         # # _c = 0
+    #         # # c_ = 0
+    #         # _Kp, _Kn = d_positive(_K); K_p, K_n = d_positive(K_)
+    #         # _c = - _Kn@_e - _Kp@e_
+    #         # c_ = - K_n@e_ - K_p@_e
+    #         # self.control.step(0, x)
+    #         # self.e = self.e + self.sys.t_spec.t_step * self.sys.f(x, self.uj, w)[0].reshape(-1)
+
+    #         _ret.append(_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
+    #                     + _Dp@_w - _Dp@w_ + fc)
+            
+    #         ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
+    #                     - D_p@_w + D_p@w_ + fc)
+
+    #     _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
+
+    #     return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
+
+    # LOCAL MIXED-CORNERED
+    # @partial(jit, static_argnums=(0,), static_argnames=['orderings'])
+    def E (self, t:jv.IntervalBound, x:jax.Array, w:jv.IntervalBound,
+           orderings:Tuple[Ordering] =  None, centers:Union[jax.Array,Sequence[jax.Array],None] = None) :
         t = interval(t)
         ix = ut2i(x)
 
         global_crown_res = self.verifier(ix)
         uglobal = global_crown_res(ix)
-        corners = ((t.lower, ix.lower, uglobal.lower, w.lower), (t.upper, ix.upper, uglobal.upper, w.upper))
+        # corners = ((t.lower, ix.lower, uglobal.lower, w.lower), (t.upper, ix.upper, uglobal.upper, w.upper))
+        # corners = ((t.lower, ix.lower, uglobal.lower, w.lower),)
+        corners = ((t.upper, ix.upper, uglobal.upper, w.upper),)
         Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=corners)
         # Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]
         # tc, xc, uc, wc = tuple([(a.lower + a.upper)/2 for a in [t, ix, uglobal, w]])
@@ -432,16 +497,19 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
         # print(uglobal)
         # print(corners)
 
-        _x, x_ = i2lu(ix)
         _w, w_ = i2lu(w)
-        _C, C_ = global_crown_res.lC, global_crown_res.uC
-        _d, d_ = global_crown_res.ld, global_crown_res.ud
 
         _ret, ret_ = [], []
 
         n = self.sys.xlen
 
         for i, (tc, xc, uc, wc) in enumerate(corners) :
+            _xi = ut2i(jnp.copy(x).at[i+n].set(x[i]))
+            global_crown_res = self.verifier(_xi)
+            _C, C_ = global_crown_res.lC, global_crown_res.uC
+            _d, d_ = global_crown_res.ld, global_crown_res.ud
+            _x, x_ = i2lu(_xi)
+
             fc = self.sys.olsystem.f(tc, xc, uc, wc)
             Jt, Jx, Ju, Jw = Mpre[i]
             _Jx, J_x = i2lu(Jx)
@@ -459,104 +527,38 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
             H_ = J_x + K_
             _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
 
-            # # Bounding the difference: error dynamics for Holding effects
-            # # _c = 0
-            # # c_ = 0
-            # _Kp, _Kn = d_positive(_K); K_p, K_n = d_positive(K_)
-            # _c = - _Kn@_e - _Kp@e_
-            # c_ = - K_n@e_ - K_p@_e
-            # self.control.step(0, x)
-            # self.e = self.e + self.sys.t_spec.t_step * self.sys.f(x, self.uj, w)[0].reshape(-1)
-
             _ret.append(_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
                         + _Dp@_w - _Dp@w_ + fc)
             
+            _xi = ut2i(jnp.copy(x).at[i].set(x[i+n]))
+            global_crown_res = self.verifier(_xi)
+            _C, C_ = global_crown_res.lC, global_crown_res.uC
+            _d, d_ = global_crown_res.ld, global_crown_res.ud
+            _x, x_ = i2lu(_xi)
+
+            fc = self.sys.olsystem.f(tc, xc, uc, wc)
+            Jt, Jx, Ju, Jw = Mpre[i]
+            _Jx, J_x = i2lu(Jx)
+            _Ju, J_u = i2lu(Ju)
+            _Jw, J_w = i2lu(Jw)
+
+            _Bp, _Bn = d_positive(_Ju)
+            B_p, B_n = d_positive(J_u)
+
+            _K = _Bp@_C + _Bn@C_
+            K_ = B_p@C_ + B_n@_C
+            _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
+
+            _H = _Jx + _K
+            H_ = J_x + K_
+            _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
+
             ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
                         - D_p@_w + D_p@w_ + fc)
 
         _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
 
         return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
-
-    # LOCAL MIXED-CORNERED
-    # @partial(jit, static_argnums=(0,), static_argnames=['orderings'])
-    # def E (self, t:jv.IntervalBound, x:jax.Array, w:jv.IntervalBound,
-    #        orderings:Tuple[Ordering] =  None, centers:Union[jax.Array,Sequence[jax.Array],None] = None) :
-    #     t = interval(t)
-    #     ix = ut2i(x)
-
-    #     global_crown_res = self.net_crown(ix)
-    #     uglobal = global_crown_res(ix)
-    #     corners = ((t.lower, ix.lower, uglobal.lower, w.lower), (t.upper, ix.upper, uglobal.upper, w.upper))
-    #     Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=corners)
-    #     # Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]
-    #     # tc, xc, uc, wc = tuple([(a.lower + a.upper)/2 for a in [t, ix, uglobal, w]])
-
-    #     # print(uglobal)
-    #     # print(corners)
-
-    #     _w, w_ = i2lu(w)
-
-    #     _ret, ret_ = [], []
-
-    #     n = self.sys.xlen
-
-    #     for i, (tc, xc, uc, wc) in enumerate(corners) :
-    #         _xi = ut2i(jnp.copy(x).at[i+n].set(x[i]))
-    #         global_crown_res = self.net_crown(_xi)
-    #         _C, C_ = global_crown_res.lC, global_crown_res.uC
-    #         _d, d_ = global_crown_res.ld, global_crown_res.ud
-    #         _x, x_ = i2lu(_xi)
-
-    #         fc = self.sys.olsystem.f(tc, xc, uc, wc)
-    #         Jt, Jx, Ju, Jw = Mpre[i]
-    #         _Jx, J_x = i2lu(Jx)
-    #         _Ju, J_u = i2lu(Ju)
-    #         _Jw, J_w = i2lu(Jw)
-
-    #         _Bp, _Bn = d_positive(_Ju)
-    #         B_p, B_n = d_positive(J_u)
-
-    #         _K = _Bp@_C + _Bn@C_
-    #         K_ = B_p@C_ + B_n@_C
-    #         _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
-
-    #         _H = _Jx + _K
-    #         H_ = J_x + K_
-    #         _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
-
-    #         _ret.append(_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
-    #                     + _Dp@_w - _Dp@w_ + fc)
-            
-    #         _xi = ut2i(jnp.copy(x).at[i].set(x[i+n]))
-    #         global_crown_res = self.net_crown(_xi)
-    #         _C, C_ = global_crown_res.lC, global_crown_res.uC
-    #         _d, d_ = global_crown_res.ld, global_crown_res.ud
-    #         _x, x_ = i2lu(_xi)
-
-    #         fc = self.sys.olsystem.f(tc, xc, uc, wc)
-    #         Jt, Jx, Ju, Jw = Mpre[i]
-    #         _Jx, J_x = i2lu(Jx)
-    #         _Ju, J_u = i2lu(Ju)
-    #         _Jw, J_w = i2lu(Jw)
-
-    #         _Bp, _Bn = d_positive(_Ju)
-    #         B_p, B_n = d_positive(J_u)
-
-    #         _K = _Bp@_C + _Bn@C_
-    #         K_ = B_p@C_ + B_n@_C
-    #         _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
-
-    #         _H = _Jx + _K
-    #         H_ = J_x + K_
-    #         _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
-
-    #         ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
-    #                     - D_p@_w + D_p@w_ + fc)
-
-    #     _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
-
-    #     return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
 
 
     # # LOCAL, LOCAL MIXED-CORNERED
@@ -566,7 +568,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     #     t = interval(t)
     #     ix = ut2i(x)
 
-    #     # global_crown_res = self.net_crown(ix)
+    #     # global_crown_res = self.verifier(ix)
     #     # uglobal = global_crown_res(ix)
     #     corners = ((t.lower, ix.lower, w.lower), (t.upper, ix.upper, w.upper))
     #     # Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=corners)
@@ -584,7 +586,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
 
     #     for i, (tc, xc, wc) in enumerate(corners) :
     #         _xi = ut2i(jnp.copy(x).at[i+n].set(x[i]))
-    #         local_crown_res = self.net_crown(_xi)
+    #         local_crown_res = self.verifier(_xi)
 
     #         _C, C_ = local_crown_res.lC, local_crown_res.uC
     #         _d, d_ = local_crown_res.ld, local_crown_res.ud
@@ -616,7 +618,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     #                     + _Dp@_w - _Dp@w_ + fc)
             
     #         _xi = ut2i(jnp.copy(x).at[i].set(x[i+n]))
-    #         local_crown_res = self.net_crown(_xi)
+    #         local_crown_res = self.verifier(_xi)
 
     #         _C, C_ = local_crown_res.lC, local_crown_res.uC
     #         _d, d_ = local_crown_res.ld, local_crown_res.ud
@@ -651,14 +653,14 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
 
     #     return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
 
-    # FASTLIN CL mjac IMPLEMENTATION
-    # @partial(ijit, static_argnums=(0,), static_argnames=['orderings'])
+    # # FASTLIN CL mjac IMPLEMENTATION
+    # # @partial(ijit, static_argnums=(0,), static_argnames=['orderings'])
     # def E (self, t:jv.IntervalBound, x:jax.Array, w:jv.IntervalBound,
     #        orderings:Tuple[Ordering] =  None, centers:jax.Array|Sequence[jax.Array]|None = None) :
     #     t = interval(t)
     #     ix = ut2i(x)
 
-    #     global_fastlin_res = self.net_fastlin(ix)
+    #     global_fastlin_res = self.verifier(ix)
     #     uglobal = global_fastlin_res(ix)
     #     Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=centers)
     #     Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]

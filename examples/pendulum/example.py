@@ -170,7 +170,7 @@ ipopt_opts = {
     b'linear_solver': 'ma57', 
     b'hsllib': 'libcoinhsl.so', 
     b'tol': 1e-3,
-    b'max_iter': 1000,
+    b'max_iter': 10000,
     # b'max_iter': 10,
 }
 
@@ -203,11 +203,11 @@ else :
 
 names = ['Undisturbed', 'Closed-loop (M-Jac)', 'Open-loop (Natural)']
 
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "Helvetica",
-    "font.size": 14
-})
+# plt.rcParams.update({
+#     "text.usetex": True,
+#     "font.family": "Helvetica",
+#     "font.size": 14
+# })
 
 fig1, axs = plt.subplots(1,2,dpi=100,figsize=[8,4])
 fig1.subplots_adjust(top=0.95, bottom=0.15, left=0.075, right=0.975)
@@ -249,7 +249,7 @@ def animate(t) :
     anifig.savefig(f'figures/frames/pendulum_{t:05d}.pdf')
 
 ani = animation.FuncAnimation(anifig, animate, frames=N, repeat=True, interval=dt*1000)
-FFwriter = animation.FFMpegWriter(fps=(1/dt))
-ani.save('figures/pendulum.mp4', writer=FFwriter)
+# FFwriter = animation.FFMpegWriter(fps=(1/dt))
+# ani.save('figures/pendulum.mp4', writer=FFwriter)
 
 plt.show()

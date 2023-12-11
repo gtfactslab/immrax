@@ -291,7 +291,7 @@ Interval.__div__ = _inclusion_div_p
 
 def _inclusion_reciprocal_p (x: Interval) -> Interval :
     if not isinstance (x, Interval) :
-        return 1./x
+        return 1/x
     c = jnp.logical_or(jnp.logical_and(x.lower > 0, x.upper > 0),
                        jnp.logical_and(x.lower < 0, x.upper < 0))
     return Interval(jnp.where(c, (1./x.upper), -jnp.inf), jnp.where(c, (1./x.lower), jnp.inf))
