@@ -1,5 +1,5 @@
 import jax
-from jax import jit, grad, jacfwd, jacrev, jvp, vjp
+from jax import grad, jacfwd, jacrev, jvp, vjp
 import jax.numpy as jnp
 from jaxtyping import Float, Integer
 import numpy as np
@@ -18,6 +18,13 @@ import os
 # Enable 64 bit floating point precision
 jax.config.update("jax_enable_x64", True)
 # cc.initialize_cache('cache')
+# jax.config.update('jax_platform_name', 'cpu')
+
+device = 'cpu'
+
+def jit (*args, **kwargs) :
+    kwargs.setdefault('backend', device)
+    return jax.jit(*args, **kwargs)
 
 g = 9.81
 
@@ -170,7 +177,7 @@ ipopt_opts = {
     b'linear_solver': 'ma57', 
     b'hsllib': 'libcoinhsl.so', 
     b'tol': 1e-3,
-    b'max_iter': 10000,
+    b'max_iter': 20000,
     # b'max_iter': 10,
 }
 
