@@ -285,7 +285,14 @@ inclusion_registry[lax.mul_p] = _inclusion_mul_p
 Interval.__mul__ = _inclusion_mul_p
 
 def _inclusion_div_p (x:Interval, y:Interval) -> Interval :
-    return _inclusion_mul_p(x, _inclusion_reciprocal_p(y))
+    if isinstance(x, Interval) and isinstance(y, Interval) :
+        return _inclusion_mul_p(x, _inclusion_reciprocal_p(y))
+    elif isinstance(x,Interval) :
+        return _inclusion_mul_p(x, 1/y)
+    elif isinstance(y,Interval) :
+        return _inclusion_mul_p(x, _inclusion_reciprocal_p(y))
+    else :
+        return x/y
 inclusion_registry[lax.div_p] = _inclusion_div_p
 Interval.__div__ = _inclusion_div_p
 

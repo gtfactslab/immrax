@@ -55,7 +55,7 @@ def F (t:Interval, x:Interval, u:Interval, w:Interval, K:jnp.ndarray, nominal:jn
         # ([Jx] + [Ju]K)([\ulx,\olx] - x_nom)
         (Mx + Mu @ interval(K)) @ (x - xc)
         # + [Ju](u - u_nom)
-        + Mu @ (u - uc)
+        # + Mu @ (u - uc)
         # + [Jw]([\ulw,\olw] - w_nom)
         + Mw @ (w - wc)
         # + f(xc, uc, wc)
@@ -170,7 +170,7 @@ ipopt_opts = {
     b'linear_solver': 'ma57', 
     b'hsllib': 'libcoinhsl.so', 
     b'tol': 1e-3,
-    b'max_iter': 10000,
+    b'max_iter': 1000,
     # b'max_iter': 10,
 }
 
