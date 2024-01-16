@@ -5,10 +5,10 @@ import equinox as eqx
 import equinox.nn as nn
 from immrax.control import Control, ControlledSystem
 from immrax.inclusion import interval, natif, jacif, mjacif, mjacM, Interval
-from immrax.inclusion import ut2i, i2ut, i2lu
-from immrax.inclusion import Ordering
+from immrax.inclusion import ut2i, i2ut, i2lu, standard_ordering
+from immrax.inclusion import Ordering, Corner
 from immrax.embedding import EmbeddingSystem, InclusionEmbedding
-from immrax.utils import d_metzler, d_positive
+from immrax.utils import d_metzler, d_positive, set_columns_from_corner
 from jaxtyping import Integer, Float
 from typing import Any, List, Literal, Callable, NamedTuple, Union, Tuple, Sequence
 from pathlib import Path
@@ -392,15 +392,23 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     verifier:Callable
     nn_verifier:Literal['crown', 'fastlin']
     nn_locality:Literal['local', 'hybrid']
+    M_locality: Literal['local', 'hybrid']
 
     def __init__(self, sys:NNCSystem, nn_verifier:Literal['crown', 'fastlin'] = 'crown',
-                 nn_locality:Literal['local', 'hybrid'] = 'hybrid') -> None:
+                 nn_locality:Literal['local', 'hybrid'] = 'hybrid',
+                 M_locality: Literal['local', 'hybrid'] = 'hybrid') -> None:
         self.sys = sys
         self.evolution = sys.evolution
         self.xlen = sys.xlen * 2
+
+        # mjacM Transform on open-loop dynamics
         self.sys_mjacM = mjacM(sys.olsystem.f)
+
         self.nn_verifier = nn_verifier
         self.nn_locality = nn_locality
+        self.M_locality = M_locality
+
+        # NN Verifier Transform
         if nn_verifier == 'crown' :
             self.verifier = crown(sys.control)
         elif nn_verifier == 'fastlin' :
@@ -408,289 +416,179 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
         else :
             raise NotImplementedError(f'nn_verifier must be one of "crown" or "fastlin", {self.nn_verifier} not supported')
 
-    # def E (self, t:Interval, x:jax.Array, w:Interval,
-    #        orderings:Tuple[Ordering] = None, centers:jax.Array|Sequence[jax.Array]|None = None) :
+    def E (self, t:Interval, x:jax.Array, w:Interval,
+           orderings:Tuple[Ordering] = None, 
+           centers:jax.Array|Sequence[jax.Array]|None = None,
+           corners:Tuple[Corner]|None = None, **kwargs) :
 
-    #     verifier_res = self.verifier(x)
-    #     uglobal = verifier_res(x)
-        
-    
-    # # HYBRID MIXED-CORNERED
-    # # @partial(ijit, static_argnums=(0,), static_argnames=['orderings'])
-    # def E (self, t:Interval, x:jax.Array, w:Interval,
-    #        orderings:Tuple[Ordering] =  None, centers:jax.Array|Sequence[jax.Array]|None = None) :
-    #     t = interval(t)
-    #     ix = ut2i(x)
-
-    #     global_crown_res = self.verifier(ix)
-    #     uglobal = global_crown_res(ix)
-    #     corners = ((t.lower, ix.lower, uglobal.lower, w.lower), (t.upper, ix.upper, uglobal.upper, w.upper))
-    #     Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=corners)
-    #     # Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]
-    #     # tc, xc, uc, wc = tuple([(a.lower + a.upper)/2 for a in [t, ix, uglobal, w]])
-
-    #     # print(uglobal)
-    #     # print(corners)
-
-    #     _x, x_ = i2lu(ix)
-    #     _w, w_ = i2lu(w)
-    #     _C, C_ = global_crown_res.lC, global_crown_res.uC
-    #     _d, d_ = global_crown_res.ld, global_crown_res.ud
-
-    #     _ret, ret_ = [], []
-
-    #     n = self.sys.xlen
-
-    #     for i, (tc, xc, uc, wc) in enumerate(corners) :
-    #         fc = self.sys.olsystem.f(tc, xc, uc, wc)
-    #         Jt, Jx, Ju, Jw = Mpre[i]
-    #         _Jx, J_x = i2lu(Jx)
-    #         _Ju, J_u = i2lu(Ju)
-    #         _Jw, J_w = i2lu(Jw)
-
-    #         _Bp, _Bn = d_positive(_Ju)
-    #         B_p, B_n = d_positive(J_u)
-
-    #         _K = _Bp@_C + _Bn@C_
-    #         K_ = B_p@C_ + B_n@_C
-    #         _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
-
-    #         _H = _Jx + _K
-    #         H_ = J_x + K_
-    #         _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
-
-    #         # # Bounding the difference: error dynamics for Holding effects
-    #         # # _c = 0
-    #         # # c_ = 0
-    #         # _Kp, _Kn = d_positive(_K); K_p, K_n = d_positive(K_)
-    #         # _c = - _Kn@_e - _Kp@e_
-    #         # c_ = - K_n@e_ - K_p@_e
-    #         # self.control.step(0, x)
-    #         # self.e = self.e + self.sys.t_spec.t_step * self.sys.f(x, self.uj, w)[0].reshape(-1)
-
-    #         _ret.append(_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
-    #                     + _Dp@_w - _Dp@w_ + fc)
-            
-    #         ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
-    #                     - D_p@_w + D_p@w_ + fc)
-
-    #     _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
-
-    #     return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
-
-    # LOCAL MIXED-CORNERED
-    # @partial(jit, static_argnums=(0,), static_argnames=['orderings'])
-    def E (self, t:jv.IntervalBound, x:jax.Array, w:jv.IntervalBound,
-           orderings:Tuple[Ordering] =  None, centers:Union[jax.Array,Sequence[jax.Array],None] = None) :
         t = interval(t)
         ix = ut2i(x)
 
-        global_crown_res = self.verifier(ix)
-        uglobal = global_crown_res(ix)
-        # corners = ((t.lower, ix.lower, uglobal.lower, w.lower), (t.upper, ix.upper, uglobal.upper, w.upper))
-        # corners = ((t.lower, ix.lower, uglobal.lower, w.lower),)
-        corners = ((t.upper, ix.upper, uglobal.upper, w.upper),)
-        Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=corners)
-        # Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]
-        # tc, xc, uc, wc = tuple([(a.lower + a.upper)/2 for a in [t, ix, uglobal, w]])
+        # TODO: Default orderings
+        # leninputsfull = tuple([len(x) for x in args])
+        # leninputs = sum(leninputsfull)
+        # if orderings is None :
+        #     orderings = standard_ordering(leninputs)
+        # elif isinstance(orderings, Ordering) :
+        #     orderings = [orderings]
+        # elif not isinstance(orderings, Tuple) :
+        #     raise Exception('Must pass jax.Array (one ordering), Sequence[jax.Array], or None (auto standard ordering) for the orderings argument')
 
-        # print(uglobal)
-        # print(corners)
+        verifier_res = self.verifier(ix)
+        uglobal = verifier_res(ix)
 
-        _w, w_ = i2lu(w)
-
-        _ret, ret_ = [], []
+        args = (t, ix, uglobal, w)
 
         n = self.sys.xlen
+        p = len(uglobal)
+        q = len(w)
+        
+        if self.nn_verifier == 'crown' :
+            """ Embedding System induced by Closed-Loop Mixed Cornered Inclusion Function
+                For more information, see 'Efficient Interaction-Aware Interval Analysis of Neural Network Feedback Loops'
+                https://arxiv.org/pdf/2307.14938.pdf
+            """
 
-        for i, (tc, xc, uc, wc) in enumerate(corners) :
-            _xi = ut2i(jnp.copy(x).at[i+n].set(x[i]))
-            global_crown_res = self.verifier(_xi)
-            _C, C_ = global_crown_res.lC, global_crown_res.uC
-            _d, d_ = global_crown_res.ld, global_crown_res.ud
-            _x, x_ = i2lu(_xi)
+            if centers is not None :
+                raise NotImplementedError('centers not supported for crown, use cornered mode')
+            if corners is None :
+                raise Exception('Must pass corners for crown, mixed cornered mode')
+            # x0_corners = [tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners]
+            # print(x0_corners)
 
-            fc = self.sys.olsystem.f(tc, xc, uc, wc)
-            Jt, Jx, Ju, Jw = Mpre[i]
-            _Jx, J_x = i2lu(Jx)
-            _Ju, J_u = i2lu(Ju)
-            _Jw, J_w = i2lu(Jw)
+            txuw_corners = []
 
-            _Bp, _Bn = d_positive(_Ju)
-            B_p, B_n = d_positive(J_u)
+            for c in corners :
+                tc = t.lower if c[0] == 0 else t.upper
+                xc = jnp.array([ix[i].lower if c[i+1] == 0 else ix[i].upper for i in range(n)])
+                uc = jnp.array([uglobal[i].lower if c[i+1+n] == 0 else uglobal[i].upper for i in range(p)])
+                wc = jnp.array([w[i].lower if c[i+1+n+p] == 0 else w[i].upper for i in range(q)])
+                txuw_corners.append((tc, xc, uc, wc))
 
-            _K = _Bp@_C + _Bn@C_
-            K_ = B_p@C_ + B_n@_C
-            _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
-
-            _H = _Jx + _K
-            H_ = J_x + K_
-            _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
-
-            _ret.append(_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
-                        + _Dp@_w - _Dp@w_ + fc)
+            _w, w_ = i2lu(w)
             
-            _xi = ut2i(jnp.copy(x).at[i].set(x[i+n]))
-            global_crown_res = self.verifier(_xi)
-            _C, C_ = global_crown_res.lC, global_crown_res.uC
-            _d, d_ = global_crown_res.ld, global_crown_res.ud
-            _x, x_ = i2lu(_xi)
+            _ret, ret_ = [], []
 
-            fc = self.sys.olsystem.f(tc, xc, uc, wc)
-            Jt, Jx, Ju, Jw = Mpre[i]
-            _Jx, J_x = i2lu(Jx)
-            _Ju, J_u = i2lu(Ju)
-            _Jw, J_w = i2lu(Jw)
-
-            _Bp, _Bn = d_positive(_Ju)
-            B_p, B_n = d_positive(J_u)
-
-            _K = _Bp@_C + _Bn@C_
-            K_ = B_p@C_ + B_n@_C
-            _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
-
-            _H = _Jx + _K
-            H_ = J_x + K_
-            _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
-
-            ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
-                        - D_p@_w + D_p@w_ + fc)
-
-        _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
-
-        return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
-
-
-    # # LOCAL, LOCAL MIXED-CORNERED
-    # @partial(ijit, static_argnums=(0,), static_argnames=['orderings'])
-    # def E (self, t:jv.IntervalBound, x:jax.Array, w:jv.IntervalBound,
-    #        orderings:Tuple[Ordering] =  None, centers:jax.Array|Sequence[jax.Array]|None = None) :
-    #     t = interval(t)
-    #     ix = ut2i(x)
-
-    #     # global_crown_res = self.verifier(ix)
-    #     # uglobal = global_crown_res(ix)
-    #     corners = ((t.lower, ix.lower, w.lower), (t.upper, ix.upper, w.upper))
-    #     # Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=corners)
-    #     # Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]
-    #     # tc, xc, uc, wc = tuple([(a.lower + a.upper)/2 for a in [t, ix, uglobal, w]])
-
-    #     # print(uglobal)
-    #     # print(corners)
-
-    #     _w, w_ = i2lu(w)
-
-    #     _ret, ret_ = [], []
-
-    #     n = self.sys.xlen
-
-    #     for i, (tc, xc, wc) in enumerate(corners) :
-    #         _xi = ut2i(jnp.copy(x).at[i+n].set(x[i]))
-    #         local_crown_res = self.verifier(_xi)
-
-    #         _C, C_ = local_crown_res.lC, local_crown_res.uC
-    #         _d, d_ = local_crown_res.ld, local_crown_res.ud
-    #         _x, x_ = i2lu(_xi)
-
-    #         ulocal = local_crown_res(_xi)
-    #         uc = ulocal.lower
-
-    #         Mpre = self.sys_mjacM(t, _xi, ulocal, w, orderings=orderings, centers=((tc,xc,uc,wc),))
-
-    #         fc = self.sys.olsystem.f(tc, xc, uc, wc)
-    #         Jt, Jx, Ju, Jw = Mpre[0]
-    #         _Jx, J_x = i2lu(Jx)
-    #         _Ju, J_u = i2lu(Ju)
-    #         _Jw, J_w = i2lu(Jw)
-
-    #         _Bp, _Bn = d_positive(_Ju)
-    #         B_p, B_n = d_positive(J_u)
-
-    #         _K = _Bp@_C + _Bn@C_
-    #         K_ = B_p@C_ + B_n@_C
-    #         _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
-
-    #         _H = _Jx + _K
-    #         H_ = J_x + K_
-    #         _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
-
-    #         _ret.append(_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
-    #                     + _Dp@_w - _Dp@w_ + fc)
+            for ordering in orderings :
             
-    #         _xi = ut2i(jnp.copy(x).at[i].set(x[i+n]))
-    #         local_crown_res = self.verifier(_xi)
+                # Compute Hybrid M centerings once
+                if self.M_locality == 'hybrid' :
+                    Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=ordering, centers=txuw_corners)
 
-    #         _C, C_ = local_crown_res.lC, local_crown_res.uC
-    #         _d, d_ = local_crown_res.ld, local_crown_res.ud
-    #         _x, x_ = i2lu(_xi)
+                for i, (tc, xc, uc, wc) in enumerate(txuw_corners) :
+                    # LOWER BOUND
+                    c = corners[i]
+                    _xi = ut2i(jnp.copy(x).at[i+n].set(x[i]))
 
-    #         ulocal = local_crown_res(_xi)
-    #         uc = ulocal.upper
+                    # Compute Local NN verification step, otherwise use global
+                    if self.nn_locality == 'local' :
+                        verifier_res = self.verifier(_xi)
+                    
+                    _C, C_ = verifier_res.lC, verifier_res.uC
+                    _d, d_ = verifier_res.ld, verifier_res.ud
+                    _x, x_ = i2lu(_xi)
 
-    #         Mpre = self.sys_mjacM(t, _xi, ulocal, w, orderings=orderings, centers=((tc,xc,uc,wc),))
+                    # Compute Local M centerings, otherwise use precomputed
+                    _ui = verifier_res(_xi)
+                    uc = jnp.array([_ui[j].lower if c[j+1+n] == 0 else _ui[j].upper for j in range(p)])
+                    if self.M_locality == 'local' :
+                        Jt, Jx, Ju, Jw = self.sys_mjacM(t, _xi, _ui, w, orderings=ordering, centers=((tc, xc, uc, wc),))[0]
+                    else :
+                        Jt, Jx, Ju, Jw = Mpre[i]
 
-    #         fc = self.sys.olsystem.f(tc, xc, uc, wc)
-    #         Jt, Jx, Ju, Jw = Mpre[0]
-    #         _Jx, J_x = i2lu(Jx)
-    #         _Ju, J_u = i2lu(Ju)
-    #         _Jw, J_w = i2lu(Jw)
+                    # _Jx, J_x = i2lu(Jx)
+                    # _Ju, J_u = i2lu(Ju)
+                    # _Jw, J_w = i2lu(Jw)
+                    _Jx, J_x = set_columns_from_corner(c[1:n+1], Jx)
+                    _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], Ju)
+                    _Jw, J_w = set_columns_from_corner(c[n+1+p:], Jw)
 
-    #         _Bp, _Bn = d_positive(_Ju)
-    #         B_p, B_n = d_positive(J_u)
+                    fc = self.sys.olsystem.f(tc, xc, uc, wc)
 
-    #         _K = _Bp@_C + _Bn@C_
-    #         K_ = B_p@C_ + B_n@_C
-    #         _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
+                    _Bp, _Bn = d_positive(_Ju)
+                    B_p, B_n = d_positive(J_u)
 
-    #         _H = _Jx + _K
-    #         H_ = J_x + K_
-    #         _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
+                    _K = _Bp@_C + _Bn@C_
+                    K_ = B_p@C_ + B_n@_C
+                    _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
 
-    #         ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
-    #                     - D_p@_w + D_p@w_ + fc)
+                    _H = _Jx + _K
+                    H_ = J_x + K_
+                    _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
 
-    #     _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
+                    _ret.append(_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
+                                + _Dp@_w - _Dp@w_ + fc)
+                    
+                    # UPPER BOUND
+                    x_i = ut2i(jnp.copy(x).at[i].set(x[i+n]))
 
-    #     return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
+                    # Compute Local NN verification step, otherwise use global
+                    if self.nn_locality == 'local' :
+                        verifier_res = self.verifier(x_i)
+                    
+                    _C, C_ = verifier_res.lC, verifier_res.uC
+                    _d, d_ = verifier_res.ld, verifier_res.ud
+                    _x, x_ = i2lu(x_i)
 
-    # # FASTLIN CL mjac IMPLEMENTATION
-    # # @partial(ijit, static_argnums=(0,), static_argnames=['orderings'])
-    # def E (self, t:jv.IntervalBound, x:jax.Array, w:jv.IntervalBound,
-    #        orderings:Tuple[Ordering] =  None, centers:jax.Array|Sequence[jax.Array]|None = None) :
-    #     t = interval(t)
-    #     ix = ut2i(x)
+                    # Compute Local M centerings, otherwise use precomputed
+                    u_i = verifier_res(x_i)
+                    uc = jnp.array([u_i[j].lower if c[j+1+n] == 0 else u_i[j].upper for j in range(p)])
+                    if self.M_locality == 'local' :
+                        Jt, Jx, Ju, Jw = self.sys_mjacM(t, x_i, u_i, w, orderings=ordering, centers=((tc, xc, uc, wc),))[0]
+                    else :
+                        Jt, Jx, Ju, Jw = Mpre[i]
 
-    #     global_fastlin_res = self.verifier(ix)
-    #     uglobal = global_fastlin_res(ix)
-    #     Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=orderings, centers=centers)
-    #     Jt, Jx, Ju, Jw = [jv.IntervalBound.from_jittable(Mi) for Mi in Mpre[0]]
-    #     tc, xc, uc, wc = tuple([(a.lower + a.upper)/2 for a in [t, ix, uglobal, w]])
+                    # _Jx, J_x = i2lu(Jx)
+                    # _Ju, J_u = i2lu(Ju)
+                    # _Jw, J_w = i2lu(Jw)
 
-    #     def F (t:jv.IntervalBound, x:jv.IntervalBound, w:jv.IntervalBound) :
-    #         return (
-    #             # ([Jx] + [Ju]C)[\ulx,\olx]
-    #             (Jx + Ju @ global_fastlin_res.C) @ x
-    #             # + [Ju][\uld,\old]
-    #             + Ju @ interval(global_fastlin_res.ld, global_fastlin_res.ud)
-    #             # - [Jx]\overcirc{x} - [Ju]\overcirc{u}
-    #             + Jx @ (-xc) + Ju @(-uc)
-    #             # + [Jw]([\ulw,\olw] - \overcirc{w})
-    #             + Jw @ interval(w.lower - wc, w.upper - wc)
-    #             # + f(xc, uc, wc)
-    #             + self.sys.olsystem.f(tc, xc, uc, wc)
-    #         )
+                    _Jx, J_x = set_columns_from_corner(c[1:n+1], Jx)
+                    _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], Ju)
+                    _Jw, J_w = set_columns_from_corner(c[n+1+p:], Jw)
 
-    #     if self.evolution == 'continuous' :
-    #         n = self.sys.xlen
-    #         ret = jnp.empty(self.xlen)
-    #         for i in range(n) :
-    #             _xi = jnp.copy(x).at[i+n].set(x[i])
-    #             ret = ret.at[i].set(F(interval(t), ut2i(_xi), w).lower[i])
-    #             x_i = jnp.copy(x).at[i].set(x[i+n])
-    #             ret = ret.at[i+n].set(F(interval(t), ut2i(x_i), w).upper[i])
-    #         return ret
-    #     elif self.evolution == 'discrete' :
-    #         # Convert x from ut to i, compute through F, convert back to ut.
-    #         return i2ut(F(t, ix, w))
-    #     else :
-    #         raise Exception("evolution needs to be 'continuous' or 'discrete'")
+                    fc = self.sys.olsystem.f(tc, xc, uc, wc)
+
+                    _Bp, _Bn = d_positive(_Ju)
+                    B_p, B_n = d_positive(J_u)
+
+                    _K = _Bp@_C + _Bn@C_
+                    K_ = B_p@C_ + B_n@_C
+                    _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
+
+                    _H = _Jx + _K
+                    H_ = J_x + K_
+                    _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
+
+                    ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
+                                - D_p@_w + D_p@w_ + fc)
+
+            _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
+
+            return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
+
+
+        elif self.nn_verifier == 'fastlin' :
+            """ Embedding System induced by Closed-Loop Mixed Centered Inclusion Function
+                For more information, see 'Forward Invariance in Neural Network Controlled Systems'
+                https://arxiv.org/pdf/2309.09043.pdf
+            """
+            # TODO: Implement transformation for centered mode using fastlin
+
+            # Mixed Centered
+            if centers is None :
+                if corners is None or kwargs.get('auto_centered', False) :
+                    # Auto-centered
+                    centers = [tuple([(x.lower + x.upper)/2 for x in args])]
+                else :
+                    centers = []
+            elif isinstance(centers, jax.Array) :
+                centers = [centers]
+            elif not isinstance(centers, Sequence) :
+                raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
+
+            if corners is not None :
+                if not isinstance(corners, Tuple) :
+                    raise Exception('Must pass Tuple[Corner] or None for the corners argument')
+                centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
+
+    

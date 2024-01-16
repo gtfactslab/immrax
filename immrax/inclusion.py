@@ -637,7 +637,7 @@ class Corner (tuple) :
     def __str__(self) -> str:
         return 'Corner' + super().__str__()
 
-def bottom_corner (n:int) -> Tuple[Corner] :
+def bot_corner (n:int) -> Tuple[Corner] :
     """Returns the bottom corner of the n-dimensional hypercube."""
     return (Corner((0,)*n),)
 
@@ -707,19 +707,22 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
                 pairs.append((a,(o - cumsum[a-1] if a > 0 else o)))
             orderings_pairs.append(tuple(pairs))
 
+        # Mixed Centered
         if centers is None :
-            centers = [tuple([(x.lower + x.upper)/2 for x in args])]
+            if corners is None :
+                # Auto-centered
+                centers = [tuple([(x.lower + x.upper)/2 for x in args])]
+            else :
+                centers = []
         elif isinstance(centers, jax.Array) :
             centers = [centers]
         elif not isinstance(centers, Sequence) :
             raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
 
-        # if corners is None :
-        #     corners = []
-        # elif isinstance(corners, Corner) :
-        #     corners = [corners]
-        # elif not isinstance(orderings, Tuple) :
-        #     raise Exception('Must pass jax.Array (one ordering), Sequence[jax.Array], or None (auto standard ordering) for the orderings argument')
+        if corners is not None :
+            if not isinstance(corners, Tuple) :
+                raise Exception('Must pass Tuple[Corner] or None for the corners argument')
+            centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
 
         # centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
 
@@ -765,9 +768,10 @@ def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """
 
     # @wraps(f)
-    @partial(jit,static_argnames=['orderings'])
+    @partial(jit,static_argnames=['orderings','corners'])
     @api_boundary
-    def F (*args, orderings:Tuple[Ordering]|None=None, centers:jax.Array|Sequence[jax.Array]|None = None, **kwargs) -> Interval :
+    def F (*args, orderings:Tuple[Ordering]|None=None, centers:jax.Array|Sequence[jax.Array]|None = None,
+           corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
         """Mixed Jacobian-based Inclusion Function of f.
 
         All positional arguments from f should be replaced with interval arguments for the inclusion function.
@@ -808,13 +812,24 @@ def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
                 pairs.append((a,(o - cumsum[a-1] if a > 0 else o)))
             orderings_pairs.append(tuple(pairs))
 
+        # Mixed Centered
         if centers is None :
-            centers = [tuple([(x.lower + x.upper)/2 for x in args])]
+            if corners is None :
+                # Auto-centered
+                centers = [tuple([(x.lower + x.upper)/2 for x in args])]
+            else :
+                centers = []
         elif isinstance(centers, jax.Array) :
             centers = [centers]
         elif not isinstance(centers, Sequence) :
             raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
 
+        if corners is not None :
+            if not isinstance(corners, Tuple) :
+                raise Exception('Must pass Tuple[Corner] or None for the corners argument')
+            centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
+
+ 
         # multiple orderings/centers, need to take min/max for final inclusion function output.
         retl, retu = [], []
 

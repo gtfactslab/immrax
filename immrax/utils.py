@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import time
 from jax._src.util import wraps
 from jax._src.traceback_util import api_boundary
-from immrax.inclusion import Interval
+from immrax.inclusion import Interval, Corner
 from immrax.inclusion import i2ut, i2lu, i2centpert, ut2i, icentpert
 from typing import Callable, List
 import shapely.geometry as sg
@@ -110,3 +110,14 @@ def gen_ics (x0, N, key=jax.random.PRNGKey(0)) :
         X.append(jax.random.uniform(key=keys[i],shape=(N,),minval=x0.lower[i], maxval=x0.upper[i]))
     return jnp.array(X).T
 
+def set_columns_from_corner (corner:Corner, A:Interval) :
+    # Set i-th column of A based on corner
+    _Jx = jnp.empty_like(A.lower); J_x = jnp.empty_like(A.upper)
+    for i in range(len(corner)) :
+        if corner[i] == 0 :
+            _Jx = _Jx.at[:,i].set(A.lower[:,i]) # Use _A when cornered on ub
+            J_x = J_x.at[:,i].set(A.upper[:,i]) # Use A_ when cornered on lb
+        else :
+            _Jx = _Jx.at[:,i].set(A.upper[:,i]) # Use A_ when cornered on ub
+            J_x = J_x.at[:,i].set(A.lower[:,i]) # Use _A when cornered on lb
+    return _Jx, J_x
