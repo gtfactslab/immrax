@@ -88,6 +88,15 @@ class System (abc.ABC) :
         saveat = SaveAt(t0=True, t1=True, steps=True)
         return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
 
+class ReversedSystem (System) :
+    sys:System
+    def __init__ (self, sys:System) :
+        self.evolution = sys.evolution
+        self.xlen = sys.xlen
+        self.sys = sys
+    def f (self, t:Union[Integer,Float], x:jax.Array, *args, **kwargs) -> jax.Array :
+        return -self.sys.f(t, x, *args, **kwargs)
+
 class OpenLoopSystem (System, abc.ABC) :
     """OpenLoopSystem
     An open-loop nonlinear dynamical system of the form 

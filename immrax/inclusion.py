@@ -44,6 +44,10 @@ class Interval :
     def shape (self) -> Tuple[int] :
         return self.lower.shape
 
+    @property
+    def width (self) -> jnp.ndarray :
+        return (self.upper - self.lower)
+
     def __len__ (self) -> int :
         return len(self.lower)
 
