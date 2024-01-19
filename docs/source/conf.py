@@ -35,7 +35,8 @@ author = 'Akash Harapanahalli'
 extensions = [
     'sphinx.ext.autodoc', 
     'sphinx.ext.mathjax',
-    'nbsphinx',
+    # 'nbsphinx',
+    'myst_nb',
 ]
 
 templates_path = ['_templates']
@@ -44,6 +45,8 @@ exclude_patterns = []
 autoclass_content = 'both'
 
 autodoc_member_order = 'bysource'
+
+nb_execution_mode = 'off'
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output

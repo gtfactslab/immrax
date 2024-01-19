@@ -1,4 +1,5 @@
-examples
+.. _examples:
+Examples
 ========
 
 .. toctree::

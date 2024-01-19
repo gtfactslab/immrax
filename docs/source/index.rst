@@ -7,7 +7,7 @@ Interval Analysis and Mixed Monotone Reachability in JAX
    :maxdepth: 2
    :caption: Contents:
 
-   quickstart
+   installation
    examples
    api
 
