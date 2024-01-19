@@ -31,8 +31,8 @@ class NeuralNetwork (Control, eqx.Module) :
     - if load is True, also expects a model.eqx file, for the weights and biases.
     """
     seq:nn.Sequential
-    dir:Path
-    out_len:int
+    dir:Path = eqx.field(static=True)
+    out_len:int = eqx.field(static=True)
 
     def __init__ (self, dir:Path=None, load:bool=True, key:jax.random.PRNGKey=jax.random.PRNGKey(0)) :
         """Initialize a NeuralNetwork using a directory, of the following form
