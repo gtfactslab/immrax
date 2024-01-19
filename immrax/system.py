@@ -17,12 +17,12 @@ class EvolutionError (Exception) :
 
 class System (abc.ABC) :
     """System
-
-    An ODE of the form 
-
+    
+    An ODE of the form
+    
     .. math::
         \\dot{x} = f(t, x, \\dots),
-
+    
     where :math:`t\\in\\T\\in\\{\\mathbb{Z},\\mathbb{R}\\}` is a discrete or continuous time variable, :math:`x\\in\\mathbb{R}^n` is the state of the system, and :math:`\\dots` are some other inputs, perhaps control and disturbance.
     """
     evolution:Literal['continuous', 'discrete']
@@ -32,26 +32,45 @@ class System (abc.ABC) :
     def f (self, t:Union[Integer,Float], x:jax.Array, *args, **kwargs) -> jax.Array :
         """The right hand side of the system
 
-        Args:
-            t (Union[Integer,Float]): The time of the system
-            x (jax.Array): The state of the system
-            *args: control inputs, disturbance inputs, etc. Depends on parent class.
+        Parameters
+        ----------
+        t : Union[Integer, Float]
+            The time of the system
+        x : jax.Array
+            The state of the system
+        *args :
+            control inputs, disturbance inputs, etc. Depends on parent class.
+        **kwargs :
+            
 
-        Returns:
-            jax.Array: The time evolution of the state
+        Returns
+        -------
+        jax.Array
+            The time evolution of the state
+
         """
     
     def fi (self, i:int, t:Union[Integer,Float], x:jax.Array, *args, **kwargs) -> jax.Array :
         """The i-th component of the right hand side of the system
 
-        Args:
-            i (int): component
-            t (Union[Integer,Float]): The time of the system
-            x (jax.Array): The state of the system
-            *args: control inputs, disturbance inputs, etc. Depends on parent class.
+        Parameters
+        ----------
+        i : int
+            component
+        t : Union[Integer, Float]
+            The time of the system
+        x : jax.Array
+            The state of the system
+        *args :
+            control inputs, disturbance inputs, etc. Depends on parent class.
+        **kwargs :
+            
 
-        Returns:
-            jax.Array: The i-th component of the time evolution of the state
+        Returns
+        -------
+        jax.Array
+            The i-th component of the time evolution of the state
+
         """
     
         return self.f(t,x,*args,**kwargs)[i]
@@ -88,21 +107,29 @@ class System (abc.ABC) :
         saveat = SaveAt(t0=True, t1=True, steps=True)
         return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
 
+
 class ReversedSystem (System) :
+    """ReversedSystem
+    A system with time reversed dynamics, i.e. :math:`\\dot{x} = -f(t,x,...)`.
+    """
     sys:System
-    def __init__ (self, sys:System) :
+    def __init__(self, sys:System) -> None:
         self.evolution = sys.evolution
         self.xlen = sys.xlen
         self.sys = sys
+
     def f (self, t:Union[Integer,Float], x:jax.Array, *args, **kwargs) -> jax.Array :
-        return -self.sys.f(t, x, *args, **kwargs)
+        return -self.sys.f(t,x,*args,**kwargs)
+
+# def revsys (sys:System) :
+#     return ReversedSystem(sys)
 
 class OpenLoopSystem (System, abc.ABC) :
     """OpenLoopSystem
-    An open-loop nonlinear dynamical system of the form 
-
+    An open-loop nonlinear dynamical system of the form
+    
     .. math::
-
+    
         \\dot{x} = f(x,u,w),
     
     where :math:`x\\in\\mathbb{R}^n` is the state of the system, :math:`u\\in\\mathbb{R}^p` is a control input to the system, and :math:`w\\in\\mathbb{R}^q` is a disturbance input.
@@ -112,28 +139,45 @@ class OpenLoopSystem (System, abc.ABC) :
     def f(self, t:Union[Integer,Float], x:jax.Array, u:jax.Array, w:jax.Array) -> jax.Array :
         """The right hand side of the open-loop system
 
-        Args:
-            t (Union[Integer,Float]): The time of the system
-            x (jax.Array): The state of the system
-            u (jax.Array): The control input to the system
-            w (jax.Array): The disturbance input to the system
+        Parameters
+        ----------
+        t : Union[Integer, Float]
+            The time of the system
+        x : jax.Array
+            The state of the system
+        u : jax.Array
+            The control input to the system
+        w : jax.Array
+            The disturbance input to the system
 
-        Returns:
-            jax.Array: The time evolution of the state
+        Returns
+        -------
+        jax.Array
+            The time evolution of the state
+
         """
 
     def fi(self, i:int, t:Union[Integer,Float], x:jax.Array, u:jax.Array, w:jax.Array) -> jax.Array :
         """The right hand side of the open-loop system
 
-        Args:
-            i (int): component
-            t (Union[Integer,Float]): The time of the system
-            x (jax.Array): The state of the system
-            u (jax.Array): The control input to the system
-            w (jax.Array): The disturbance input to the system
+        Parameters
+        ----------
+        i : int
+            component
+        t : Union[Integer, Float]
+            The time of the system
+        x : jax.Array
+            The state of the system
+        u : jax.Array
+            The control input to the system
+        w : jax.Array
+            The disturbance input to the system
 
-        Returns:
-            jax.Array: The i-th component of the time evolution of the state
+        Returns
+        -------
+        jax.Array
+            The i-th component of the time evolution of the state
+
         """
         return self.f(t, x, u, w)[i]
 
@@ -153,13 +197,20 @@ class SympySystem (OpenLoopSystem) :
                  f_eqn:List[sympy.Expr], evolution:Literal['continuous','discrete']='continuous') -> None:
         """Initialize an open-loop system using Sympy.
 
-        Args:
-            t_var (sympy.Symbol): Symbolic variable for the time
-            x_vars (List[sympy.Symbol]): Symbolic variables for the state
-            u_vars (List[sympy.Symbol]): Symbolic variables for the control input
-            w_vars (List[sympy.Symbol]): Symbolic variables for the disturbance input
-            f_eqn (List[sympy.Expr]): Symbolic expressions for the RHS
-            evolution (Literal['continuous','discrete'], optional): Type of time evolution. Defaults to 'continuous'.
+        Parameters
+        ----------
+        t_var : sympy.Symbol
+            Symbolic variable for the time
+        x_vars : List[sympy.Symbol]
+            Symbolic variables for the state
+        u_vars : List[sympy.Symbol]
+            Symbolic variables for the control input
+        w_vars : List[sympy.Symbol]
+            Symbolic variables for the disturbance input
+        f_eqn : List[sympy.Expr]
+            Symbolic expressions for the RHS
+        evolution : Literal['continuous','discrete'], optional
+            Type of time evolution, by default 'continuous'
         """
         self.evolution = evolution
 
@@ -179,14 +230,10 @@ class SympySystem (OpenLoopSystem) :
     def _txuw_to_kwargs(self, t:Union[Integer,Float], x:jax.Array, u:jax.Array, w:jax.Array) -> dict :
         """Return the kwargs to the SymbolicModule from sympy2jax given a specific value.
 
-        Args:
-            t (Union[Integer,Float]): state value
-            x (jax.Array): state value
-            u (jax.Array): control value
-            w (jax.Array): disturbance value
-
-        Returns:
-            dict: {name: value} pairs for each symbol and value
+        Returns
+        -------
+        dict
+            {name: value} pairs for each symbol and value
         """
         return {
             self.t_var.name: t,
@@ -198,19 +245,27 @@ class SympySystem (OpenLoopSystem) :
 
     def f (self, t:Union[Integer,Float], x:jax.Array, u:jax.Array, w:jax.Array) -> jax.Array :
         """Get the value of the RHS of the dynamical system.
-
+        
         .. math ::
-
+        
             f (t, x, u, w)
 
-        Args:
-            t (Union[Integer,Float]): state value
-            x (jax.Array): state value
-            u (jax.Array): control value
-            w (jax.Array): disturbance value
+        Parameters
+        ----------
+        t : Union[Integer, Float]
+            state value
+        x : jax.Array
+            state value
+        u : jax.Array
+            control value
+        w : jax.Array
+            disturbance value
 
-        Returns:
-            jax.Array: :math:`f(t,x,u,w)`
+        Returns
+        -------
+        jax.Array
+            :math:`f(t,x,u,w)`
+
         """
         x = jnp.asarray(x); u = jnp.asarray(u); w = jnp.asarray(w)
         return jnp.asarray(self._f(**self._txuw_to_kwargs(t,x,u,w)))
@@ -218,15 +273,24 @@ class SympySystem (OpenLoopSystem) :
     def fi (self, i:int, t:[Integer,Float], x:jax.Array, u:jax.Array, w:jax.Array) -> jax.Array :
         """Get the value of the i-th component of the RHS of the dynamical system.
 
-        Args:
-            i (int): component
-            t (Union[Integer,Float]): state value
-            x (jax.Array): state value
-            u (jax.Array): control value
-            w (jax.Array): disturbance value
+        Parameters
+        ----------
+        i : int
+            component
+        t : Union[Integer, Float]
+            state value
+        x : jax.Array
+            state value
+        u : jax.Array
+            control value
+        w : jax.Array
+            disturbance value
+ 
+        Returns
+        -------
+        jax.Array
+            :math:`f_i(t,x,u,w)`
 
-        Returns:
-            jax.Array: :math:`f_i(t,x,u,w)`
         """
         x = jnp.asarray(x); u = jnp.asarray(u); w = jnp.asarray(w)
         return jnp.asarray(self._fi[i](**self._txuw_to_kwargs(t,x,u,w)))

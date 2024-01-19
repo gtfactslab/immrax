@@ -12,7 +12,19 @@ class Control (abc.ABC) :
     """
     @abc.abstractmethod
     def u(self, t:Union[Integer,Float], x:jax.Array) -> jax.Array :
-        """Feedback Control Output"""
+        """Feedback Control Output
+
+        Parameters
+        ----------
+        t:Union[Integer, Float] :
+            
+        x:jax.Array :
+            
+
+        Returns
+        -------
+
+        """
 
 class LinearControl (Control) :
     K: jax.Array
@@ -24,9 +36,9 @@ class LinearControl (Control) :
 class ControlledSystem (System) :
     """ControlledSystem
     A closed-loop nonlinear dynamical system of the form
-
+    
     .. math::
-
+    
         \\dot{x} = f^{\\textsf{c}}(x,w) = f(x,N(x),w),
     
     where :math:`N:\\mathbb{R}^n \\to \\mathbb{R}^p`.
@@ -43,13 +55,20 @@ class ControlledSystem (System) :
     def f (self, t:Union[Integer,Float], x:jax.Array, w:jax.Array) -> jax.Array :
         """Returns the value of the closed loop system
 
-        Args:
-            t (Union[Integer,Float]): time value
-            x (jax.Array): state value
-            w (jax.Array): disturbance value
+        Parameters
+        ----------
+        t : Union[Integer, Float]
+            time value
+        x : jax.Array
+            state value
+        w : jax.Array
+            disturbance value
 
-        Returns:
-            jax.Array: :math:`f^{\\textsf{c}}(x,w) = f(x,N(x),w)`
+        Returns
+        -------
+        jax.Array
+            :math:`f^{\\textsf{c}}(x,w) = f(x,N(x),w)`
+
         """
         # x = jnp.asarray(x); w = jnp.asarray(w)
         return self.olsystem.f(t, x, self.control.u(t, x), w)

@@ -18,11 +18,11 @@ from jax._src.api import api_boundary
 @register_pytree_node_class
 class Interval :
     """Interval: A class to represent an interval in :math:`\\mathbb{R}^n`.
-
+    
     Use the helper functions :func:`interval`, :func:`icentpert`, :func:`i2centpert`, :func:`i2lu`, :func:`i2ut`, and :func:`ut2i` to create and manipulate intervals.
-
+    
     Use the transforms :func:`natif`, :func:`jacif`, :func:`mjacif`, :func:`mjacM`, to create inclusion functions.
-
+    
     Composable with typical jax transforms, such as :func:`jax.jit`, :func:`jax.grad`, and :func:`jax.vmap`.
     """
     lower: jax.Array
@@ -45,8 +45,8 @@ class Interval :
         return self.lower.shape
 
     @property
-    def width (self) -> jnp.ndarray :
-        return (self.upper - self.lower)
+    def width(self) -> jax.Array :
+        return self.upper - self.lower
 
     def __len__ (self) -> int :
         return len(self.lower)
@@ -93,12 +93,19 @@ class Interval :
 def interval (lower:ArrayLike, upper:ArrayLike=None) :
     """interval: Helper to create a Interval from a lower and upper bound.
 
-    Args:
-        lower (ArrayLike): Lower bound of the interval.
-        upper (ArrayLike, optional): Upper bound of the interval. Set to lower bound if None. Defaults to None.
+    Parameters
+    ----------
+    lower : ArrayLike
+        Lower bound of the interval.
+    upper : ArrayLike
+        Upper bound of the interval. Set to lower bound if None. Defaults to None.
+    lower:ArrayLike :
 
-    Returns:
-        Interval: [lower, upper], or [lower, lower] if upper is None.
+    Returns
+    -------
+    Interval
+        [lower, upper], or [lower, lower] if upper is None.
+
     """
     if isinstance (lower, Interval) and upper is None :
         return lower
@@ -115,12 +122,18 @@ def interval (lower:ArrayLike, upper:ArrayLike=None) :
 def icentpert (cent:ArrayLike, pert:ArrayLike) -> Interval :
     """icentpert: Helper to create a Interval from a center of an interval and a perturbation.
 
-    Args:
-        cent (ArrayLike): Center of the interval, i.e., (l + u)/2
-        pert (ArrayLike): l-inf perturbation from the center, i.e., (u - l)/2
+    Parameters
+    ----------
+    cent : ArrayLike
+        Center of the interval, i.e., (l + u)/2
+    pert : ArrayLike
+        l-inf perturbation from the center, i.e., (u - l)/2
 
-    Returns:
-        Interval: Interval [cent - pert, cent + pert]
+    Returns
+    -------
+    Interval
+        Interval [cent - pert, cent + pert]
+
     """
     cent = jnp.asarray(cent)
     pert = jnp.asarray(pert)
@@ -130,57 +143,84 @@ def icentpert (cent:ArrayLike, pert:ArrayLike) -> Interval :
 def i2centpert (i:Interval) -> Tuple[jax.Array, jax.Array] :
     """i2centpert: Helper to get the center and perturbation from the center of a Interval.
 
-    Args:
-        interval (Interval): _description_
+    Parameters
+    ----------
+    i : Interval
+        _description_
 
-    Returns:
-        Tuple[jax.Array, jax.Array]: ((l + u)/2, (u - l)/2)
+    Returns
+    -------
+    Tuple[jax.Array, jax.Array]
+        ((l + u)/2, (u - l)/2)
+
     """
     return (i.lower + i.upper)/2, (i.upper - i.lower)/2
 
 def i2lu (i:Interval) -> Tuple[jax.Array, jax.Array] :
     """i2lu: Helper to get the lower and upper bound of a Interval.
 
-    Args:
-        interval (Interval): _description_
+    Parameters
+    ----------
+    interval : Interval
+        _description_
 
-    Returns:
-        Tuple[jax.Array, jax.Array]: (l, u)
+    Returns
+    -------
+    Tuple[jax.Array, jax.Array]
+        (l, u)
+
     """
     return (i.lower, i.upper)
 
 def lu2i (l:jax.Array, u:jax.Array) -> Interval :
     """lu2i: Helper to create a Interval from a lower and upper bound.
 
-    Args:
-        l (jax.Array): Lower bound of the interval.
-        u (jax.Array): Upper bound of the interval.
+    Parameters
+    ----------
+    l : jax.Array
+        Lower bound of the interval.
+    u : jax.Array
+        Upper bound of the interval.
 
-    Returns:
-        Interval: [l, u]
+    Returns
+    -------
+    Interval
+        [l, u]
+
     """
     return interval(l, u)
 
 def i2ut (i:Interval) -> jax.Array :
     """i2ut: Helper to convert an interval to an upper triangular coordinate in :math:`\\mathbb{R}\\times\\mathbb{R}`.
 
-    Args:
-        interval (Interval): interval to convert
+    Parameters
+    ----------
+    interval : Interval
+        interval to convert
 
-    Returns:
-        jax.Array: upper triangular coordinate in :math:`\\mathbb{R}\\times\\mathbb{R}`
+    Returns
+    -------
+    jax.Array
+        upper triangular coordinate in :math:`\\mathbb{R}\\times\\mathbb{R}`
+
     """
     return jnp.concatenate((i.lower, i.upper))
 
 def ut2i (coordinate:jax.Array, n:int=None) -> Interval :
     """ut2i: Helper to convert an upper triangular coordinate in :math:`\\mathbb{R}\\times\\mathbb{R}` to an interval.
 
-    Args:
-        coordinate (jax.Array): upper triangular coordinate to convert
-        n (int, optional): length of interval, automatically determined if None. Defaults to None.
+    Parameters
+    ----------
+    coordinate : jax.Array
+        upper triangular coordinate to convert
+    n : int
+        length of interval, automatically determined if None. Defaults to None.
 
-    Returns:
-        Interval: interval representation of the coordinate
+    Returns
+    -------
+    Interval
+        interval representation of the coordinate
+
     """
     if n is None :
         n = len(coordinate) // 2
@@ -189,12 +229,18 @@ def ut2i (coordinate:jax.Array, n:int=None) -> Interval :
 def izeros (shape:Tuple[int], dtype:np.dtype=jnp.float32) -> Interval :
     """izeros: Helper to create a Interval of zeros.
 
-    Args:
-        shape (Tuple[int]): shape of the interval
-        dtype (np.dtype, optional): dtype of the interval. Defaults to jnp.float32.
+    Parameters
+    ----------
+    shape : Tuple[int]
+        shape of the interval
+    dtype : np.dtype
+        dtype of the interval. Defaults to jnp.float32.
 
-    Returns:
-        Interval: interval of zeros
+    Returns
+    -------
+    Interval
+        interval of zeros
+
     """
     return interval(jnp.zeros(shape, dtype), jnp.zeros(shape, dtype))
 
@@ -203,11 +249,16 @@ inclusion_registry = {}
 def _make_inclusion_passthrough_p (primitive:Primitive) -> Callable[..., Interval] :
     """Creates an inclusion function that applies to the lower and upper bounds individually
 
-    Args:
-        primitive (Primitive): Primitive to wrap
+    Parameters
+    ----------
+    primitive : Primitive
+        Primitive to wrap
 
-    Returns:
-        Callable[..., Interval]: Inclusion Function to bind in natif
+    Returns
+    -------
+    Callable[..., Interval]
+        Inclusion Function to bind in natif
+
     """
     def _inclusion_p (*args, **kwargs) -> Interval :
         args_l = [(arg.lower if isinstance(arg, Interval) else arg) for arg in args]
@@ -335,6 +386,11 @@ def _inclusion_integer_pow_p (x:Interval, y: int) -> Interval :
 inclusion_registry[lax.integer_pow_p] = _inclusion_integer_pow_p
 Interval.__pow__ = _inclusion_integer_pow_p
 
+"""
+The following two functions were taken and modified from jax_verify.
+_move_axes, and _inclusion_dot_general_p
+"""
+
 def _move_axes(
     bound: Interval, cdims: Tuple[int, ...], bdims: Tuple[int, ...],
     orig_axis: int, new_axis: int,
@@ -397,15 +453,32 @@ def _inclusion_dot_general_p(lhs: Interval, rhs: Interval, **kwargs) -> Interval
                inp: Tuple[Tuple[ArrayLike, ArrayLike], Tuple[ArrayLike, ArrayLike]]
                ) -> Tuple[Tuple[ArrayLike, ArrayLike], None]:
     """Accumulates the minimum and maximum as inp traverse the first dimension.
-
+    
     (The first dimension is where we have merged all contracting dimensions.)
 
-    Args:
-      carry: Current running sum of the lower bound and upper bound
-      inp: Slice of the input tensors.
-    Returns:
-      updated_carry: New version of the running sum including these elements.
-      None
+    Parameters
+    ----------
+    carry :
+        Current running sum of the lower bound and upper bound
+    carry: Tuple[ArrayLike :
+        
+    ArrayLike] :
+        
+    inp: Tuple[Tuple[ArrayLike :
+        
+    Tuple[ArrayLike :
+        
+    ArrayLike]] :
+        
+
+    Returns
+    -------
+    updated_carry
+        New version of the running sum including these elements.
+    updated_carry
+        New version of the running sum including these elements.
+        None
+
     """
 
     (lhs_low, lhs_up), (rhs_low, rhs_up) = inp
@@ -505,14 +578,19 @@ inclusion_registry[lax.pow_p] = _inclusion_pow_p
 
 def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Natural Inclusion Function of f using natif.
-
+    
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
 
-    Args:
-        fun (Callable[..., jax.Array]): Function to construct Natural Inclusion Function from
+    Parameters
+    ----------
+    f : Callable[..., jax.Array]
+        Function to construct Natural Inclusion Function from
 
-    Returns:
-        Callable[..., Interval]: Natural Inclusion Function of f
+    Returns
+    -------
+    Callable[..., Interval]
+        Natural Inclusion Function of f
+
     """
     def natif_jaxpr (jaxpr, consts, *args) :
         env = {}
@@ -549,8 +627,16 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     def wrapped (*args, **kwargs) :
         f"""Natural inclusion function of {f.__name__}.
 
-        Returns:
-            _type_: _description_
+        Parameters
+        ----------
+        *args :
+            
+        **kwargs :
+
+        Returns
+        -------
+        _type_
+            _description_
         """
         # args = [interval(arg) for arg in args]
         buildargs = [(arg.lower if isinstance(arg, Interval) else arg) for arg in args]
@@ -564,28 +650,45 @@ Interval.__matmul__ = natif(jnp.matmul)
 
 def jacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Jacobian Inclusion Function of f using natif.
-
+    
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
 
-    Args:
-        f (Callable[..., jax.Array]): Function to construct Jacobian Inclusion Function from
+    Parameters
+    ----------
+    f : Callable[..., jax.Array]
+        Function to construct Jacobian Inclusion Function from
+        
+    Returns
+    -------
+    Callable[..., Interval]
+        Jacobian-Based Inclusion Function of f
 
-    Returns:
-        Callable[..., Interval]: Jacobian-Based Inclusion Function of f
     """
 
     @jit
     @api_boundary
     def F (*args, centers:jax.Array|Sequence[jax.Array]|None = None, **kwargs) -> Interval :
         """Jacobian-based Inclusion Function of f.
-
+        
         All positional arguments from f should be replaced with interval arguments for the inclusion function.
-
+        
         Additional Args:
             centers (jax.Array | Sequence[jax.Array] | None, optional): _description_. Defaults to None.
 
-        Returns:
-            Interval: Interval output from the Jacobian-based Inclusion Function
+        Parameters
+        ----------
+        *args :
+            
+        centers:jax.Array|Sequence[jax.Array]|None :
+             (Default value = None)
+        **kwargs :
+            
+
+        Returns
+        -------
+        Interval
+            Interval output from the Jacobian-based Inclusion Function
+
         """
         if centers is None :
             centers = [tuple([(x.lower + x.upper)/2 for x in args])]
@@ -659,31 +762,53 @@ def all_corners (n:int) -> Tuple[Corner] :
 
 def mjacM (f:Callable[..., jax.Array]) -> Callable :
     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
-
+    
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
 
-    Args:
-        f (Callable[..., jax.Array]): Function to construct Mixed Jacobian Inclusion Function from
+    Parameters
+    ----------
+    f : Callable[..., jax.Array]
+        Function to construct Mixed Jacobian Inclusion Function from
 
-    Returns:
-        Callable[..., Interval]: Mixed Jacobian-Based Inclusion Function of f
+    Returns
+    -------
+    Callable[..., Interval]
+        Mixed Jacobian-Based Inclusion Function of f
+
     """
 
     @partial(jit,static_argnames=['orderings', 'corners'])
     @api_boundary
     def F (*args, orderings:Tuple[Ordering]|None = None, centers:jax.Array|Sequence[jax.Array]|None = None, 
            corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
-        """Mixed Jacobian-based Inclusion Function of f.
+        """_summary_
 
-        All positional arguments from f should be replaced with interval arguments for the inclusion function.
+        Parameters
+        ----------
+        orderings : Tuple[Ordering] | None, optional
+            _description_, by default None
+        centers : jax.Array | Sequence[jax.Array] | None, optional
+            _description_, by default None
+        corners : Tuple[Corner] | None, optional
+            _description_, by default None
 
-        Additional Args:
-            orderings (Tuple[Ordering] | None, optional): Tuple of Orderings to consider. Defaults to None.
-            centers (jax.Array | Sequence[jax.Array] | None, optional): _description_. Defaults to None.
-            corners (Tuple[Corner] | None, optional): _description_. Defaults to None.
+        Returns
+        -------
+        Interval
+            _description_
 
-        Returns:
-            Interval: Interval output from the Jacobian-based Inclusion Function
+        Raises
+        ------
+        Exception
+            _description_
+        Exception
+            _description_
+        Exception
+            _description_
+        Exception
+            _description_
+        Exception
+            _description_
         """
         args = [interval(arg).atleast_1d() for arg in args]
         leninputsfull = tuple([len(x) for x in args])
@@ -761,14 +886,19 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
 
 def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Mixed Jacobian Inclusion Function of f using natif.
-
+    
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
 
-    Args:
-        f (Callable[..., jax.Array]): Function to construct Mixed Jacobian Inclusion Function from
+    Parameters
+    ----------
+    f : Callable[..., jax.Array]
+        Function to construct Mixed Jacobian Inclusion Function from
 
-    Returns:
-        Callable[..., Interval]: Mixed Jacobian-Based Inclusion Function of f
+    Returns
+    -------
+    Callable[..., Interval]
+        Mixed Jacobian-Based Inclusion Function of f
+
     """
 
     # @wraps(f)
@@ -776,16 +906,34 @@ def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     @api_boundary
     def F (*args, orderings:Tuple[Ordering]|None=None, centers:jax.Array|Sequence[jax.Array]|None = None,
            corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
-        """Mixed Jacobian-based Inclusion Function of f.
+        """_summary_
 
-        All positional arguments from f should be replaced with interval arguments for the inclusion function.
+        Parameters
+        ----------
+        orderings : Tuple[Ordering] | None, optional
+            _description_, by default None
+        centers : jax.Array | Sequence[jax.Array] | None, optional
+            _description_, by default None
+        corners : Tuple[Corner] | None, optional
+            _description_, by default None
 
-        Additional Args:
-            orderings (Tuple[Ordering] | None, optional): Tuple of Orderings to consider. Defaults to None.
-            centers (jax.Array | Sequence[jax.Array] | None, optional): _description_. Defaults to None.
+        Returns
+        -------
+        Interval
+            _description_
 
-        Returns:
-            Interval: Interval output from the Jacobian-based Inclusion Function
+        Raises
+        ------
+        Exception
+            _description_
+        Exception
+            _description_
+        Exception
+            _description_
+        Exception
+            _description_
+        Exception
+            _description_
         """
 
         leninputsfull = tuple([len(x) for x in args])

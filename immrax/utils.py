@@ -87,7 +87,6 @@ def get_partitions_ut (x:jax.Array, N:int) -> jax.Array :
     n = len(x) // 2
     # c^n = N
     c = floor(exp(log(N)/n) + 1e-10)
-    print(c, c**n)
     _x = x[:n]; x_ = x[n:]
     xc = []
     for i in range(c+1) :

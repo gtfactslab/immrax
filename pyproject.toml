@@ -19,4 +19,6 @@ dependencies = [
     "jaxtyping",
     "diffrax",
     "equinox",
+    "immutabledict",
+    "jax_verify@git+https://github.com/Akash-Harapanahalli/jax_verify.git",
 ]

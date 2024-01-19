@@ -21,8 +21,8 @@ class Mock(MagicMock):
 #                 'numpy', 'shapely', 'shapely.geometry', 'shapely.ops']
 # MOCK_MODULES = ['sympy', 'jax_verify', 'jax_verify.src', 'jax_verify.src.linear', 'sympy2jax', 'diffrax', 'equinox', 'equinox.nn', 
 #                 'numpy', 'shapely', 'shapely.geometry', 'shapely.ops']
-# MOCK_MODULES = ['jax_verify', 'jax_verify.src', 'jax_verify.src.linear']
-MOCK_MODULES = []
+MOCK_MODULES = ['jax_verify', 'jax_verify.src', 'jax_verify.src.linear']
+# MOCK_MODULES = []
 sys.modules.update((mod_name, Mock()) for mod_name in MOCK_MODULES)
 
 project = 'immrax'
@@ -32,17 +32,27 @@ author = 'Akash Harapanahalli'
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ['sphinx.ext.autodoc', 'sphinx.ext.mathjax']
+extensions = [
+    'sphinx.ext.autodoc', 
+    'sphinx.ext.mathjax',
+    'numpydoc',
+    # 'nbsphinx',
+    'myst_nb',
+]
 
 templates_path = ['_templates']
 exclude_patterns = []
 
 autoclass_content = 'both'
 
+autodoc_member_order = 'bysource'
+
+nb_execution_mode = 'off'
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 # html_theme = 'alabaster'
-html_theme = 'sphinx_rtd_theme'
+# html_theme = 'sphinx_rtd_theme'
+html_theme = 'sphinx_book_theme'
 html_static_path = ['_static']

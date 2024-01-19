@@ -22,25 +22,29 @@ class NeuralNetwork (Control, eqx.Module) :
     """NeuralNetwork
     
     A fully connected neural network, that extends immrax.Control and eqx.Module. Loads from a directory.
-
+    
     Expects the following in the directory inputted:
-
+    
     - arch.txt file in the format:
         inputlen numneurons activation numneurons activation ... numneurons outputlen
-
+    
     - if load is True, also expects a model.eqx file, for the weights and biases.
     """
     seq:nn.Sequential
     dir:Path = eqx.field(static=True)
     out_len:int = eqx.field(static=True)
 
-    def __init__ (self, dir:Path=None, load:bool=True, key:jax.random.PRNGKey=jax.random.PRNGKey(0)) :
+    def __init__ (self, dir:Path=None, load:bool|Path=True, key:jax.random.PRNGKey=jax.random.PRNGKey(0)) :
         """Initialize a NeuralNetwork using a directory, of the following form
 
-        Args:
-            dir (Path, optional): Directory to load from. Defaults to None.
-            load (bool, optional): _description_. Defaults to True.
-            key (jax.random.PRNGKey, optional): _description_. Defaults to jax.random.PRNGKey(0).
+        Parameters
+        ----------
+        dir : Path, optional
+            Directory to load from, by default None
+        load : bool | Path, optional
+            _description_, by default True
+        key : jax.random.PRNGKey, optional
+            _description_, by default jax.random.PRNGKey(0)
         """
         Control.__init__(self)
         eqx.Module.__init__(self)
@@ -68,15 +72,29 @@ class NeuralNetwork (Control, eqx.Module) :
 
         self.seq = nn.Sequential(mods)
 
-        if load :
-            loadpath = self.dir.joinpath('model.eqx')
+        if isinstance(load, bool) :
+            if load :
+                loadpath = self.dir.joinpath('model.eqx')
+                self.seq = eqx.tree_deserialise_leaves(loadpath, self.seq)
+                print(f'Successfully loaded model from {loadpath}')
+        elif isinstance(load, str) or isinstance(load, Path) :
+            loadpath = Path(load).joinpath('model.eqx')
             self.seq = eqx.tree_deserialise_leaves(loadpath, self.seq)
-            # print(f'Successfully loaded model from {loadpath}')
+            print(f'Successfully loaded model from {loadpath}')
 
     def save (self) :
         savepath = self.dir.joinpath('model.eqx')
-        print(f'Saving model to {savepath}')
+        print(f'Saving model to {savepath}...', end='')
         eqx.tree_serialise_leaves(savepath, self.seq)
+        print(f' done.')
+
+    # def load (self, path) :
+    #     loadpath = Path(path).joinpath('model.eqx')
+    #     self.seq = eqx.tree_deserialise_leaves(loadpath, self.seq)
+    #     print(f'Successfully loaded model from {loadpath}')
+
+    # def set_dir (self, dir:Path) :
+    #     self.dir = Path(dir)
 
     def loadnpy (self) :
         import numpy as np
@@ -101,11 +119,22 @@ class NeuralNetwork (Control, eqx.Module) :
         return self.seq(x)
 
     def u(self, t:Union[Integer,Float], x: jax.Array) -> jax.Array :
-        """Feedback Control Output of the Neural Network evaluated at x: N(x)."""
+        """Feedback Control Output of the Neural Network evaluated at x: N(x).
+
+        Parameters
+        ----------
+        t : Union[Integer, Float] :
+            
+        x : jax.Array :
+
+        Returns
+        -------
+
+        """
         return self(x)
 
 """
-The following code was adapted from ______.
+The following code was adapted from ________.
 """
 
 import jax_verify as jv
@@ -122,7 +151,7 @@ def to_jv_interval (x:Interval) -> jv.IntervalBound :
 
 class LinFunExtractionConcretizer(concretization.BackwardConcretizer):
     """Linear function extractor.
-
+    
     Given an objective over an output, extract the corresponding linear
     function over a target node.
     The relation between the output node and the target node are obtained by
@@ -151,6 +180,11 @@ class LinFunExtractionConcretizer(concretization.BackwardConcretizer):
             [self._target_index],
         )
         return target_linfun
+
+""" 
+End of adapted code from ________.
+"""
+
 
 class CROWNResult (namedtuple('CROWNResult', ['lC', 'uC', 'ld', 'ud'])) :
     def __call__(self, x:Union[jax.Array, Interval]) -> Interval:
@@ -182,11 +216,15 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
     ):
         """Run CROWN but return linfuns rather than concretized IntervalBounds.
 
-        Args:
-        bound: jax_verify.IntervalBound, bounds on the inputs of the function.
-        obj: Tensor describing facets of function's output to bound, automated with out_len
-        Returns:
-        output_bound: Bounds on the output of the function obtained by FastLin
+        Parameters
+        ----------
+        bound : 
+            Bounds on the inputs of the function.
+
+        Returns
+        -------
+
+        
         """
 
         bound = to_jv_interval(bound)
@@ -297,11 +335,11 @@ def fastlin (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., Fa
     ):
         """Run CROWN but return linfuns rather than concretized IntervalBounds.
 
-        Args:
-        bound: jax_verify.IntervalBound, bounds on the inputs of the function.
-        obj: Tensor describing facets of function's output to bound, automated with out_len
-        Returns:
-        output_bound: Bounds on the output of the function obtained by FastLin
+        Parameters
+        ----------
+        bound : 
+            bounds on the inputs of the function.
+        
         """
 
         bound = to_jv_interval(bound)
@@ -476,6 +514,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                     Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=ordering, centers=txuw_corners)
 
                 for i, (tc, xc, uc, wc) in enumerate(txuw_corners) :
+                    # print('here: ', tc, xc, uc, wc)
                     # LOWER BOUND
                     c = corners[i]
                     _xi = ut2i(jnp.copy(x).at[i+n].set(x[i]))
@@ -563,6 +602,11 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                                 - D_p@_w + D_p@w_ + fc)
 
             _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
+            
+            # print(corners)
+            # print(txuw_corners)
+            # print(_ret)
+            # print(ret_)
 
             return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
 
