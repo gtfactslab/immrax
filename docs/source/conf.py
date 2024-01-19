@@ -49,6 +49,18 @@ autodoc_member_order = 'bysource'
 
 nb_execution_mode = 'off'
 
+# myst_enable_extensions=["dollarmath","amsmath"]
+# myst_enable_extensions = ["dollarmath"]
+# nb_myst_enable_extensions = ["dollarmath"]
+myst_enable_extensions = [
+    "amsmath",
+    "colon_fence",
+    "deflist",
+    "dollarmath",
+    "html_image",
+]
+myst_url_schemes = ("http", "https", "mailto")
+
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
