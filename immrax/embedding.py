@@ -12,17 +12,16 @@ from functools import partial
 
 class EmbeddingSystem (System, abc.ABC) :
     """EmbeddingSystem
-
-    Embeds a System 
+    
+    Embeds a System
     
     ..math::
-        \\mathbb{R}^n \\times \\text{inputs} \\to\\mathbb{R}^n` 
-        
+        \\mathbb{R}^n \\times \\text{inputs} \\to\\mathbb{R}^n`
+    
     into an Embedding System evolving on the upper triangle
-
+    
     ..math::
         \\mathcal{T}^{2n} \\times \\text{embedded inputs} \\to \\mathbb{T}^{2n}.
-
     """
     sys:System
 
@@ -30,26 +29,43 @@ class EmbeddingSystem (System, abc.ABC) :
     def E(self, t:Union[Integer,Float], x: jax.Array, *args, **kwargs) -> jax.Array :
         """The right hand side of the embedding system.
 
-        Args:
-            t (Union[Integer,Float]): The time of the embedding system.
-            x (jax.Array): The state of the embedding system.
-            *args: interval-valued control inputs, disturbance inputs, etc. Depends on parent class.
+        Parameters
+        ----------
+        t : Union[Integer, Float]
+            The time of the embedding system.
+        x : jax.Array
+            The state of the embedding system.
+        *args :
+            interval-valued control inputs, disturbance inputs, etc. Depends on parent class.
+        **kwargs :
+            
 
-        Returns:
-            jax.Array: The time evolution of the state on the upper triangle
+        Returns
+        -------
+        jax.Array
+            The time evolution of the state on the upper triangle
+
         """
 
     def Ei(self, i:int, t:Union[Integer,Float], x: jax.Array, *args, **kwargs) -> jax.Array :
         """The right hand side of the embedding system.
 
-        Args:
-            i (int): component
-            t (Union[Integer,Float]): The time of the embedding system.
-            x (jax.Array): The state of the embedding system.
-            *args: interval-valued control inputs, disturbance inputs, etc. Depends on parent class.
+        Parameters
+        ----------
+        i : int
+            component
+        t : Union[Integer, Float]
+            The time of the embedding system.
+        x : jax.Array
+            The state of the embedding system.
+        *args :
+            interval-valued control inputs, disturbance inputs, etc. Depends on parent class.
 
-        Returns:
-            jax.Array: The i-th component of the time evolution of the state on the upper triangle
+        Returns
+        -------
+        jax.Array
+            The i-th component of the time evolution of the state on the upper triangle
+
         """
         return self.E(t, x, *args, **kwargs)[i]
 
@@ -61,17 +77,17 @@ class EmbeddingSystem (System, abc.ABC) :
 
 class InclusionEmbedding (EmbeddingSystem) :
     """EmbeddingSystem
-
-    Embeds a System 
+    
+    Embeds a System
     
     ..math::
         \\mathbb{R}^n \\times \\text{inputs} \\to\\mathbb{R}^n`,
-        
+    
     into an Embedding System evolving on the upper triangle
-
+    
     ..math::
         \\mathcal{T}^{2n} \\times \\text{embedded inputs} \\to \\mathbb{T}^{2n},
-
+    
     using an Inclusion Function for the dynamics f.
     """
     sys:System
@@ -128,12 +144,18 @@ class InclusionEmbedding (EmbeddingSystem) :
 def ifemb (sys:System, F:Callable[..., Interval]) :
     """Creates an EmbeddingSystem using an inclusion function for the dynamics of a System.
 
-    Args:
-        sys (System): System to embed
-        F (Callable[..., Interval]): Inclusion function for the dynamics of sys.
+    Parameters
+    ----------
+    sys : System
+        System to embed
+    F : Callable[..., Interval]
+        Inclusion function for the dynamics of sys.
 
-    Returns:
-        EmbeddingSystem: Embedding system from the inclusion function transform.
+    Returns
+    -------
+    EmbeddingSystem
+        Embedding system from the inclusion function transform.
+
     """
     return InclusionEmbedding(sys, F)
 
@@ -141,9 +163,16 @@ class TransformEmbedding (InclusionEmbedding) :
     def __init__(self, sys:System, if_transform = natif) -> None:
         """Initialize an EmbeddingSystem using a System and an inclusion function transform.
 
-        Args:
-            sys (System): _description_
-            if_transform (IFTransform, optional): _description_. Defaults to natif.
+        Parameters
+        ----------
+        sys : System
+            _description_
+        if_transform : IFTransform
+            _description_. Defaults to natif.
+
+        Returns
+        -------
+
         """
         F = if_transform(sys.f)
         # def Fi (i:int, *args, **kwargs) :
@@ -153,33 +182,48 @@ class TransformEmbedding (InclusionEmbedding) :
 def natemb (sys:System) :
     """Creates an EmbeddingSystem using the natural inclusion function of the dynamics of a System.
 
-    Args:
-        sys (System): System to embed
+    Parameters
+    ----------
+    sys : System
+        System to embed
 
-    Returns:
-        EmbeddingSystem: Embedding system from the natural inclusion function transform.
+    Returns
+    -------
+    EmbeddingSystem
+        Embedding system from the natural inclusion function transform.
+
     """
     return TransformEmbedding(sys, if_transform=natif)
 
 def jacemb (sys:System) :
     """Creates an EmbeddingSystem using the Jacobian-based inclusion function of the dynamics of a System.
 
-    Args:
-        sys (System): System to embed
+    Parameters
+    ----------
+    sys : System
+        System to embed
 
-    Returns:
-        EmbeddingSystem: Embedding system from the Jacobian-based inclusion function transform.
+    Returns
+    -------
+    EmbeddingSystem
+        Embedding system from the Jacobian-based inclusion function transform.
+
     """
     return TransformEmbedding(sys, if_transform=jacif)
 
 def mjacemb (sys:System) :
     """Creates an EmbeddingSystem using the Mixed Jacobian-based inclusion function of the dynamics of a System.
 
-    Args:
-        sys (System): System to embed
+    Parameters
+    ----------
+    sys : System
+        System to embed
 
-    Returns:
-        EmbeddingSystem: Embedding system from the Mixed Jacobian-based inclusion function transform.
+    Returns
+    -------
+    EmbeddingSystem
+        Embedding system from the Mixed Jacobian-based inclusion function transform.
+
     """
     return TransformEmbedding(sys, if_transform=mjacif)
 

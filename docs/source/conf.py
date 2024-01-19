@@ -35,6 +35,7 @@ author = 'Akash Harapanahalli'
 extensions = [
     'sphinx.ext.autodoc', 
     'sphinx.ext.mathjax',
+    'numpydoc',
     # 'nbsphinx',
     'myst_nb',
 ]

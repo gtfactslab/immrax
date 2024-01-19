@@ -22,12 +22,12 @@ class NeuralNetwork (Control, eqx.Module) :
     """NeuralNetwork
     
     A fully connected neural network, that extends immrax.Control and eqx.Module. Loads from a directory.
-
+    
     Expects the following in the directory inputted:
-
+    
     - arch.txt file in the format:
         inputlen numneurons activation numneurons activation ... numneurons outputlen
-
+    
     - if load is True, also expects a model.eqx file, for the weights and biases.
     """
     seq:nn.Sequential
@@ -37,10 +37,14 @@ class NeuralNetwork (Control, eqx.Module) :
     def __init__ (self, dir:Path=None, load:bool|Path=True, key:jax.random.PRNGKey=jax.random.PRNGKey(0)) :
         """Initialize a NeuralNetwork using a directory, of the following form
 
-        Args:
-            dir (Path, optional): Directory to load from. Defaults to None.
-            load (bool, optional): _description_. Defaults to True.
-            key (jax.random.PRNGKey, optional): _description_. Defaults to jax.random.PRNGKey(0).
+        Parameters
+        ----------
+        dir : Path, optional
+            Directory to load from, by default None
+        load : bool | Path, optional
+            _description_, by default True
+        key : jax.random.PRNGKey, optional
+            _description_, by default jax.random.PRNGKey(0)
         """
         Control.__init__(self)
         eqx.Module.__init__(self)
@@ -115,11 +119,22 @@ class NeuralNetwork (Control, eqx.Module) :
         return self.seq(x)
 
     def u(self, t:Union[Integer,Float], x: jax.Array) -> jax.Array :
-        """Feedback Control Output of the Neural Network evaluated at x: N(x)."""
+        """Feedback Control Output of the Neural Network evaluated at x: N(x).
+
+        Parameters
+        ----------
+        t : Union[Integer, Float] :
+            
+        x : jax.Array :
+
+        Returns
+        -------
+
+        """
         return self(x)
 
 """
-The following code was adapted from ______.
+The following code was adapted from ________.
 """
 
 import jax_verify as jv
@@ -136,7 +151,7 @@ def to_jv_interval (x:Interval) -> jv.IntervalBound :
 
 class LinFunExtractionConcretizer(concretization.BackwardConcretizer):
     """Linear function extractor.
-
+    
     Given an objective over an output, extract the corresponding linear
     function over a target node.
     The relation between the output node and the target node are obtained by
@@ -165,6 +180,11 @@ class LinFunExtractionConcretizer(concretization.BackwardConcretizer):
             [self._target_index],
         )
         return target_linfun
+
+""" 
+End of adapted code from ________.
+"""
+
 
 class CROWNResult (namedtuple('CROWNResult', ['lC', 'uC', 'ld', 'ud'])) :
     def __call__(self, x:Union[jax.Array, Interval]) -> Interval:
@@ -196,11 +216,15 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
     ):
         """Run CROWN but return linfuns rather than concretized IntervalBounds.
 
-        Args:
-        bound: jax_verify.IntervalBound, bounds on the inputs of the function.
-        obj: Tensor describing facets of function's output to bound, automated with out_len
-        Returns:
-        output_bound: Bounds on the output of the function obtained by FastLin
+        Parameters
+        ----------
+        bound : 
+            Bounds on the inputs of the function.
+
+        Returns
+        -------
+
+        
         """
 
         bound = to_jv_interval(bound)
@@ -311,11 +335,11 @@ def fastlin (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., Fa
     ):
         """Run CROWN but return linfuns rather than concretized IntervalBounds.
 
-        Args:
-        bound: jax_verify.IntervalBound, bounds on the inputs of the function.
-        obj: Tensor describing facets of function's output to bound, automated with out_len
-        Returns:
-        output_bound: Bounds on the output of the function obtained by FastLin
+        Parameters
+        ----------
+        bound : 
+            bounds on the inputs of the function.
+        
         """
 
         bound = to_jv_interval(bound)
