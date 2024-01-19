@@ -34,7 +34,7 @@ class NeuralNetwork (Control, eqx.Module) :
     dir:Path
     out_len:int
 
-    def __init__ (self, dir:Path=None, load:bool=True, key:jax.random.PRNGKey=jax.random.PRNGKey(0)) :
+    def __init__ (self, dir:Path=None, load:bool|Path=True, key:jax.random.PRNGKey=jax.random.PRNGKey(0)) :
         """Initialize a NeuralNetwork using a directory, of the following form
 
         Args:
@@ -68,15 +68,29 @@ class NeuralNetwork (Control, eqx.Module) :
 
         self.seq = nn.Sequential(mods)
 
-        if load :
-            loadpath = self.dir.joinpath('model.eqx')
+        if isinstance(load, bool) :
+            if load :
+                loadpath = self.dir.joinpath('model.eqx')
+                self.seq = eqx.tree_deserialise_leaves(loadpath, self.seq)
+                print(f'Successfully loaded model from {loadpath}')
+        elif isinstance(load, str) or isinstance(load, Path) :
+            loadpath = Path(load).joinpath('model.eqx')
             self.seq = eqx.tree_deserialise_leaves(loadpath, self.seq)
-            # print(f'Successfully loaded model from {loadpath}')
+            print(f'Successfully loaded model from {loadpath}')
 
     def save (self) :
         savepath = self.dir.joinpath('model.eqx')
-        print(f'Saving model to {savepath}')
+        print(f'Saving model to {savepath}...', end='')
         eqx.tree_serialise_leaves(savepath, self.seq)
+        print(f' done.')
+
+    # def load (self, path) :
+    #     loadpath = Path(path).joinpath('model.eqx')
+    #     self.seq = eqx.tree_deserialise_leaves(loadpath, self.seq)
+    #     print(f'Successfully loaded model from {loadpath}')
+
+    # def set_dir (self, dir:Path) :
+    #     self.dir = Path(dir)
 
     def loadnpy (self) :
         import numpy as np
@@ -476,6 +490,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                     Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=ordering, centers=txuw_corners)
 
                 for i, (tc, xc, uc, wc) in enumerate(txuw_corners) :
+                    # print('here: ', tc, xc, uc, wc)
                     # LOWER BOUND
                     c = corners[i]
                     _xi = ut2i(jnp.copy(x).at[i+n].set(x[i]))
@@ -563,6 +578,11 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                                 - D_p@_w + D_p@w_ + fc)
 
             _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
+            
+            # print(corners)
+            # print(txuw_corners)
+            # print(_ret)
+            # print(ret_)
 
             return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
 

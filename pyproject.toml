@@ -19,4 +19,7 @@ dependencies = [
     "jaxtyping",
     "diffrax",
     "equinox",
+    "immutabledict",
+    "einshape@git+https://github.com/google-deepmind/einshape.git",
+    "jax_verify@git+https://github.com/google-deepmind/jax_verify.git",
 ]

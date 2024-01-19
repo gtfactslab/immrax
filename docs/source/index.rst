@@ -1,16 +1,15 @@
-.. immrax documentation master file, created by
-   sphinx-quickstart on Mon Sep 25 05:55:42 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+Interval Analysis and Mixed Monotone Reachability in JAX
+========================================================
 
-Welcome to immrax's documentation!
-==================================
+``immrax`` is a tool for interval analysis and mixed monotone reachability analysis in JAX.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-   modules
+   quickstart
+   examples
+   api
 
 
 Indices and tables
