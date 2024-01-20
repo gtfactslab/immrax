@@ -35,9 +35,9 @@ author = 'Akash Harapanahalli'
 extensions = [
     'sphinx.ext.autodoc', 
     'sphinx.ext.mathjax',
-    'numpydoc',
     # 'nbsphinx',
     'myst_nb',
+    'numpydoc',
 ]
 
 templates_path = ['_templates']
@@ -60,6 +60,7 @@ myst_enable_extensions = [
     "html_image",
 ]
 myst_url_schemes = ("http", "https", "mailto")
+# myst_update_mathjax = False
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
