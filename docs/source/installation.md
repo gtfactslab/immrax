@@ -1,10 +1,4 @@
-# immrax
-`immrax` is a tool for interval analysis and mixed monotone reachability analysis in JAX.
-
-Inclusion function transformations are composable with existing JAX transformations, allowing the use of Automatic Differentiation to learn relationships between inputs and outputs, as well as parallelization and GPU capabilities for quick, accurate reachable set estimation.
-
-For more information, please see the full [documentation](https://immrax.readthedocs.io).
-
+(Installation)=
 # Installation
 
 ## Setting up a `conda` environment
@@ -52,7 +46,7 @@ This should return the outputs of different inclusion functions as well as their
 
 ## Installing `cyipopt` and `coinhsl` (optional)
 
-If you would like to run the [pendulum optimal control example](examples/pendulum/pendulum.ipynb), you need to install IPOPT and the MA57 linear solver from HSL.
+If you would like to run the [pendulum optimal control example](Pendulum), you need to install IPOPT and the MA57 linear solver from HSL.
 
 First, install `cyipopt` (more instructions [here](https://cyipopt.readthedocs.io/en/stable/install.html)).
 ```shell

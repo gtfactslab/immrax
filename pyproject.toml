@@ -1,0 +1,24 @@
+# [build-system]
+# requires = [""]
+
+[tool.setuptools]
+packages = ["immrax"]
+
+[project]
+name = "immrax"
+version = "0.1.0"
+dependencies = [
+    "numpy",
+    "scipy",
+    "tqdm",
+    "shapely",
+    "matplotlib",
+    "tabulate",
+    "sympy",
+    "sympy2jax",
+    "jaxtyping",
+    "diffrax",
+    "equinox",
+    "immutabledict",
+    "jax_verify@git+https://github.com/Akash-Harapanahalli/jax_verify.git",
+]
