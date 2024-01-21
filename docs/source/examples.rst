@@ -5,5 +5,5 @@ Examples
 .. toctree::
    :maxdepth: 1
 
-   examples/pendulum/pendulum
    examples/vehicle/vehicle
+   examples/pendulum/pendulum
