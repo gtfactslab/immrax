@@ -52,7 +52,7 @@ This should return the outputs of different inclusion functions as well as their
 
 ## Installing `cyipopt` and `coinhsl` (optional)
 
-If you would like to run the [pendulum optimal control example](Pendulum), you need to install IPOPT and the MA57 linear solver from HSL.
+If you would like to run the [pendulum optimal control example](examples/pendulum/pendulum.ipynb), you need to install IPOPT and the MA57 linear solver from HSL.
 
 First, install `cyipopt` (more instructions [here](https://cyipopt.readthedocs.io/en/stable/install.html)).
 ```shell
