@@ -457,7 +457,8 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     def E (self, t:Interval, x:jax.Array, w:Interval,
            orderings:Tuple[Ordering] = None, 
            centers:jax.Array|Sequence[jax.Array]|None = None,
-           corners:Tuple[Corner]|None = None, **kwargs) :
+           corners:Tuple[Corner]|None = None,
+           T:Union[Literal['automatic'], jax.Array, None] = None, **kwargs) :
 
         t = interval(t)
         ix = ut2i(x)
@@ -602,11 +603,6 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                                 - D_p@_w + D_p@w_ + fc)
 
             _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
-            
-            # print(corners)
-            # print(txuw_corners)
-            # print(_ret)
-            # print(ret_)
 
             return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
 
@@ -634,5 +630,18 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                 if not isinstance(corners, Tuple) :
                     raise Exception('Must pass Tuple[Corner] or None for the corners argument')
                 centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
+
+            _ret, ret_ = [], []
+
+            # for ordering in orderings :V
+            #     # Compute Hybrid M centerings once
+            #     if self.M_locality == 'hybrid' or T == 'automatic' :
+            #         Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=ordering, centers=txuw_corners)
+
+            #     if T == 'automatic' :
+
+
+            #     for i, (tc, xc, uc, wc) in enumerate(centers) :
+                    
 
     
