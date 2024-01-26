@@ -2,6 +2,7 @@ from . import system as system
 from .system import (
     System,
     ReversedSystem,
+    LinearTransformedSystem,
     OpenLoopSystem,
     SympySystem,
 )

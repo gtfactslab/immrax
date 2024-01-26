@@ -458,7 +458,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
            orderings:Tuple[Ordering] = None, 
            centers:jax.Array|Sequence[jax.Array]|None = None,
            corners:Tuple[Corner]|None = None,
-           T:Union[Literal['automatic'], jax.Array, None] = None, **kwargs) :
+           T:Union[jax.Array, None] = None, **kwargs) :
 
         t = interval(t)
         ix = ut2i(x)
