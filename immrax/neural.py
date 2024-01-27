@@ -458,10 +458,14 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
            orderings:Tuple[Ordering] = None, 
            centers:jax.Array|Sequence[jax.Array]|None = None,
            corners:Tuple[Corner]|None = None,
+           refine:Callable[[Interval], Interval]|None = None,
            T:Union[jax.Array, None] = None, **kwargs) :
 
+        if refine is None :
+            refine = lambda x : x
+
         t = interval(t)
-        ix = ut2i(x)
+        ix = refine(ut2i(x))
 
         # TODO: Default orderings
         # leninputsfull = tuple([len(x) for x in args])
@@ -518,7 +522,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                     # print('here: ', tc, xc, uc, wc)
                     # LOWER BOUND
                     c = corners[i]
-                    _xi = ut2i(jnp.copy(x).at[i+n].set(x[i]))
+                    _xi = refine(ut2i(jnp.copy(x).at[i+n].set(x[i])))
 
                     # Compute Local NN verification step, otherwise use global
                     if self.nn_locality == 'local' :
@@ -560,7 +564,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                                 + _Dp@_w - _Dp@w_ + fc)
                     
                     # UPPER BOUND
-                    x_i = ut2i(jnp.copy(x).at[i].set(x[i+n]))
+                    x_i = refine(ut2i(jnp.copy(x).at[i].set(x[i+n])))
 
                     # Compute Local NN verification step, otherwise use global
                     if self.nn_locality == 'local' :

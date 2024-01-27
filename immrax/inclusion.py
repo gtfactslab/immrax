@@ -72,6 +72,12 @@ class Interval :
     @property
     def T (self) -> 'Interval' :
         return self.transpose()
+    
+    def __and__ (self, other:'Interval') -> 'Interval' :
+        return interval(jnp.maximum(self.lower, other.lower), jnp.minimum(self.upper, other.upper))
+    
+    def __or__ (self, other:'Interval') -> 'Interval' :
+        return interval(jnp.minimum(self.lower, other.lower), jnp.maximum(self.upper, other.upper))
   
     def __str__(self) -> str:
         return np.array([[(l,u)] for (l,u) in 
@@ -80,10 +86,11 @@ class Interval :
         # return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
     
     def __repr__(self) -> str:
-        # return np.array([[(l,u)] for (l,u) in 
-        #                 zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
-        #                 dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__repr__()
-        return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
+        return np.array([[(l,u)] for (l,u) in 
+                        zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
+                        dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__str__()
+                        # dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__repr__()
+        # return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
     
     def __getitem__(self, i:int) :
         return Interval(self.lower[i], self.upper[i])
@@ -118,6 +125,22 @@ def interval (lower:ArrayLike, upper:ArrayLike=None) :
     if lower.shape != upper.shape :
         raise Exception(f'lower and upper shape should match, {lower.shape} != {upper.shape}')
     return Interval(jnp.asarray(lower), jnp.asarray(upper))
+
+def icopy (i:Interval) -> Interval :
+    """icopy: Helper to copy an interval.
+
+    Parameters
+    ----------
+    i : Interval
+        interval to copy
+
+    Returns
+    -------
+    Interval
+        copy of the interval
+
+    """
+    return Interval(jnp.copy(i.lower), jnp.copy(i.upper))
 
 def icentpert (cent:ArrayLike, pert:ArrayLike) -> Interval :
     """icentpert: Helper to create a Interval from a center of an interval and a perturbation.
@@ -349,7 +372,7 @@ def _inclusion_div_p (x:Interval, y:Interval) -> Interval :
     else :
         return x/y
 inclusion_registry[lax.div_p] = _inclusion_div_p
-Interval.__div__ = _inclusion_div_p
+Interval.__truediv__ = _inclusion_div_p
 
 def _inclusion_reciprocal_p (x: Interval) -> Interval :
     if not isinstance (x, Interval) :
@@ -395,6 +418,7 @@ def _move_axes(
     bound: Interval, cdims: Tuple[int, ...], bdims: Tuple[int, ...],
     orig_axis: int, new_axis: int,
 ) -> Tuple[Interval, Tuple[int, ...], Tuple[int, ...]]:
+  bound = interval(bound)
   def new_axis_fn(old_axis):
     if old_axis == orig_axis:
       # This is the axis being moved. Return its new position.

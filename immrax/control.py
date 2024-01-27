@@ -26,6 +26,7 @@ class Control (abc.ABC) :
 
         """
 
+
 class LinearControl (Control) :
     K: jax.Array
     def __init__(self, K:jax.Array) -> None:

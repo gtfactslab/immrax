@@ -3,6 +3,7 @@ from .system import (
     System,
     ReversedSystem,
     LinearTransformedSystem,
+    LiftedSystem,
     OpenLoopSystem,
     SympySystem,
 )
@@ -43,6 +44,7 @@ from .inclusion import (
     mjacif,
     mjacM,
     interval,
+    icopy,
     icentpert,
     i2centpert,
     i2lu,
