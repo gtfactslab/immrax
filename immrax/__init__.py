@@ -36,6 +36,7 @@ from .inclusion import (
     Ordering,
     standard_ordering,
     two_orderings,
+    all_orderings,
     Corner,
     bot_corner,
     top_corner,
@@ -51,6 +52,7 @@ from .inclusion import (
     lu2i,
     i2ut,
     ut2i,
+    iconcatenate,
     izeros,
 )
 

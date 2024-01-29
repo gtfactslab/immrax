@@ -31,7 +31,7 @@ class Interval :
         self.lower = lower
         self.upper = upper
     def tree_flatten(self) :
-        return ((self.lower, self.upper), None)
+        return ((self.lower, self.upper), 'Interval')
     @classmethod
     def tree_unflatten(cls, aux_data, children) :
         return cls(*children)
@@ -266,6 +266,26 @@ def izeros (shape:Tuple[int], dtype:np.dtype=jnp.float32) -> Interval :
 
     """
     return interval(jnp.zeros(shape, dtype), jnp.zeros(shape, dtype))
+
+def iconcatenate (intervals:Iterable[Interval], axis:int=0) -> Interval :
+    """iconcatenate: Helper to concatenate intervals (cartesian product).
+
+    Parameters
+    ----------
+    intervals : Iterable[Interval]
+        intervals to concatenate
+    axis : int
+        axis to concatenate on. Defaults to 0.
+
+    Returns
+    -------
+    Interval
+        concatenated interval
+
+    """
+    print([i.lower for i in intervals])
+    return interval(jnp.concatenate([i.lower for i in intervals], axis=axis),
+                    jnp.concatenate([i.upper for i in intervals], axis=axis))
 
 inclusion_registry = {}
 
@@ -627,6 +647,8 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             env[var] = val
         
         # Bind args and consts to environment
+        # print(write)
+        # print(jaxpr.invars)
         safe_map(write, jaxpr.invars, args)
         safe_map(write, jaxpr.constvars, consts)
 
@@ -663,8 +685,15 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             _description_
         """
         # args = [interval(arg) for arg in args]
-        buildargs = [(arg.lower if isinstance(arg, Interval) else arg) for arg in args]
-        closed_jaxpr = jax.make_jaxpr(f)(*buildargs, **kwargs)
+        # buildargs = [(arg.lower if isinstance(arg, Interval) else arg) for arg in args]
+        # buildargs = jax.tree_util.tree_map((lambda x : x.lower if isinstance(x, Interval) else x), args)
+        # buildkwargs = jax.tree_util.tree_map((lambda x : x.lower if isinstance(x, Interval) else x), kwargs)
+        getlower = lambda x : x.lower if isinstance(x, Interval) else x
+        isinterval = lambda x : isinstance(x, Interval)
+        buildargs = jax.tree_util.tree_map(getlower, args, is_leaf=isinterval)
+        buildkwargs = jax.tree_util.tree_map(getlower, kwargs, is_leaf=isinterval)
+        # print(buildargs)
+        closed_jaxpr = jax.make_jaxpr(f)(*buildargs, **buildkwargs)
         out = natif_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.literals, *args)
         return out[0]
 
