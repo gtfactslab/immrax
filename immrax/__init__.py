@@ -12,6 +12,7 @@ from . import control as control
 from .control import (
     Control,
     ControlledSystem,
+    LinearControl,
     # FOHControlledSystem,
 )
 

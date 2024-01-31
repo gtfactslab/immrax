@@ -283,7 +283,6 @@ def iconcatenate (intervals:Iterable[Interval], axis:int=0) -> Interval :
         concatenated interval
 
     """
-    print([i.lower for i in intervals])
     return interval(jnp.concatenate([i.lower for i in intervals], axis=axis),
                     jnp.concatenate([i.upper for i in intervals], axis=axis))
 
@@ -830,7 +829,7 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
 
     """
 
-    @partial(jit,static_argnames=['orderings', 'corners'])
+    # @partial(jit,static_argnames=['orderings', 'corners'])
     @api_boundary
     def F (*args, orderings:Tuple[Ordering]|None = None, centers:jax.Array|Sequence[jax.Array]|None = None, 
            corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
