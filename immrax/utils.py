@@ -3,9 +3,9 @@ import jax.numpy as jnp
 import time
 from jax._src.util import wraps
 from jax._src.traceback_util import api_boundary
-from immrax.inclusion import Interval, Corner
+from immrax.inclusion import Interval, Corner, all_corners
 from immrax.inclusion import i2ut, i2lu, i2centpert, ut2i, icentpert
-from typing import Callable, List
+from typing import Callable, List, Tuple
 import shapely.geometry as sg
 import shapely.ops as so
 import numpy as onp
@@ -120,3 +120,8 @@ def set_columns_from_corner (corner:Corner, A:Interval) :
             _Jx = _Jx.at[:,i].set(A.upper[:,i]) # Use A_ when cornered on ub
             J_x = J_x.at[:,i].set(A.lower[:,i]) # Use _A when cornered on lb
     return _Jx, J_x
+
+def get_corners (x:Interval, corners:Tuple[Corner]|None=None) :
+    corners = all_corners(len(x)) if corners is None else corners
+    xut = i2ut(x)
+    return jnp.array([jnp.array([x.lower[i] if c[i] == 0 else x.upper[i] for i in range(len(x))]) for c in corners])
