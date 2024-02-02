@@ -618,6 +618,9 @@ def _inclusion_pow_p(x:Interval, y: int) -> Interval :
     return Interval(ol, ou)
 inclusion_registry[lax.pow_p] = _inclusion_pow_p
 
+def _inclusion_tanh_p (x:Interval) -> Interval :
+    return Interval(jnp.tanh(x.lower), jnp.tanh(x.upper))
+inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
 
 def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Natural Inclusion Function of f using natif.
