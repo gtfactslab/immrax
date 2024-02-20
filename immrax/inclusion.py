@@ -329,6 +329,10 @@ _add_passthrough_to_registry(lax.convert_element_type_p)
 # *([lax.select_p] if hasattr(lax, 'select_p') else []),
 # *([lax.select_n_p] if hasattr(lax, 'select_n_p') else []),
 # synthetic_primitives.convert_float32_p,
+_add_passthrough_to_registry(lax.reduce_max_p)
+_add_passthrough_to_registry(lax.reduce_min_p)
+_add_passthrough_to_registry(lax.max_p)
+_add_passthrough_to_registry(lax.min_p)
 
 def _inclusion_add_p (x:Interval, y:Interval) -> Interval :
     if isinstance(x, Interval) and isinstance (y, Interval) :
