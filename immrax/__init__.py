@@ -2,6 +2,8 @@ from . import system as system
 from .system import (
     System,
     ReversedSystem,
+    LinearTransformedSystem,
+    LiftedSystem,
     OpenLoopSystem,
     SympySystem,
 )
@@ -10,6 +12,7 @@ from . import control as control
 from .control import (
     Control,
     ControlledSystem,
+    LinearControl,
     # FOHControlledSystem,
 )
 
@@ -34,6 +37,7 @@ from .inclusion import (
     Ordering,
     standard_ordering,
     two_orderings,
+    all_orderings,
     Corner,
     bot_corner,
     top_corner,
@@ -42,12 +46,14 @@ from .inclusion import (
     mjacif,
     mjacM,
     interval,
+    icopy,
     icentpert,
     i2centpert,
     i2lu,
     lu2i,
     i2ut,
     ut2i,
+    iconcatenate,
     izeros,
 )
 

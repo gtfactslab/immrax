@@ -457,10 +457,15 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     def E (self, t:Interval, x:jax.Array, w:Interval,
            orderings:Tuple[Ordering] = None, 
            centers:jax.Array|Sequence[jax.Array]|None = None,
-           corners:Tuple[Corner]|None = None, **kwargs) :
+           corners:Tuple[Corner]|None = None,
+           refine:Callable[[Interval], Interval]|None = None,
+           T:Union[jax.Array, None] = None, **kwargs) :
+
+        if refine is None :
+            refine = lambda x : x
 
         t = interval(t)
-        ix = ut2i(x)
+        ix = refine(ut2i(x))
 
         # TODO: Default orderings
         # leninputsfull = tuple([len(x) for x in args])
@@ -513,100 +518,115 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                 if self.M_locality == 'hybrid' :
                     Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=ordering, centers=txuw_corners)
 
-                for i, (tc, xc, uc, wc) in enumerate(txuw_corners) :
+                for j, (tc, xc, uc, wc) in enumerate(txuw_corners) :
+                # def body_fun_2 (_, a2) :
+                    # tc, xc, uc, wc = txuw_corners[j]
+                    # j = i2
+                    # tc, xc, uc, wc, c = a2
+                    _retj = jnp.empty_like(xc)
+                    retj_ = jnp.empty_like(xc)
+                    c = corners[j]
                     # print('here: ', tc, xc, uc, wc)
-                    # LOWER BOUND
-                    c = corners[i]
-                    _xi = ut2i(jnp.copy(x).at[i+n].set(x[i]))
+                    def body_fun_3 (i3, a3) :
+                        _retj, retj_ = a3
+                        # LOWER BOUND
+                        _xi = refine(ut2i(jnp.copy(x).at[i3+n].set(x[i3])))
 
-                    # Compute Local NN verification step, otherwise use global
-                    if self.nn_locality == 'local' :
-                        verifier_res = self.verifier(_xi)
-                    
-                    _C, C_ = verifier_res.lC, verifier_res.uC
-                    _d, d_ = verifier_res.ld, verifier_res.ud
-                    _x, x_ = i2lu(_xi)
+                        # Compute Local NN verification step, otherwise use global
+                        if self.nn_locality == 'local' :
+                            verifier_res = self.verifier(_xi)
+                        
+                        _C, C_ = verifier_res.lC, verifier_res.uC
+                        _d, d_ = verifier_res.ld, verifier_res.ud
+                        _x, x_ = i2lu(_xi)
 
-                    # Compute Local M centerings, otherwise use precomputed
-                    _ui = verifier_res(_xi)
-                    uc = jnp.array([_ui[j].lower if c[j+1+n] == 0 else _ui[j].upper for j in range(p)])
-                    if self.M_locality == 'local' :
-                        Jt, Jx, Ju, Jw = self.sys_mjacM(t, _xi, _ui, w, orderings=ordering, centers=((tc, xc, uc, wc),))[0]
-                    else :
-                        Jt, Jx, Ju, Jw = Mpre[i]
+                        # Compute Local M centerings, otherwise use precomputed
+                        _ui = verifier_res(_xi)
+                        uc = jnp.array([_ui[k].lower if c[k+1+n] == 0 else _ui[k].upper for k in range(p)])
+                        if self.M_locality == 'local' :
+                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, _xi, _ui, w, orderings=ordering, centers=((tc, xc, uc, wc),))[0]
+                        else :
+                            Jt, Jx, Ju, Jw = Mpre[i3]
 
-                    # _Jx, J_x = i2lu(Jx)
-                    # _Ju, J_u = i2lu(Ju)
-                    # _Jw, J_w = i2lu(Jw)
-                    _Jx, J_x = set_columns_from_corner(c[1:n+1], Jx)
-                    _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], Ju)
-                    _Jw, J_w = set_columns_from_corner(c[n+1+p:], Jw)
+                        # _Jx, J_x = i2lu(Jx)
+                        # _Ju, J_u = i2lu(Ju)
+                        # _Jw, J_w = i2lu(Jw)
+                        _Jx, J_x = set_columns_from_corner(c[1:n+1], Jx)
+                        _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], Ju)
+                        _Jw, J_w = set_columns_from_corner(c[n+1+p:], Jw)
 
-                    fc = self.sys.olsystem.f(tc, xc, uc, wc)
+                        fc = self.sys.olsystem.f(tc, xc, uc, wc)
 
-                    _Bp, _Bn = d_positive(_Ju)
-                    B_p, B_n = d_positive(J_u)
+                        _Bp, _Bn = d_positive(_Ju)
+                        B_p, B_n = d_positive(J_u)
 
-                    _K = _Bp@_C + _Bn@C_
-                    K_ = B_p@C_ + B_n@_C
-                    _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
+                        _K = _Bp@_C + _Bn@C_
+                        K_ = B_p@C_ + B_n@_C
+                        _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
 
-                    _H = _Jx + _K
-                    H_ = J_x + K_
-                    _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
+                        _H = _Jx + _K
+                        H_ = J_x + K_
+                        _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
 
-                    _ret.append(_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
-                                + _Dp@_w - _Dp@w_ + fc)
-                    
-                    # UPPER BOUND
-                    x_i = ut2i(jnp.copy(x).at[i].set(x[i+n]))
+                        # _ret.append(_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
+                        #             + _Dp@_w - _Dp@w_ + fc)
+                        _retj = _retj.at[i3].set((_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
+                                    + _Dp@_w - _Dp@w_ + fc)[i3])
+                        
+                        # UPPER BOUND
+                        x_i = refine(ut2i(jnp.copy(x).at[i3].set(x[i3+n])))
 
-                    # Compute Local NN verification step, otherwise use global
-                    if self.nn_locality == 'local' :
-                        verifier_res = self.verifier(x_i)
-                    
-                    _C, C_ = verifier_res.lC, verifier_res.uC
-                    _d, d_ = verifier_res.ld, verifier_res.ud
-                    _x, x_ = i2lu(x_i)
+                        # Compute Local NN verification step, otherwise use global
+                        if self.nn_locality == 'local' :
+                            verifier_res = self.verifier(x_i)
+                        
+                        _C, C_ = verifier_res.lC, verifier_res.uC
+                        _d, d_ = verifier_res.ld, verifier_res.ud
+                        _x, x_ = i2lu(x_i)
 
-                    # Compute Local M centerings, otherwise use precomputed
-                    u_i = verifier_res(x_i)
-                    uc = jnp.array([u_i[j].lower if c[j+1+n] == 0 else u_i[j].upper for j in range(p)])
-                    if self.M_locality == 'local' :
-                        Jt, Jx, Ju, Jw = self.sys_mjacM(t, x_i, u_i, w, orderings=ordering, centers=((tc, xc, uc, wc),))[0]
-                    else :
-                        Jt, Jx, Ju, Jw = Mpre[i]
+                        # Compute Local M centerings, otherwise use precomputed
+                        u_i = verifier_res(x_i)
+                        uc = jnp.array([u_i[k].lower if c[k+1+n] == 0 else u_i[k].upper for k in range(p)])
+                        if self.M_locality == 'local' :
+                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, x_i, u_i, w, orderings=ordering, centers=((tc, xc, uc, wc),))[0]
+                        else :
+                            Jt, Jx, Ju, Jw = Mpre[i3]
 
-                    # _Jx, J_x = i2lu(Jx)
-                    # _Ju, J_u = i2lu(Ju)
-                    # _Jw, J_w = i2lu(Jw)
+                        # _Jx, J_x = i2lu(Jx)
+                        # _Ju, J_u = i2lu(Ju)
+                        # _Jw, J_w = i2lu(Jw)
 
-                    _Jx, J_x = set_columns_from_corner(c[1:n+1], Jx)
-                    _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], Ju)
-                    _Jw, J_w = set_columns_from_corner(c[n+1+p:], Jw)
+                        _Jx, J_x = set_columns_from_corner(c[1:n+1], Jx)
+                        _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], Ju)
+                        _Jw, J_w = set_columns_from_corner(c[n+1+p:], Jw)
 
-                    fc = self.sys.olsystem.f(tc, xc, uc, wc)
+                        fc = self.sys.olsystem.f(tc, xc, uc, wc)
 
-                    _Bp, _Bn = d_positive(_Ju)
-                    B_p, B_n = d_positive(J_u)
+                        _Bp, _Bn = d_positive(_Ju)
+                        B_p, B_n = d_positive(J_u)
 
-                    _K = _Bp@_C + _Bn@C_
-                    K_ = B_p@C_ + B_n@_C
-                    _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
+                        _K = _Bp@_C + _Bn@C_
+                        K_ = B_p@C_ + B_n@_C
+                        _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
 
-                    _H = _Jx + _K
-                    H_ = J_x + K_
-                    _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
+                        _H = _Jx + _K
+                        H_ = J_x + K_
+                        _Hp, _Hn = d_metzler(_H); H_p, H_n = d_metzler(H_)
 
-                    ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
-                                - D_p@_w + D_p@w_ + fc)
-
+                        # ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
+                        #             - D_p@_w + D_p@w_ + fc)
+                        retj_ = retj_.at[i3].set((H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
+                                    - D_p@_w + D_p@w_ + fc)[i3])
+                        
+                        return (_retj, retj_)
+                    _retj, retj_ = jax.lax.fori_loop(0, n, body_fun_3, (_retj, retj_))
+                    _ret.append(_retj)
+                    ret_.append(retj_)
+                    # return None, (_retj, retj_)
+                # _, (_retO, retO_) = jax.lax.scan(body_fun_2, None, txuw_corners)
+                # _ret.extend(_retO)
+                # ret_.extend(retO_)
             _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
-            
-            # print(corners)
-            # print(txuw_corners)
-            # print(_ret)
-            # print(ret_)
 
             return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
 
@@ -634,5 +654,18 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                 if not isinstance(corners, Tuple) :
                     raise Exception('Must pass Tuple[Corner] or None for the corners argument')
                 centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
+
+            _ret, ret_ = [], []
+
+            # for ordering in orderings :V
+            #     # Compute Hybrid M centerings once
+            #     if self.M_locality == 'hybrid' or T == 'automatic' :
+            #         Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=ordering, centers=txuw_corners)
+
+            #     if T == 'automatic' :
+
+
+            #     for i, (tc, xc, uc, wc) in enumerate(centers) :
+                    
 
     

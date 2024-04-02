@@ -124,6 +124,37 @@ class ReversedSystem (System) :
 # def revsys (sys:System) :
 #     return ReversedSystem(sys)
 
+class LinearTransformedSystem (System) :
+    """Linear Transformed System
+    A system with dynamics :math:`\\dot{x} = Tf(t, T^{-1}x, ...)` where :math:`T` is an invertible linear transformation.
+    """
+    sys:System
+    def __init__(self, sys:System, T:jax.Array) -> None :
+        self.evolution = sys.evolution
+        self.xlen = sys.xlen
+        self.sys = sys
+        self.T = T
+        self.Tinv = jnp.linalg.inv(T)
+    
+    def f (self, t:Union[Integer,Float], x:jax.Array, *args, **kwargs) -> jax.Array :
+        return self.T @ self.sys.f(t, self.Tinv @ x, *args, **kwargs)
+
+class LiftedSystem (System) :
+    """Lifted System
+    A system with dynamics :math:`\\dot{x} = Hf(t, H^+x, ...)` where H^+Hx = x.
+    """
+    sys:System
+    H:jax.Array
+    Hp:jax.Array
+    def __init__(self, sys:System, H:jax.Array, Hp:jax.Array) -> None :
+        self.evolution = sys.evolution
+        self.xlen = H.shape[0]
+        self.sys = sys
+        self.H = H
+        self.Hp = Hp
+    def f (self, t:Union[Integer,Float], x:jax.Array, *args, **kwargs) -> jax.Array :
+        return self.H @ self.sys.f(t, self.Hp @ x, *args, **kwargs)
+
 class OpenLoopSystem (System, abc.ABC) :
     """OpenLoopSystem
     An open-loop nonlinear dynamical system of the form

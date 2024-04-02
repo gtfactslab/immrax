@@ -3,9 +3,9 @@ import jax.numpy as jnp
 import time
 from jax._src.util import wraps
 from jax._src.traceback_util import api_boundary
-from immrax.inclusion import Interval, Corner
-from immrax.inclusion import i2ut, i2lu, i2centpert, ut2i, icentpert
-from typing import Callable, List
+from immrax.inclusion import Interval, Corner, all_corners
+from immrax.inclusion import i2ut, i2lu, i2centpert, ut2i, icentpert, icopy, interval
+from typing import Callable, List, Tuple
 import shapely.geometry as sg
 import shapely.ops as so
 import numpy as onp
@@ -120,3 +120,36 @@ def set_columns_from_corner (corner:Corner, A:Interval) :
             _Jx = _Jx.at[:,i].set(A.upper[:,i]) # Use A_ when cornered on ub
             J_x = J_x.at[:,i].set(A.lower[:,i]) # Use _A when cornered on lb
     return _Jx, J_x
+
+def get_corners (x:Interval, corners:Tuple[Corner]|None=None) :
+    corners = all_corners(len(x)) if corners is None else corners
+    xut = i2ut(x)
+    return jnp.array([jnp.array([x.lower[i] if c[i] == 0 else x.upper[i] for i in range(len(x))]) for c in corners])
+
+def I_refine (A:jax.Array, y:Interval) -> Interval :
+    A = interval(A)
+    def I_r (y) :
+        ret = icopy(y)
+        for j in range(len(A)) :
+            for i in range(len(y)) :
+                # print(f'{ret[i]=}')
+                b1 = lambda : ((-A[j,:i] @ ret[:i] - A[j,i+1:] @ ret[i+1:])/A[j,i]) & ret[i]
+                b2 = lambda : ret[i]
+                reti = jax.lax.cond(jnp.abs(A[j,i].lower) > 1e-10, b1, b2)
+                # print(f'{reti=}')
+                retl = ret.lower.at[i].set(reti.lower)
+                retu = ret.upper.at[i].set(reti.upper)
+                ret = interval(retl, retu)
+                # print(f'{ret=}')
+        return ret
+    return I_r(y)
+def null_space(A, rcond=None):
+    """Taken from scipy, with some modifications to use jax.numpy"""
+    u, s, vh = jnp.linalg.svd(A, full_matrices=True)
+    M, N = u.shape[0], vh.shape[1]
+    if rcond is None:
+        rcond = jnp.finfo(s.dtype).eps * max(M, N)
+    tol = jnp.amax(s) * rcond
+    num = jnp.sum(s > tol, dtype=int)
+    Q = vh[num:,:].T.conj()
+    return Q

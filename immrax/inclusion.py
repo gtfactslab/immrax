@@ -31,7 +31,7 @@ class Interval :
         self.lower = lower
         self.upper = upper
     def tree_flatten(self) :
-        return ((self.lower, self.upper), None)
+        return ((self.lower, self.upper), 'Interval')
     @classmethod
     def tree_unflatten(cls, aux_data, children) :
         return cls(*children)
@@ -72,6 +72,12 @@ class Interval :
     @property
     def T (self) -> 'Interval' :
         return self.transpose()
+    
+    def __and__ (self, other:'Interval') -> 'Interval' :
+        return interval(jnp.maximum(self.lower, other.lower), jnp.minimum(self.upper, other.upper))
+    
+    def __or__ (self, other:'Interval') -> 'Interval' :
+        return interval(jnp.minimum(self.lower, other.lower), jnp.maximum(self.upper, other.upper))
   
     def __str__(self) -> str:
         return np.array([[(l,u)] for (l,u) in 
@@ -80,10 +86,11 @@ class Interval :
         # return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
     
     def __repr__(self) -> str:
-        # return np.array([[(l,u)] for (l,u) in 
-        #                 zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
-        #                 dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__repr__()
-        return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
+        return np.array([[(l,u)] for (l,u) in 
+                        zip(self.lower.reshape(-1),self.upper.reshape(-1))], 
+                        dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__str__()
+                        # dtype=np.dtype([('f1',float), ('f2', float)])).reshape(self.shape + (1,)).__repr__()
+        # return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
     
     def __getitem__(self, i:int) :
         return Interval(self.lower[i], self.upper[i])
@@ -118,6 +125,22 @@ def interval (lower:ArrayLike, upper:ArrayLike=None) :
     if lower.shape != upper.shape :
         raise Exception(f'lower and upper shape should match, {lower.shape} != {upper.shape}')
     return Interval(jnp.asarray(lower), jnp.asarray(upper))
+
+def icopy (i:Interval) -> Interval :
+    """icopy: Helper to copy an interval.
+
+    Parameters
+    ----------
+    i : Interval
+        interval to copy
+
+    Returns
+    -------
+    Interval
+        copy of the interval
+
+    """
+    return Interval(jnp.copy(i.lower), jnp.copy(i.upper))
 
 def icentpert (cent:ArrayLike, pert:ArrayLike) -> Interval :
     """icentpert: Helper to create a Interval from a center of an interval and a perturbation.
@@ -244,6 +267,25 @@ def izeros (shape:Tuple[int], dtype:np.dtype=jnp.float32) -> Interval :
     """
     return interval(jnp.zeros(shape, dtype), jnp.zeros(shape, dtype))
 
+def iconcatenate (intervals:Iterable[Interval], axis:int=0) -> Interval :
+    """iconcatenate: Helper to concatenate intervals (cartesian product).
+
+    Parameters
+    ----------
+    intervals : Iterable[Interval]
+        intervals to concatenate
+    axis : int
+        axis to concatenate on. Defaults to 0.
+
+    Returns
+    -------
+    Interval
+        concatenated interval
+
+    """
+    return interval(jnp.concatenate([i.lower for i in intervals], axis=axis),
+                    jnp.concatenate([i.upper for i in intervals], axis=axis))
+
 inclusion_registry = {}
 
 def _make_inclusion_passthrough_p (primitive:Primitive) -> Callable[..., Interval] :
@@ -287,6 +329,11 @@ _add_passthrough_to_registry(lax.convert_element_type_p)
 # *([lax.select_p] if hasattr(lax, 'select_p') else []),
 # *([lax.select_n_p] if hasattr(lax, 'select_n_p') else []),
 # synthetic_primitives.convert_float32_p,
+_add_passthrough_to_registry(lax.reduce_max_p)
+_add_passthrough_to_registry(lax.reduce_min_p)
+_add_passthrough_to_registry(lax.max_p)
+_add_passthrough_to_registry(lax.min_p)
+_add_passthrough_to_registry(lax.exp_p)
 
 def _inclusion_add_p (x:Interval, y:Interval) -> Interval :
     if isinstance(x, Interval) and isinstance (y, Interval) :
@@ -349,7 +396,7 @@ def _inclusion_div_p (x:Interval, y:Interval) -> Interval :
     else :
         return x/y
 inclusion_registry[lax.div_p] = _inclusion_div_p
-Interval.__div__ = _inclusion_div_p
+Interval.__truediv__ = _inclusion_div_p
 
 def _inclusion_reciprocal_p (x: Interval) -> Interval :
     if not isinstance (x, Interval) :
@@ -395,6 +442,7 @@ def _move_axes(
     bound: Interval, cdims: Tuple[int, ...], bdims: Tuple[int, ...],
     orig_axis: int, new_axis: int,
 ) -> Tuple[Interval, Tuple[int, ...], Tuple[int, ...]]:
+  bound = interval(bound)
   def new_axis_fn(old_axis):
     if old_axis == orig_axis:
       # This is the axis being moved. Return its new position.
@@ -575,6 +623,9 @@ def _inclusion_pow_p(x:Interval, y: int) -> Interval :
     return Interval(ol, ou)
 inclusion_registry[lax.pow_p] = _inclusion_pow_p
 
+def _inclusion_tanh_p (x:Interval) -> Interval :
+    return Interval(jnp.tanh(x.lower), jnp.tanh(x.upper))
+inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
 
 def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Natural Inclusion Function of f using natif.
@@ -603,6 +654,8 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             env[var] = val
         
         # Bind args and consts to environment
+        # print(write)
+        # print(jaxpr.invars)
         safe_map(write, jaxpr.invars, args)
         safe_map(write, jaxpr.constvars, consts)
 
@@ -639,8 +692,15 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             _description_
         """
         # args = [interval(arg) for arg in args]
-        buildargs = [(arg.lower if isinstance(arg, Interval) else arg) for arg in args]
-        closed_jaxpr = jax.make_jaxpr(f)(*buildargs, **kwargs)
+        # buildargs = [(arg.lower if isinstance(arg, Interval) else arg) for arg in args]
+        # buildargs = jax.tree_util.tree_map((lambda x : x.lower if isinstance(x, Interval) else x), args)
+        # buildkwargs = jax.tree_util.tree_map((lambda x : x.lower if isinstance(x, Interval) else x), kwargs)
+        getlower = lambda x : x.lower if isinstance(x, Interval) else x
+        isinterval = lambda x : isinstance(x, Interval)
+        buildargs = jax.tree_util.tree_map(getlower, args, is_leaf=isinterval)
+        buildkwargs = jax.tree_util.tree_map(getlower, kwargs, is_leaf=isinterval)
+        # print(buildargs)
+        closed_jaxpr = jax.make_jaxpr(f)(*buildargs, **buildkwargs)
         out = natif_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.literals, *args)
         return out[0]
 
@@ -777,7 +837,7 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
 
     """
 
-    @partial(jit,static_argnames=['orderings', 'corners'])
+    # @partial(jit,static_argnames=['orderings', 'corners'])
     @api_boundary
     def F (*args, orderings:Tuple[Ordering]|None = None, centers:jax.Array|Sequence[jax.Array]|None = None, 
            corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
