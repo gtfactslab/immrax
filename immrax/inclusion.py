@@ -333,6 +333,7 @@ _add_passthrough_to_registry(lax.reduce_max_p)
 _add_passthrough_to_registry(lax.reduce_min_p)
 _add_passthrough_to_registry(lax.max_p)
 _add_passthrough_to_registry(lax.min_p)
+_add_passthrough_to_registry(lax.exp_p)
 
 def _inclusion_add_p (x:Interval, y:Interval) -> Interval :
     if isinstance(x, Interval) and isinstance (y, Interval) :
