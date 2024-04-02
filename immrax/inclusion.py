@@ -11,7 +11,8 @@ from jax.tree_util import register_pytree_node_class
 from typing import Tuple, Callable, Sequence, Iterable
 import numpy as np
 from functools import partial
-from itertools import accumulate, permutations, product
+from itertools import accumulate, product
+from itertools import permutations as perms
 from jax._src import ad_util
 from jax._src.api import api_boundary
 
@@ -333,6 +334,7 @@ _add_passthrough_to_registry(lax.reduce_max_p)
 _add_passthrough_to_registry(lax.reduce_min_p)
 _add_passthrough_to_registry(lax.max_p)
 _add_passthrough_to_registry(lax.min_p)
+_add_passthrough_to_registry(lax.exp_p)
 
 def _inclusion_add_p (x:Interval, y:Interval) -> Interval :
     if isinstance(x, Interval) and isinstance (y, Interval) :
@@ -779,26 +781,26 @@ def jacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         return interval(jnp.max(retl,axis=0), jnp.min(retu,axis=0))
     return F
 
-class Ordering (tuple) :
+class Permutation (tuple) :
     """A tuple of :math:`n` numbers :math:`(o_i)_{i=1}^n` such that each :math:`0\\leq o_i \\leq n-1` and each :math:`o_i` is unique."""
-    def __new__(cls, __iterable: Iterable = ()) -> 'Ordering':
+    def __new__(cls, __iterable: Iterable = ()) -> 'Permutation':
         if sum([2**x for x in __iterable]) != (2**len(__iterable) - 1) :
-            raise Exception(f'The ordering doesnt have every i from 0 to n-1: {__iterable}')
-        return tuple.__new__(Ordering, (__iterable))
+            raise Exception(f'The permutation doesnt have every i from 0 to n-1: {__iterable}')
+        return tuple.__new__(Permutation, (__iterable))
     def __str__(self) -> str:
-        return 'Ordering' + super().__str__()
+        return 'Permutation' + super().__str__()
 
-def standard_ordering (n:int) -> Tuple[Ordering] :
-    """Returns the standard n-ordering :math:`(0,\\dots,n-1)`"""
-    return (Ordering(range(n)),)
+def standard_permutation (n:int) -> Tuple[Permutation] :
+    """Returns the standard n-permutation :math:`(0,\\dots,n-1)`"""
+    return (Permutation(range(n)),)
 
-def two_orderings (n:int) -> Tuple[Ordering] :
-    """Returns the two standard n-orderings :math:`(0,\\dots,n-1)` and :math:`(n-1,\\dots,0)`"""
-    return (Ordering(range(n)), Ordering(tuple(reversed(range(n)))))
+def two_permutations (n:int) -> Tuple[Permutation] :
+    """Returns the two standard n-permutations :math:`(0,\\dots,n-1)` and :math:`(n-1,\\dots,0)`"""
+    return (Permutation(range(n)), Permutation(tuple(reversed(range(n)))))
 
-def all_orderings (n:int) -> Tuple[Ordering] :
-    """Returns all n-orderings."""
-    return tuple(Ordering(x) for x in permutations(range(n)))
+def all_permutations (n:int) -> Tuple[Permutation] :
+    """Returns all n-permutations."""
+    return tuple(Permutation(x) for x in perms(range(n)))
 
 class Corner (tuple) :
     """A tuple of :math:`n` elements in :math:`\\{0,1\\}` representing the corners of an :math:`n`-dimensional hypercube. 0 is the lower bound, 1 is the upper bound"""
@@ -843,15 +845,15 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
 
     """
 
-    # @partial(jit,static_argnames=['orderings', 'corners'])
+    # @partial(jit,static_argnames=['permutations', 'corners'])
     @api_boundary
-    def F (*args, orderings:Tuple[Ordering]|None = None, centers:jax.Array|Sequence[jax.Array]|None = None, 
+    def F (*args, permutations:Tuple[Permutation]|None = None, centers:jax.Array|Sequence[jax.Array]|None = None, 
            corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
         """_summary_
 
         Parameters
         ----------
-        orderings : Tuple[Ordering] | None, optional
+        permutations : Tuple[Permutation] | None, optional
             _description_, by default None
         centers : jax.Array | Sequence[jax.Array] | None, optional
             _description_, by default None
@@ -880,27 +882,27 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
         leninputsfull = tuple([len(x) for x in args])
         leninputs = sum(leninputsfull)
 
-        if orderings is None :
-            orderings = standard_ordering(leninputs)
-        elif isinstance(orderings, Ordering) :
-            orderings = [orderings]
-        elif not isinstance(orderings, Tuple) :
-            raise Exception('Must pass jax.Array (one ordering), Sequence[jax.Array], or None (auto standard ordering) for the orderings argument')
+        if permutations is None :
+            permutations = standard_permutation(leninputs)
+        elif isinstance(permutations, Permutation) :
+            permutations = [permutations]
+        elif not isinstance(permutations, Tuple) :
+            raise Exception('Must pass jax.Array (one permutation), Sequence[jax.Array], or None (auto standard permutation) for the permutations argument')
 
         cumsum = tuple(accumulate(leninputsfull))
-        orderings_pairs = []
+        permutations_pairs = []
 
-        # Split ordering into individual inputs and indices.
-        for ordering in orderings :
-            if len(ordering) != leninputs :
-                raise Exception(f'The ordering is not the same length as the sum of the lengths of the inputs: {len(ordering)} != {leninputs}')
+        # Split permutation into individual inputs and indices.
+        for permutation in permutations :
+            if len(permutation) != leninputs :
+                raise Exception(f'The permutation is not the same length as the sum of the lengths of the inputs: {len(permutation)} != {leninputs}')
             pairs = []
-            for o in ordering :
+            for o in permutation :
                 a = 0
                 while cumsum[a] - 1 < o :
                     a += 1
                 pairs.append((a,(o - cumsum[a-1] if a > 0 else o)))
-            orderings_pairs.append(tuple(pairs))
+            permutations_pairs.append(tuple(pairs))
 
         # Mixed Centered
         if centers is None :
@@ -921,7 +923,7 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
 
         # centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
 
-        # multiple orderings/centers
+        # multiple permutations/centers
         ret = []
 
         df_func = [natif(jax.jacfwd(f, i)) for i in range(len(args))]
@@ -930,7 +932,7 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
             if len(center) != len(args) :
                 raise Exception(f'Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around')
             f0 = f(*center)
-            for pairs in orderings_pairs :
+            for pairs in permutations_pairs :
                 val_lower = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
                 val_upper = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
                 argr = [interval(c).atleast_1d() for c in center]
@@ -968,15 +970,15 @@ def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """
 
     # @wraps(f)
-    @partial(jit,static_argnames=['orderings','corners'])
+    @partial(jit,static_argnames=['permutations','corners'])
     @api_boundary
-    def F (*args, orderings:Tuple[Ordering]|None=None, centers:jax.Array|Sequence[jax.Array]|None = None,
+    def F (*args, permutations:Tuple[Permutation]|None=None, centers:jax.Array|Sequence[jax.Array]|None = None,
            corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
         """_summary_
 
         Parameters
         ----------
-        orderings : Tuple[Ordering] | None, optional
+        permutations : Tuple[Permutation] | None, optional
             _description_, by default None
         centers : jax.Array | Sequence[jax.Array] | None, optional
             _description_, by default None
@@ -1005,30 +1007,30 @@ def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         leninputsfull = tuple([len(x) for x in args])
         leninputs = sum(leninputsfull)
 
-        if orderings is None :
-            orderings = standard_ordering(leninputs)
-        elif isinstance(orderings, Ordering) :
-            orderings = [orderings]
-        elif not isinstance(orderings, Tuple) :
-            raise Exception('Must pass jax.Array (one ordering), Sequence[jax.Array], or None (auto standard ordering) for the orderings argument')
+        if permutations is None :
+            permutations = standard_permutation(leninputs)
+        elif isinstance(permutations, Permutation) :
+            permutations = [permutations]
+        elif not isinstance(permutations, Tuple) :
+            raise Exception('Must pass jax.Array (one permutation), Sequence[jax.Array], or None (auto standard permutation) for the permutations argument')
 
         cumsum = tuple(accumulate(leninputsfull))
-        orderings_pairs = []
+        permutations_pairs = []
 
-        # Split each ordering into individual inputs and indices.
-        # Ordering is of the length of taking each input and concatenating them.
-        # The result in orderings_pairs is a list of tuples of 2-tuples (argi, subi)
+        # Split each permutation into individual inputs and indices.
+        # Permutation is of the length of taking each input and concatenating them.
+        # The result in permutations_pairs is a list of tuples of 2-tuples (argi, subi)
         # argi is the argument index, subi is the subindex of that argument.
-        for ordering in orderings :
-            if len(ordering) != leninputs :
-                raise Exception(f'The ordering is not the same length as the sum of the lengths of the inputs: {len(ordering)} != {leninputs}')
+        for permutation in permutations :
+            if len(permutation) != leninputs :
+                raise Exception(f'The permutation is not the same length as the sum of the lengths of the inputs: {len(permutation)} != {leninputs}')
             pairs = []
-            for o in ordering :
+            for o in permutation :
                 a = 0
                 while cumsum[a] - 1 < o :
                     a += 1
                 pairs.append((a,(o - cumsum[a-1] if a > 0 else o)))
-            orderings_pairs.append(tuple(pairs))
+            permutations_pairs.append(tuple(pairs))
 
         # Mixed Centered
         if centers is None :
@@ -1048,7 +1050,7 @@ def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
 
  
-        # multiple orderings/centers, need to take min/max for final inclusion function output.
+        # multiple permutations/centers, need to take min/max for final inclusion function output.
         retl, retu = [], []
 
         # This is the \sfJ_x for each argument. Natural inclusion on the Jacobian tree.
@@ -1059,7 +1061,7 @@ def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             if len(center) != len(args) :
                 raise Exception(f'Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around')
             f0 = f(*center)
-            for pairs in orderings_pairs :
+            for pairs in permutations_pairs :
                 # argr initialized at the center, will be slowly relaxed to the whole interval
                 argr = [interval(c) for c in center]
                 # val is the eventual output, M ([\ulx,\olx] - \overcirc{x}).
