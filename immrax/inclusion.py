@@ -592,6 +592,10 @@ def _inclusion_atan_p (x:Interval) -> Interval :
     return Interval(jnp.arctan(x.lower), jnp.arctan(x.upper))
 inclusion_registry[lax.atan_p] = _inclusion_atan_p
 
+def _inclusion_asin_p (x:Interval) -> Interval :
+    return Interval(jnp.arcsin(x.lower), jnp.arcsin(x.upper))
+inclusion_registry[lax.asin_p] = _inclusion_asin_p
+
 def _inclusion_sqrt_p (x:Interval) -> Interval :
     ol = jnp.where((x.lower < 0), -jnp.inf, jnp.sqrt(x.lower))
     ou = jnp.where((x.lower < 0), jnp.inf, jnp.sqrt(x.upper))
@@ -674,7 +678,7 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             safe_map(write, eqn.outvars, outvals)
         return safe_map(read, jaxpr.outvars)
     
-    @jit
+    # @jit
     @api_boundary
     def wrapped (*args, **kwargs) :
         f"""Natural inclusion function of {f.__name__}.
@@ -698,10 +702,13 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         isinterval = lambda x : isinstance(x, Interval)
         buildargs = jax.tree_util.tree_map(getlower, args, is_leaf=isinterval)
         buildkwargs = jax.tree_util.tree_map(getlower, kwargs, is_leaf=isinterval)
-        # print(buildargs)
         closed_jaxpr = jax.make_jaxpr(f)(*buildargs, **buildkwargs)
         out = natif_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.literals, *args)
-        return out[0]
+        # print(out)
+        if len(out) == 1 :
+            return out[0]
+        else :
+            return out
 
     return wrapped
 
