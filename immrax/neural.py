@@ -433,8 +433,8 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     M_locality: Literal['local', 'hybrid']
 
     def __init__(self, sys:NNCSystem, nn_verifier:Literal['crown', 'fastlin'] = 'crown',
-                 nn_locality:Literal['local', 'hybrid'] = 'hybrid',
-                 M_locality: Literal['local', 'hybrid'] = 'hybrid') -> None:
+                 nn_locality:Literal['local', 'hybrid'] = 'local',
+                 M_locality: Literal['local', 'hybrid'] = 'local') -> None:
         self.sys = sys
         self.evolution = sys.evolution
         self.xlen = sys.xlen * 2
