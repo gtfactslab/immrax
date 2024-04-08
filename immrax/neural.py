@@ -5,8 +5,8 @@ import equinox as eqx
 import equinox.nn as nn
 from immrax.control import Control, ControlledSystem
 from immrax.inclusion import interval, natif, jacif, mjacif, mjacM, Interval
-from immrax.inclusion import ut2i, i2ut, i2lu, standard_ordering
-from immrax.inclusion import Ordering, Corner
+from immrax.inclusion import ut2i, i2ut, i2lu, standard_permutation
+from immrax.inclusion import Permutation, Corner
 from immrax.embedding import EmbeddingSystem, InclusionEmbedding
 from immrax.utils import d_metzler, d_positive, set_columns_from_corner
 from jaxtyping import Integer, Float
@@ -433,8 +433,8 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
     M_locality: Literal['local', 'hybrid']
 
     def __init__(self, sys:NNCSystem, nn_verifier:Literal['crown', 'fastlin'] = 'crown',
-                 nn_locality:Literal['local', 'hybrid'] = 'hybrid',
-                 M_locality: Literal['local', 'hybrid'] = 'hybrid') -> None:
+                 nn_locality:Literal['local', 'hybrid'] = 'local',
+                 M_locality: Literal['local', 'hybrid'] = 'local') -> None:
         self.sys = sys
         self.evolution = sys.evolution
         self.xlen = sys.xlen * 2
@@ -455,7 +455,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
             raise NotImplementedError(f'nn_verifier must be one of "crown" or "fastlin", {self.nn_verifier} not supported')
 
     def E (self, t:Interval, x:jax.Array, w:Interval,
-           orderings:Tuple[Ordering] = None, 
+           permutations:Tuple[Permutation] = None, 
            centers:jax.Array|Sequence[jax.Array]|None = None,
            corners:Tuple[Corner]|None = None,
            refine:Callable[[Interval], Interval]|None = None,
@@ -467,15 +467,15 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
         t = interval(t)
         ix = refine(ut2i(x))
 
-        # TODO: Default orderings
+        # TODO: Default permutations
         # leninputsfull = tuple([len(x) for x in args])
         # leninputs = sum(leninputsfull)
-        # if orderings is None :
-        #     orderings = standard_ordering(leninputs)
-        # elif isinstance(orderings, Ordering) :
-        #     orderings = [orderings]
-        # elif not isinstance(orderings, Tuple) :
-        #     raise Exception('Must pass jax.Array (one ordering), Sequence[jax.Array], or None (auto standard ordering) for the orderings argument')
+        # if permutations is None :
+        #     permutations = standard_permutation(leninputs)
+        # elif isinstance(permutations, Permutation) :
+        #     permutations = [permutations]
+        # elif not isinstance(permutations, Tuple) :
+        #     raise Exception('Must pass jax.Array (one permutation), Sequence[jax.Array], or None (auto standard permutation) for the permutations argument')
 
         verifier_res = self.verifier(ix)
         uglobal = verifier_res(ix)
@@ -512,11 +512,11 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
             
             _ret, ret_ = [], []
 
-            for ordering in orderings :
+            for permutation in permutations :
             
                 # Compute Hybrid M centerings once
                 if self.M_locality == 'hybrid' :
-                    Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=ordering, centers=txuw_corners)
+                    Mpre = self.sys_mjacM(t, ix, uglobal, w, permutations=permutation, centers=txuw_corners)
 
                 for j, (tc, xc, uc, wc) in enumerate(txuw_corners) :
                 # def body_fun_2 (_, a2) :
@@ -544,7 +544,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                         _ui = verifier_res(_xi)
                         uc = jnp.array([_ui[k].lower if c[k+1+n] == 0 else _ui[k].upper for k in range(p)])
                         if self.M_locality == 'local' :
-                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, _xi, _ui, w, orderings=ordering, centers=((tc, xc, uc, wc),))[0]
+                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, _xi, _ui, w, permutations=permutation, centers=((tc, xc, uc, wc),))[0]
                         else :
                             Jt, Jx, Ju, Jw = Mpre[i3]
 
@@ -588,7 +588,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                         u_i = verifier_res(x_i)
                         uc = jnp.array([u_i[k].lower if c[k+1+n] == 0 else u_i[k].upper for k in range(p)])
                         if self.M_locality == 'local' :
-                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, x_i, u_i, w, orderings=ordering, centers=((tc, xc, uc, wc),))[0]
+                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, x_i, u_i, w, permutations=permutation, centers=((tc, xc, uc, wc),))[0]
                         else :
                             Jt, Jx, Ju, Jw = Mpre[i3]
 
@@ -657,10 +657,10 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
 
             _ret, ret_ = [], []
 
-            # for ordering in orderings :V
+            # for permutation in permutations :V
             #     # Compute Hybrid M centerings once
             #     if self.M_locality == 'hybrid' or T == 'automatic' :
-            #         Mpre = self.sys_mjacM(t, ix, uglobal, w, orderings=ordering, centers=txuw_corners)
+            #         Mpre = self.sys_mjacM(t, ix, uglobal, w, permutations=permutation, centers=txuw_corners)
 
             #     if T == 'automatic' :
 
