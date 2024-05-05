@@ -8,13 +8,14 @@ from jax import jit
 from jax.typing import ArrayLike
 from jax._src.util import safe_map
 from jax.tree_util import register_pytree_node_class
-from typing import Tuple, Callable, Sequence, Iterable
+from typing import Tuple, Callable, Sequence, Iterable, Any
 import numpy as np
 from functools import partial
 from itertools import accumulate, product
 from itertools import permutations as perms
-from jax._src import ad_util
+from jax._src import ad_util, source_info_util, config
 from jax._src.api import api_boundary
+from jax._src.core import Jaxpr, Literal, Var, Atom, typecheck, last_used, clean_up_dead_vars
 
 @register_pytree_node_class
 class Interval :
@@ -628,6 +629,67 @@ def _inclusion_tanh_p (x:Interval) -> Interval :
     return Interval(jnp.tanh(x.lower), jnp.tanh(x.upper))
 inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
 
+
+# def natif_jaxpr (jaxpr, consts, *args) :
+#     env = {}
+#     def read (var) :
+#         # Literals are values baked into the Jaxpr
+#         if type(var) is core.Literal :
+#             return var.val
+#         return env[var]
+#     def write (var, val) :
+#         env[var] = val
+    
+#     # Bind args and consts to environment
+#     # print(write)
+#     # print(jaxpr.invars)
+#     safe_map(write, jaxpr.invars, args)
+#     safe_map(write, jaxpr.constvars, consts)
+
+#     # Loop through equations (forward)
+#     for eqn in jaxpr.eqns :
+#         # Read inputs to equation from environment
+#         invals = safe_map(read, eqn.invars)
+#         # Check if primitive has an inclusion function
+#         if eqn.primitive not in inclusion_registry :
+#             raise NotImplementedError(
+#                 f"{eqn.primitive} does not have a registered inclusion function")
+#         outvals = inclusion_registry[eqn.primitive](*invals, **eqn.params)
+#         # Primitives may return multiple outputs or not
+#         if not eqn.primitive.multiple_results :
+#             outvals = [outvals]
+#         # Write the results of the primitive into the environment
+#         safe_map(write, eqn.outvars, outvals)
+#     return safe_map(read, jaxpr.outvars)
+
+def natif_jaxpr (jaxpr: Jaxpr, consts, *args, propagate_source_info=True) -> list[Any]:
+    def read(v: Atom) -> Any:
+        return v.val if isinstance(v, Literal) else env[v]
+
+    def write(v: Var, val: Any) -> None:
+        if config.enable_checks.value and not config.dynamic_shapes.value:
+            assert typecheck(v.aval, val), (v.aval, val)
+        env[v] = val
+
+    env: dict[Var, Any] = {}
+    safe_map(write, jaxpr.constvars, consts)
+    safe_map(write, jaxpr.invars, args)
+    lu = last_used(jaxpr)
+    for eqn in jaxpr.eqns:
+        subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+        name_stack = source_info_util.current_name_stack() + eqn.source_info.name_stack
+        traceback = eqn.source_info.traceback if propagate_source_info else None
+        with source_info_util.user_context(traceback, name_stack=name_stack):
+            # ans = eqn.primitive.bind(*subfuns, *map(read, eqn.invars), **bind_params)
+            ans = inclusion_registry[eqn.primitive](*subfuns, *safe_map(read, eqn.invars), **bind_params)
+        if eqn.primitive.multiple_results:
+            safe_map(write, eqn.outvars, ans)
+        else:
+            write(eqn.outvars[0], ans)
+        clean_up_dead_vars(eqn, env, lu)
+    return safe_map(read, jaxpr.outvars)
+
+
 def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Natural Inclusion Function of f using natif.
     
@@ -644,42 +706,9 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         Natural Inclusion Function of f
 
     """
-    def natif_jaxpr (jaxpr, consts, *args) :
-        env = {}
-        def read (var) :
-            # Literals are values baked into the Jaxpr
-            if type(var) is core.Literal :
-                return var.val
-            return env[var]
-        def write (var, val) :
-            env[var] = val
-        
-        # Bind args and consts to environment
-        # print(write)
-        # print(jaxpr.invars)
-        safe_map(write, jaxpr.invars, args)
-        safe_map(write, jaxpr.constvars, consts)
-
-        # Loop through equations (forward)
-        for eqn in jaxpr.eqns :
-            # Read inputs to equation from environment
-            invals = safe_map(read, eqn.invars)
-            # Check if primitive has an inclusion function
-            if eqn.primitive not in inclusion_registry :
-                raise NotImplementedError(
-                    f"{eqn.primitive} does not have a registered inclusion function")
-            outvals = inclusion_registry[eqn.primitive](*invals, **eqn.params)
-            # Primitives may return multiple outputs or not
-            if not eqn.primitive.multiple_results :
-                outvals = [outvals]
-            # Write the results of the primitive into the environment
-            safe_map(write, eqn.outvars, outvals)
-        return safe_map(read, jaxpr.outvars)
-    
-    @jit
-    @api_boundary
+    @wraps(f)
     def wrapped (*args, **kwargs) :
-        f"""Natural inclusion function of {f.__name__}.
+        f"""Natural inclusion function.
 
         Parameters
         ----------
@@ -692,18 +721,15 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         _type_
             _description_
         """
-        # args = [interval(arg) for arg in args]
-        # buildargs = [(arg.lower if isinstance(arg, Interval) else arg) for arg in args]
-        # buildargs = jax.tree_util.tree_map((lambda x : x.lower if isinstance(x, Interval) else x), args)
-        # buildkwargs = jax.tree_util.tree_map((lambda x : x.lower if isinstance(x, Interval) else x), kwargs)
         getlower = lambda x : x.lower if isinstance(x, Interval) else x
         isinterval = lambda x : isinstance(x, Interval)
         buildargs = jax.tree_util.tree_map(getlower, args, is_leaf=isinterval)
         buildkwargs = jax.tree_util.tree_map(getlower, kwargs, is_leaf=isinterval)
-        # print(buildargs)
         closed_jaxpr = jax.make_jaxpr(f)(*buildargs, **buildkwargs)
         out = natif_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.literals, *args)
-        return out[0]
+        if len(out) == 1 :
+            return out[0]
+        return out
 
     return wrapped
 
@@ -782,6 +808,14 @@ class Permutation (tuple) :
         return tuple.__new__(Permutation, (__iterable))
     def __str__(self) -> str:
         return 'Permutation' + super().__str__()
+    def sub (self, i:int) -> 'Permutation' :
+        """Returns the sub-permutation of the first i elements."""
+        return self[:i+1]
+    @property
+    def mtx (self) -> jax.Array :
+        """Returns the ."""
+        n = len(self)
+        return jnp.array([[1 if j in self.sub(i) else 0 for j in range(n)] for i in range(n)])
 
 def standard_permutation (n:int) -> Tuple[Permutation] :
     """Returns the standard n-permutation :math:`(0,\\dots,n-1)`"""
@@ -820,6 +854,7 @@ def two_corners (n:int) -> Tuple[Corner] :
 def all_corners (n:int) -> Tuple[Corner] :
     """Returns all corners of the n-dimensional hypercube."""
     return tuple(Corner(x) for x in product((0,1), repeat=n))
+
 
 def mjacM (f:Callable[..., jax.Array]) -> Callable :
     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
@@ -944,6 +979,131 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
         
         return ret
     return F
+
+
+# def mjacM (f:Callable[..., jax.Array]) -> Callable :
+#     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
+    
+#     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
+
+#     Parameters
+#     ----------
+#     f : Callable[..., jax.Array]
+#         Function to construct Mixed Jacobian Inclusion Function from
+
+#     Returns
+#     -------
+#     Callable[..., Interval]
+#         Mixed Jacobian-Based Inclusion Function of f
+
+#     """
+
+#     # @partial(jit,static_argnames=['permutations', 'corners'])
+#     @api_boundary
+#     def F (*args, permutations:Tuple[Permutation]|None = None, centers:jax.Array|Sequence[jax.Array]|None = None, 
+#            corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
+#         """_summary_
+
+#         Parameters
+#         ----------
+#         permutations : Tuple[Permutation] | None, optional
+#             _description_, by default None
+#         centers : jax.Array | Sequence[jax.Array] | None, optional
+#             _description_, by default None
+#         corners : Tuple[Corner] | None, optional
+#             _description_, by default None
+
+#         Returns
+#         -------
+#         Interval
+#             _description_
+
+#         Raises
+#         ------
+#         Exception
+#             _description_
+#         Exception
+#             _description_
+#         Exception
+#             _description_
+#         Exception
+#             _description_
+#         Exception
+#             _description_
+#         """
+#         args = [interval(arg).atleast_1d() for arg in args]
+#         leninputsfull = tuple([len(x) for x in args])
+#         leninputs = sum(leninputsfull)
+
+#         if permutations is None :
+#             permutations = standard_permutation(leninputs)
+#         elif isinstance(permutations, Permutation) :
+#             permutations = [permutations]
+#         elif not isinstance(permutations, Tuple) :
+#             raise Exception('Must pass jax.Array (one permutation), Sequence[jax.Array], or None (auto standard permutation) for the permutations argument')
+
+#         cumsum = tuple(accumulate(leninputsfull))
+
+#         # Mixed Centered
+#         if centers is None :
+#             if corners is None :
+#                 # Auto-centered
+#                 centers = [tuple([(x.lower + x.upper)/2 for x in args])]
+#             else :
+#                 centers = []
+#         elif isinstance(centers, jax.Array) :
+#             centers = [centers]
+#         elif not isinstance(centers, Sequence) :
+#             raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
+
+#         if corners is not None :
+#             if not isinstance(corners, Tuple) :
+#                 raise Exception('Must pass Tuple[Corner] or None for the corners argument')
+#             centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
+
+#         # multiple permutations/centers
+#         ret = []
+
+#         def arg2z (*args) :
+#             return jnp.concatenate(args)
+
+#         def z2arg (z) :
+#             return jnp.split(z, cumsum[:-1])
+
+#         def fhat (z) :
+#             return f(*z2arg(z))
+        
+#         df_func = natif(jax.jacfwd(fhat))
+#         _z = arg2z(*[arg.lower for arg in args])
+#         z_ = arg2z(*[arg.upper for arg in args])
+
+#         for center in centers :
+#             if len(center) != len(args) :
+#                 raise Exception(f'Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around')
+#             f0 = f(*center)
+#             zc = arg2z(*center)
+#             for sig in permutations :
+#                 Z = interval(
+#                     jnp.where(sig.mtx, jnp.tile(_z, (len(sig),1)), jnp.tile(zc, (len(sig),1))),
+#                     jnp.where(sig.mtx, jnp.tile(z_, (len(sig),1)), jnp.tile(zc, (len(sig),1)))
+#                 )
+#                 Ms = jax.vmap(df_func)(Z)
+#                 Ml = jnp.empty((len(f0), leninputs))
+#                 Mu = jnp.empty((len(f0), leninputs))
+#                 # print(Z.shape)
+#                 # print(Ms.lower[0].shape)
+#                 # print(Ml.shape)
+#                 for si in sig :
+#                     Ml = Ml.at[:,si].set(Ms.lower[si,:,si])
+#                     Mu = Mu.at[:,si].set(Ms.upper[si,:,si])
+
+#                 Mls = jnp.split(Ml, cumsum[:-1], axis=1)
+#                 Mus = jnp.split(Mu, cumsum[:-1], axis=1)
+
+#                 ret.append([interval(Mli, Mui) for Mli, Mui in zip(Mls, Mus)])
+
+#         return ret
+#     return F
 
 def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Mixed Jacobian Inclusion Function of f using natif.

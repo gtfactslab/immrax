@@ -27,6 +27,11 @@ class System (abc.ABC) :
     """
     evolution:Literal['continuous', 'discrete']
     xlen:int
+    fi:List[Callable[[Union[Integer,Float], jax.Array], jax.Array]]
+
+    @abc.abstractmethod
+    def __init__ (self) -> None:
+        self.fi = [lambda *args, **kwargs : self.f(*args, **kwargs)[i] for i in range(self.xlen)]
 
     @abc.abstractmethod
     def f (self, t:Union[Integer,Float], x:jax.Array, *args, **kwargs) -> jax.Array :
@@ -50,33 +55,34 @@ class System (abc.ABC) :
 
         """
     
-    def fi (self, i:int, t:Union[Integer,Float], x:jax.Array, *args, **kwargs) -> jax.Array :
-        """The i-th component of the right hand side of the system
+ 
+    # def fi (self, i:int, t:Union[Integer,Float], x:jax.Array, *args, **kwargs) -> jax.Array :
+    #     """The i-th component of the right hand side of the system
 
-        Parameters
-        ----------
-        i : int
-            component
-        t : Union[Integer, Float]
-            The time of the system
-        x : jax.Array
-            The state of the system
-        *args :
-            control inputs, disturbance inputs, etc. Depends on parent class.
-        **kwargs :
+    #     Parameters
+    #     ----------
+    #     i : int
+    #         component
+    #     t : Union[Integer, Float]
+    #         The time of the system
+    #     x : jax.Array
+    #         The state of the system
+    #     *args :
+    #         control inputs, disturbance inputs, etc. Depends on parent class.
+    #     **kwargs :
             
 
-        Returns
-        -------
-        jax.Array
-            The i-th component of the time evolution of the state
+    #     Returns
+    #     -------
+    #     jax.Array
+    #         The i-th component of the time evolution of the state
 
-        """
+    #     """
     
-        return self.f(t,x,*args,**kwargs)[i]
+    #     return self.f(t,x,*args,**kwargs)[i]
 
-    def __call__(self, *args: Any, **kwds: Any) -> Any:
-        return self.f(*args, **kwds)
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self.f(*args, **kwargs)
 
     # Every argument for jit is static except x0.
     # Thus, recompiled for every new time horizon.
