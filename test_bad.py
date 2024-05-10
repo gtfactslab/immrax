@@ -21,19 +21,24 @@ class Dum (irx.System) :
         ]
 
     def f (self, t, x, *args, **kwargs) :
-        return jnp.array([self.fi[i](t, x) for i in range(sys.xlen)])
+        # return [self.fi[i](t, x) for i in range(sys.xlen)]
+        return [
+            x[0] + x[1],
+            x[0] - x[1]
+        ]
 
 sys = Dum()
 
 @jax.jit
 def f1 (x) :
+    return sys.f(0., x)[0]
     # return sys.fi[0](0.,x)
-    return x[0] + x[1]
+    # return x[0] + x[1]
 
 f1(x)
 
-print(f1.__dir__())
-# print(jax.make_jaxpr(f1)(x))
+# print(f1.__dir__())
+print(f1.lower(x).compile().cost_analysis())
 
 FA = irx.natif(sys.f)
 # EA = irx.ifemb(sys, FA)
@@ -42,10 +47,10 @@ embsys = irx.natemb(sys)
 iA = irx.icentpert(A, 0.1)
 ix = irx.icentpert(x, 0.1)
 
-print(jax.make_jaxpr(sys.f)(0., x))
+# print(jax.make_jaxpr(sys.f)(0., x))
 # print(jax.make_jaxpr(f1)(x))
 # print(jax.make_jaxpr(embsys.F)(0., ix))
-print(jax.make_jaxpr(embsys.Fi[0])(0., ix))
+# print(jax.make_jaxpr(embsys.Fi[0])(0., ix))
 # print(jax.make_jaxpr(embsys.E)(0., irx.i2ut(ix)))
 
 # print(jax.make_jaxpr(f)(A, x))

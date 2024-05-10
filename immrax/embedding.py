@@ -137,17 +137,19 @@ class InclusionEmbedding (EmbeddingSystem) :
             n = self.sys.xlen
             _x = x[:n]; x_ = x[n:]
 
-            Fkwargs = partial(self.Fi, **kwargs)
+            Fkwargs = partial(self.F, **kwargs)
 
             # Computing F on the faces of the hyperrectangle
 
             _X = interval(jnp.tile(_x, (n,1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n,1))))
-            _E = jax.vmap(Fkwargs, (0, None, 0) + (None,)*len(args))(jnp.arange(n), t, _X, *args)
+            _E = jax.vmap(Fkwargs, (None, 0) + (None,)*len(args))(t, _X, *args)
+            # _E = jnp.array([self.Fi[i](t, _X[i], *args, **kwargs).lower for i in range(n)])
 
             X_ = interval(jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n,1))), jnp.tile(x_, (n,1)))
-            E_ = jax.vmap(Fkwargs, (0, None, 0) + (None,)*len(args))(jnp.arange(n), t, X_, *args)
+            E_ = jax.vmap(Fkwargs, (None, 0) + (None,)*len(args))(t, X_, *args)
+            # E_ = jnp.array([self.Fi[i](t, X_[i], *args, **kwargs).upper for i in range(n)])
 
-            # return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
+            # return jnp.concatenate((_E, E_))
             return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
 
         elif self.evolution == 'discrete' :
