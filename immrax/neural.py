@@ -434,13 +434,14 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
 
     def __init__(self, sys:NNCSystem, nn_verifier:Literal['crown', 'fastlin'] = 'crown',
                  nn_locality:Literal['local', 'hybrid'] = 'local',
-                 M_locality: Literal['local', 'hybrid'] = 'local') -> None:
+                 M_locality: Literal['local', 'hybrid'] = 'local',
+                 sys_mjacM:None|Callable = None) -> None:
         self.sys = sys
         self.evolution = sys.evolution
         self.xlen = sys.xlen * 2
 
         # mjacM Transform on open-loop dynamics
-        self.sys_mjacM = mjacM(sys.olsystem.f)
+        self.sys_mjacM = mjacM(sys.olsystem.f) if sys_mjacM is None else sys_mjacM
 
         self.nn_verifier = nn_verifier
         self.nn_locality = nn_locality

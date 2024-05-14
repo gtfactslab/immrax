@@ -34,6 +34,7 @@ from .inclusion import (
     Interval,
     natif,
     jacif,
+    jacM,
     Permutation,
     standard_permutation,
     two_permutations,

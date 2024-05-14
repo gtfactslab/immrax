@@ -735,6 +735,60 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
 
 Interval.__matmul__ = natif(jnp.matmul)
 
+def jacM (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
+    """Creates the M matrices for the Jacobian-based inclusion function.
+    
+    All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
+
+    Parameters
+    ----------
+    f : Callable[..., jax.Array]
+        Function to construct Jacobian Inclusion Function from
+        
+    Returns
+    -------
+    Callable[..., Interval]
+        Jacobian-Based Inclusion Function of f
+
+    """
+
+    @jit
+    @api_boundary
+    def F (*args, centers:jax.Array|Sequence[jax.Array]|None = None, **kwargs) -> Interval :
+        """Jacobian-based Inclusion Function of f.
+        
+        All positional arguments from f should be replaced with interval arguments for the inclusion function.
+        
+        Additional Args:
+            centers (jax.Array | Sequence[jax.Array] | None, optional): _description_. Defaults to None.
+
+        Parameters
+        ----------
+        *args :
+            
+        centers:jax.Array|Sequence[jax.Array]|None :
+             (Default value = None)
+        **kwargs :
+            
+
+        Returns
+        -------
+        Interval
+            Interval output from the Jacobian-based Inclusion Function
+
+        """
+        args = [interval(arg).atleast_1d() for arg in args]
+        if centers is None :
+            centers = [tuple([(x.lower + x.upper)/2 for x in args])]
+        elif isinstance(centers, jax.Array) :
+            centers = [centers]
+        elif not isinstance(centers, Sequence) :
+            raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
+
+        return [natif(jax.jacfwd(f, i))(*args) for i in range(len(args))]
+        # return [interval(jax.jacfwd(f, i)(*centers[0])) for i in range(len(args))]
+    return F
+
 def jacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Jacobian Inclusion Function of f using natif.
     
@@ -811,9 +865,21 @@ class Permutation (tuple) :
     def sub (self, i:int) -> 'Permutation' :
         """Returns the sub-permutation of the first i elements."""
         return self[:i+1]
+
+    @property
+    def arr (self) -> jax.Array :
+        """Returns the Permutation in a jax.Array."""
+        return jnp.asarray(self)
+
+    @property
+    def mat (self) -> jax.Array :
+        """Returns the permutation matrix of the Permutation."""
+        n = len(self)
+        return jnp.array([[1 if j == self[i] else 0 for j in range(n)] for i in range(n)])
+
     @property
     def mtx (self) -> jax.Array :
-        """Returns the ."""
+        """Returns the replacement matrix of the Permutation."""
         n = len(self)
         return jnp.array([[1 if j in self.sub(i) else 0 for j in range(n)] for i in range(n)])
 
@@ -1067,13 +1133,10 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
 #         def arg2z (*args) :
 #             return jnp.concatenate(args)
 
-#         def z2arg (z) :
-#             return jnp.split(z, cumsum[:-1])
-
-#         def fhat (z) :
-#             return f(*z2arg(z))
+#         def z2arg (z, **kwargs) :
+#             return jnp.split(z, cumsum[:-1], axis=-1)
         
-#         df_func = natif(jax.jacfwd(fhat))
+#         df_func = [natif(jax.jacfwd(f, i)) for i in range(len(args))]
 #         _z = arg2z(*[arg.lower for arg in args])
 #         z_ = arg2z(*[arg.upper for arg in args])
 
@@ -1087,21 +1150,29 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
 #                     jnp.where(sig.mtx, jnp.tile(_z, (len(sig),1)), jnp.tile(zc, (len(sig),1))),
 #                     jnp.where(sig.mtx, jnp.tile(z_, (len(sig),1)), jnp.tile(zc, (len(sig),1)))
 #                 )
-#                 Ms = jax.vmap(df_func)(Z)
-#                 Ml = jnp.empty((len(f0), leninputs))
-#                 Mu = jnp.empty((len(f0), leninputs))
-#                 # print(Z.shape)
-#                 # print(Ms.lower[0].shape)
-#                 # print(Ml.shape)
-#                 for si in sig :
-#                     Ml = Ml.at[:,si].set(Ms.lower[si,:,si])
-#                     Mu = Mu.at[:,si].set(Ms.upper[si,:,si])
+#                 _cumsum = (0,) + cumsum
+#                 retc = []
+#                 npsig = np.asarray(sig)
 
-#                 Mls = jnp.split(Ml, cumsum[:-1], axis=1)
-#                 Mus = jnp.split(Mu, cumsum[:-1], axis=1)
+#                 # # Using jax.lax.scan to build columns
+#                 # for i in range(len(args)) :
+#                 #     idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i+1])
+#                 #     def to_scan (_, arg) :
+#                 #         sigj, z = arg
+#                 #         return None, df_func[i](*natif(z2arg)(z))[:,sigj]
+#                 #     _, Mi = jax.lax.scan(to_scan, None, (npsig[idx], Z[idx])) #
+#                 #     # print(Mi.shape)
+#                 #     # print(npsig[idx])
+#                 #     retc.append(Mi[npsig[idx]-_cumsum[i]].T)
 
-#                 ret.append([interval(Mli, Mui) for Mli, Mui in zip(Mls, Mus)])
-
+#                 # Using vmap to build columns
+#                 for i in range(len(args)) :
+#                     idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i+1])
+#                     Mi = jax.vmap(df_func[i])(*natif(z2arg)(Z[idx]))
+#                     # sig.arr[idx]-_cumsum[i] rearranges/extracts the columns of Mi
+#                     retc.append(Mi[np.arange(leninputsfull[i]),:,npsig[idx]-_cumsum[i]].T)
+ 
+#                 ret.append(retc)
 #         return ret
 #     return F
 
