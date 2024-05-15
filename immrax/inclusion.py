@@ -336,6 +336,7 @@ _add_passthrough_to_registry(lax.reduce_min_p)
 _add_passthrough_to_registry(lax.max_p)
 _add_passthrough_to_registry(lax.min_p)
 _add_passthrough_to_registry(lax.exp_p)
+_add_passthrough_to_registry(jax.experimental.pjit.pjit_p)
 
 def _inclusion_add_p (x:Interval, y:Interval) -> Interval :
     if isinstance(x, Interval) and isinstance (y, Interval) :
@@ -673,6 +674,8 @@ def natif_jaxpr (jaxpr: Jaxpr, consts, *args, propagate_source_info=True) -> lis
 
     env: dict[Var, Any] = {}
     safe_map(write, jaxpr.constvars, consts)
+    # print(jaxpr.invars)
+    # print(args)
     safe_map(write, jaxpr.invars, args)
     lu = last_used(jaxpr)
     for eqn in jaxpr.eqns:
@@ -922,131 +925,6 @@ def all_corners (n:int) -> Tuple[Corner] :
     return tuple(Corner(x) for x in product((0,1), repeat=n))
 
 
-def mjacM (f:Callable[..., jax.Array]) -> Callable :
-    """Creates the M matrices for the Mixed Jacobian-based inclusion function.
-    
-    All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
-
-    Parameters
-    ----------
-    f : Callable[..., jax.Array]
-        Function to construct Mixed Jacobian Inclusion Function from
-
-    Returns
-    -------
-    Callable[..., Interval]
-        Mixed Jacobian-Based Inclusion Function of f
-
-    """
-
-    # @partial(jit,static_argnames=['permutations', 'corners'])
-    @api_boundary
-    def F (*args, permutations:Tuple[Permutation]|None = None, centers:jax.Array|Sequence[jax.Array]|None = None, 
-           corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
-        """_summary_
-
-        Parameters
-        ----------
-        permutations : Tuple[Permutation] | None, optional
-            _description_, by default None
-        centers : jax.Array | Sequence[jax.Array] | None, optional
-            _description_, by default None
-        corners : Tuple[Corner] | None, optional
-            _description_, by default None
-
-        Returns
-        -------
-        Interval
-            _description_
-
-        Raises
-        ------
-        Exception
-            _description_
-        Exception
-            _description_
-        Exception
-            _description_
-        Exception
-            _description_
-        Exception
-            _description_
-        """
-        args = [interval(arg).atleast_1d() for arg in args]
-        leninputsfull = tuple([len(x) for x in args])
-        leninputs = sum(leninputsfull)
-
-        if permutations is None :
-            permutations = standard_permutation(leninputs)
-        elif isinstance(permutations, Permutation) :
-            permutations = [permutations]
-        elif not isinstance(permutations, Tuple) :
-            raise Exception('Must pass jax.Array (one permutation), Sequence[jax.Array], or None (auto standard permutation) for the permutations argument')
-
-        cumsum = tuple(accumulate(leninputsfull))
-        permutations_pairs = []
-
-        # Split permutation into individual inputs and indices.
-        for permutation in permutations :
-            if len(permutation) != leninputs :
-                raise Exception(f'The permutation is not the same length as the sum of the lengths of the inputs: {len(permutation)} != {leninputs}')
-            pairs = []
-            for o in permutation :
-                a = 0
-                while cumsum[a] - 1 < o :
-                    a += 1
-                pairs.append((a,(o - cumsum[a-1] if a > 0 else o)))
-            permutations_pairs.append(tuple(pairs))
-
-        # Mixed Centered
-        if centers is None :
-            if corners is None :
-                # Auto-centered
-                centers = [tuple([(x.lower + x.upper)/2 for x in args])]
-            else :
-                centers = []
-        elif isinstance(centers, jax.Array) :
-            centers = [centers]
-        elif not isinstance(centers, Sequence) :
-            raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
-
-        if corners is not None :
-            if not isinstance(corners, Tuple) :
-                raise Exception('Must pass Tuple[Corner] or None for the corners argument')
-            centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
-
-        # centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
-
-        # multiple permutations/centers
-        ret = []
-
-        df_func = [natif(jax.jacfwd(f, i)) for i in range(len(args))]
-        # centers is an array of centers to check
-        for center in centers :
-            if len(center) != len(args) :
-                raise Exception(f'Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around')
-            f0 = f(*center)
-            for pairs in permutations_pairs :
-                val_lower = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
-                val_upper = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
-                argr = [interval(c).atleast_1d() for c in center]
-
-                for argi, subi in pairs :
-                    # Replacement operation
-                    l = argr[argi].lower.at[subi].set(args[argi].lower[subi])
-                    u = argr[argi].upper.at[subi].set(args[argi].upper[subi])
-                    argr[argi] = interval(l, u)
-                    # Mixed Jacobian matrix subi-th column. TODO: Make more efficient?
-                    Mi = interval(df_func[argi](*argr, **kwargs)[:,subi])
-                    val_lower[argi] = val_lower[argi].at[:,subi].set(Mi.lower)
-                    val_upper[argi] = val_upper[argi].at[:,subi].set(Mi.upper)
-
-                ret.append([interval(val_lower[argi],val_upper[argi]) for argi in range(len(args))])
-        
-        return ret
-    return F
-
-
 # def mjacM (f:Callable[..., jax.Array]) -> Callable :
 #     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
     
@@ -1109,6 +987,19 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
 #             raise Exception('Must pass jax.Array (one permutation), Sequence[jax.Array], or None (auto standard permutation) for the permutations argument')
 
 #         cumsum = tuple(accumulate(leninputsfull))
+#         permutations_pairs = []
+
+#         # Split permutation into individual inputs and indices.
+#         for permutation in permutations :
+#             if len(permutation) != leninputs :
+#                 raise Exception(f'The permutation is not the same length as the sum of the lengths of the inputs: {len(permutation)} != {leninputs}')
+#             pairs = []
+#             for o in permutation :
+#                 a = 0
+#                 while cumsum[a] - 1 < o :
+#                     a += 1
+#                 pairs.append((a,(o - cumsum[a-1] if a > 0 else o)))
+#             permutations_pairs.append(tuple(pairs))
 
 #         # Mixed Centered
 #         if centers is None :
@@ -1127,54 +1018,167 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
 #                 raise Exception('Must pass Tuple[Corner] or None for the corners argument')
 #             centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
 
+#         # centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
+
 #         # multiple permutations/centers
 #         ret = []
 
-#         def arg2z (*args) :
-#             return jnp.concatenate(args)
-
-#         def z2arg (z, **kwargs) :
-#             return jnp.split(z, cumsum[:-1], axis=-1)
-        
 #         df_func = [natif(jax.jacfwd(f, i)) for i in range(len(args))]
-#         _z = arg2z(*[arg.lower for arg in args])
-#         z_ = arg2z(*[arg.upper for arg in args])
-
+#         # centers is an array of centers to check
 #         for center in centers :
 #             if len(center) != len(args) :
 #                 raise Exception(f'Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around')
 #             f0 = f(*center)
-#             zc = arg2z(*center)
-#             for sig in permutations :
-#                 Z = interval(
-#                     jnp.where(sig.mtx, jnp.tile(_z, (len(sig),1)), jnp.tile(zc, (len(sig),1))),
-#                     jnp.where(sig.mtx, jnp.tile(z_, (len(sig),1)), jnp.tile(zc, (len(sig),1)))
-#                 )
-#                 _cumsum = (0,) + cumsum
-#                 retc = []
-#                 npsig = np.asarray(sig)
+#             for pairs in permutations_pairs :
+#                 val_lower = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
+#                 val_upper = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
+#                 argr = [interval(c).atleast_1d() for c in center]
 
-#                 # # Using jax.lax.scan to build columns
-#                 # for i in range(len(args)) :
-#                 #     idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i+1])
-#                 #     def to_scan (_, arg) :
-#                 #         sigj, z = arg
-#                 #         return None, df_func[i](*natif(z2arg)(z))[:,sigj]
-#                 #     _, Mi = jax.lax.scan(to_scan, None, (npsig[idx], Z[idx])) #
-#                 #     # print(Mi.shape)
-#                 #     # print(npsig[idx])
-#                 #     retc.append(Mi[npsig[idx]-_cumsum[i]].T)
+#                 for argi, subi in pairs :
+#                     # Replacement operation
+#                     l = argr[argi].lower.at[subi].set(args[argi].lower[subi])
+#                     u = argr[argi].upper.at[subi].set(args[argi].upper[subi])
+#                     argr[argi] = interval(l, u)
+#                     # Mixed Jacobian matrix subi-th column. TODO: Make more efficient?
+#                     Mi = interval(df_func[argi](*argr, **kwargs)[:,subi])
+#                     val_lower[argi] = val_lower[argi].at[:,subi].set(Mi.lower)
+#                     val_upper[argi] = val_upper[argi].at[:,subi].set(Mi.upper)
 
-#                 # Using vmap to build columns
-#                 for i in range(len(args)) :
-#                     idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i+1])
-#                     Mi = jax.vmap(df_func[i])(*natif(z2arg)(Z[idx]))
-#                     # sig.arr[idx]-_cumsum[i] rearranges/extracts the columns of Mi
-#                     retc.append(Mi[np.arange(leninputsfull[i]),:,npsig[idx]-_cumsum[i]].T)
- 
-#                 ret.append(retc)
+#                 ret.append([interval(val_lower[argi],val_upper[argi]) for argi in range(len(args))])
+        
 #         return ret
 #     return F
+
+
+def mjacM (f:Callable[..., jax.Array]) -> Callable :
+    """Creates the M matrices for the Mixed Jacobian-based inclusion function.
+    
+    All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
+
+    Parameters
+    ----------
+    f : Callable[..., jax.Array]
+        Function to construct Mixed Jacobian Inclusion Function from
+
+    Returns
+    -------
+    Callable[..., Interval]
+        Mixed Jacobian-Based Inclusion Function of f
+
+    """
+
+    # @partial(jit,static_argnames=['permutations', 'corners'])
+    @api_boundary
+    def F (*args, permutations:Tuple[Permutation]|None = None, centers:jax.Array|Sequence[jax.Array]|None = None, 
+           corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
+        """_summary_
+
+        Parameters
+        ----------
+        permutations : Tuple[Permutation] | None, optional
+            _description_, by default None
+        centers : jax.Array | Sequence[jax.Array] | None, optional
+            _description_, by default None
+        corners : Tuple[Corner] | None, optional
+            _description_, by default None
+
+        Returns
+        -------
+        Interval
+            _description_
+
+        Raises
+        ------
+        Exception
+            _description_
+        Exception
+            _description_
+        Exception
+            _description_
+        Exception
+            _description_
+        Exception
+            _description_
+        """
+        args = [interval(arg).atleast_1d() for arg in args]
+        leninputsfull = tuple([len(x) for x in args])
+        leninputs = sum(leninputsfull)
+
+        if permutations is None :
+            permutations = standard_permutation(leninputs)
+        elif isinstance(permutations, Permutation) :
+            permutations = [permutations]
+        elif not isinstance(permutations, Tuple) :
+            raise Exception('Must pass jax.Array (one permutation), Sequence[jax.Array], or None (auto standard permutation) for the permutations argument')
+
+        cumsum = tuple(accumulate(leninputsfull))
+
+        # Mixed Centered
+        if centers is None :
+            if corners is None :
+                # Auto-centered
+                centers = [tuple([(x.lower + x.upper)/2 for x in args])]
+            else :
+                centers = []
+        elif isinstance(centers, jax.Array) :
+            centers = [centers]
+        elif not isinstance(centers, Sequence) :
+            raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
+
+        if corners is not None :
+            if not isinstance(corners, Tuple) :
+                raise Exception('Must pass Tuple[Corner] or None for the corners argument')
+            centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
+
+        # multiple permutations/centers
+        ret = []
+
+        def arg2z (*args) :
+            return jnp.concatenate(args)
+
+        def z2arg (z, **kwargs) :
+            return jnp.split(z, cumsum[:-1], axis=-1)
+        
+        df_func = [natif(jax.jacfwd(partial(f, **kwargs), i)) for i in range(len(args))]
+        _z = arg2z(*[arg.lower for arg in args])
+        z_ = arg2z(*[arg.upper for arg in args])
+
+        for center in centers :
+            if len(center) != len(args) :
+                raise Exception(f'Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around')
+            # f0 = f(*center)
+            zc = arg2z(*center)
+            for sig in permutations :
+                Z = interval(
+                    jnp.where(sig.mtx, jnp.tile(_z, (len(sig),1)), jnp.tile(zc, (len(sig),1))),
+                    jnp.where(sig.mtx, jnp.tile(z_, (len(sig),1)), jnp.tile(zc, (len(sig),1)))
+                )
+                print(Z.shape)
+                _cumsum = (0,) + cumsum
+                retc = []
+                npsig = np.asarray(sig)
+
+                # # Using jax.lax.scan to build columns
+                # for i in range(len(args)) :
+                #     idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i+1])
+                #     def to_scan (_, arg) :
+                #         sigj, z = arg
+                #         return None, df_func[i](*natif(z2arg)(z))[:,sigj]
+                #     _, Mi = jax.lax.scan(to_scan, None, (npsig[idx], Z[idx])) #
+                #     # print(Mi.shape)
+                #     # print(npsig[idx])
+                #     retc.append(Mi[npsig[idx]-_cumsum[i]].T)
+
+                # Using vmap to build columns
+                for i in range(len(args)) :
+                    idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i+1])
+                    Mi = jax.vmap(df_func[i])(*natif(z2arg)(Z[idx]))
+                    # sig.arr[idx]-_cumsum[i] rearranges/extracts the columns of Mi
+                    retc.append(Mi[np.arange(leninputsfull[i]),:,npsig[idx]-_cumsum[i]].T)
+ 
+                ret.append(retc)
+        return ret
+    return F
 
 def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Mixed Jacobian Inclusion Function of f using natif.
