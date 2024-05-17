@@ -200,109 +200,110 @@ class CROWNResult (namedtuple('CROWNResult', ['lC', 'uC', 'ld', 'ud'])) :
         elif isinstance(x, jax.Array) :
             return interval(self.lC@x + self.ld, self.uC@x + self.ud)
 
-def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROWNResult] :
-    if out_len is None :
-        try :
-            # If f is a NeuralNetwork object, has this property.
-            out_len = f.out_len
-        except :
-            # raise Exception('need obj or out_len')
-            pass
-    
-    obj = jnp.vstack([jnp.eye(out_len), -jnp.eye(out_len)]) if out_len is not None else None
-
-    def F (
-        bound
-    ):
-        """Run CROWN but return linfuns rather than concretized IntervalBounds.
-
-        Parameters
-        ----------
-        bound : 
-            Bounds on the inputs of the function.
-
-        Returns
-        -------
-
+def crown (net) :
+    def _relu_linprop (l, u) :
+        # branch = jnp.array(l < 0, "int32") + 2*jnp.array(u > 0, "int32")
+        # case0 = lambda : (0., 0., -jnp.inf, jnp.inf) # l > 0, u < 0, Impossible
+        # case1 = lambda : (0., 0., 0., 0.) # l < 0, u < 0, ReLU is inactive
+        # case2 = lambda : (1., 1., 0., 0.) # l < 0, u > 0, ReLU is active
+        # ola = u/(u - l)
+        # case3 = lambda : (ola, 0., -ola*l, 0.) # l < 0, u > 0, ReLU is active. 
+        # return lax.switch (branch, (case0, case1, case2, case3))
+        on = l >= 0.
+        active = jnp.logical_and(l < 0., u >= 0.)
+        ua = on.astype(jnp.float32) + active.astype(jnp.float32) * (u / (u - l))
+        ub = active.astype(jnp.float32) * (-ua * l)
+        la = (ua >= 0.5).astype(jnp.float32)
+        lb = jnp.zeros_like(ub)
+        return la, ua, lb, ub
+    def newcrown (ix) :
+        lx = [ix.lower]
+        ux = [ix.upper]
         
-        """
+        # # IBP forward pass
 
-        bound = to_jv_interval(bound)
+        # for i, layer in enumerate(net.seq) :
+        #     if isinstance (layer, nn.Linear) :
+        #         # lux = irx.natif(layer)(interval(lx[i], ux[i]))
+        #         # lx.append(lux.lower)
+        #         # ux.append(lux.upper)
+        #         Wp = jnp.clip(layer.weight, 0, jnp.inf); Wn = jnp.clip(layer.weight, -jnp.inf, 0)
+        #         lx.append(Wp @ lx[i] + Wn @ ux[i] + layer.bias)
+        #         ux.append(Wp @ ux[i] + Wn @ lx[i] + layer.bias)
 
-        # As we want to extract some linfuns that are in the middle of two linear
-        # layers, we want to avoid the linear operator fusion.
-        simplifier_composition = synthetic_primitives.simplifier_composition
-        default_simplifier_without_linear = simplifier_composition(
-            synthetic_primitives.activation_simplifier,
-            synthetic_primitives.hoist_constant_computations,
-        )
+        #     elif isinstance (layer, nn.Lambda) :
+        #         if layer.fn == jax.nn.relu :
+        #             lx.append(jnp.maximum(lx[i], 0))
+        #             ux.append(jnp.maximum(ux[i], 0))
 
-        # We are first going to obtain intermediate bounds for all the activation
-        # of the network, so that the backward propagation of the extraction can be
-        # done.
-        bound_retriever_algorithm = bound_utils.BoundRetrieverAlgorithm(
-            concretization.BackwardConcretizingAlgorithm(
-                backward_crown.backward_crown_concretizer
-            ) 
-        )
-        # BoundRetrieverAlgorithm wraps an existing algorithm and captures all of
-        # the intermediate bound it generates.
-        bound_propagation.bound_propagation(
-            bound_retriever_algorithm,
-            f,
-            bound,
-            graph_simplifier=default_simplifier_without_linear,
-        )
-        intermediate_bounds = bound_retriever_algorithm.concrete_bounds
-        # Now that we have extracted all intermediate bounds, we create a
-        # FixedBoundApplier. This is a forward transform that pretends to compute
-        # bounds, but actually just look them up in a dict of precomputed bounds.
-        fwd_bound_applier = bound_utils.FixedBoundApplier(intermediate_bounds)
+        # CROWN forward pass
 
-        # # Let's define what node we are interested in capturing linear functions
-        # # for. If needed, this could be extracted and given as argument to this
-        # # function, or as a callback that would compute which nodes to target.
-        # input_indices = [(i,) for i, _ in enumerate(bounds)]
-        # # We're propagating to the first input.
-        # target_index = input_indices[0]
+        lC = jnp.eye(len(lx[0]))
+        uC = jnp.eye(len(ux[0]))
+        ld = jnp.zeros(len(lx[0]))
+        ud = jnp.zeros(len(ux[0]))
 
-        target_index = (0,)
+        for i, layer in enumerate(net.seq) :
+            if isinstance (layer, nn.Linear) :
+                W = layer.weight
+                b = layer.bias
+                Wp, Wn = jnp.clip(W, 0, jnp.inf), jnp.clip(W, -jnp.inf, 0)
+                _lC = Wp @ lC + Wn @ uC
+                _uC = Wp @ uC + Wn @ lC
+                _ld = Wp @ ld + Wn @ ud + b
+                _ud = Wp @ ud + Wn @ ld + b
+                _lCp = jnp.clip(_lC, 0, jnp.inf); _lCn = jnp.clip(_lC, -jnp.inf, 0)
+                _uCp = jnp.clip(_uC, 0, jnp.inf); _uCn = jnp.clip(_uC, -jnp.inf, 0)
+                # lx.append(jnp.maximum(_lCp @ ix.lower + _lCn @ ix.upper + _ld, Wp @ lx[i] + Wn @ ux[i] + b))
+                # ux.append(jnp.minimum(_uCp @ ix.upper + _uCn @ ix.lower + _ud, Wp @ ux[i] + Wn @ lx[i] + b))
+                lx.append(_lCp @ ix.lower + _lCn @ ix.upper + _ld)
+                ux.append(_uCp @ ix.upper + _uCn @ ix.lower + _ud)
+                lC, uC, ld, ud = _lC, _uC, _ld, _ud
+            elif isinstance (layer, nn.Lambda) :
+                if layer.fn == jax.nn.relu :
+                    lCp = jnp.clip(lC, 0, jnp.inf); lCn = jnp.clip(lC, -jnp.inf, 0)
+                    l_con = jnp.maximum(lCp @ ix.lower + lCn @ ix.upper + ld, lx[i])
+                    uCp = jnp.clip(uC, 0, jnp.inf); uCn = jnp.clip(uC, -jnp.inf, 0)
+                    u_con = jnp.minimum(uCp @ ix.upper + uCn @ ix.lower + ud, ux[i])
+                    la, ua, lb, ub = _relu_linprop(l_con, u_con)
+                    lC = (lC.T * la).T 
+                    uC = (uC.T * ua).T 
+                    ld = lb + la*ld
+                    ud = ub + ua*ud
+                    lx.append(jnp.minimum(lx[i], 0))
+                    ux.append(jnp.maximum(ux[i], 0))
 
-        # Create the concretizer. See the class definition above. The definition
-        # of a "concretized_bound" for this one is "Obj linear function
-        # reformulated as a linear function of target index".
-        # Note: If there is a need to handle a network with multiple output, it
-        # should be easy to extend by making obj here a dict mapping output node to
-        # objective on that output node.
-        extracting_concretizer = LinFunExtractionConcretizer(
-            backward_crown.backward_crown_transform, target_index, obj
-        )
-        # BackwardAlgorithmForwardConcretization uses:
-        #  - A forward transform to compute all intermediate bounds (here a bound
-        #    applier that just look them up).
-        #  - A backward concretizer to compute all final bounds (which we have here
-        #    defined as the linear function of the target index).
-        fwd_bwd_alg = concretization.BackwardAlgorithmForwardConcretization
-        lin_fun_extractor_algorithm = fwd_bwd_alg(
-            fwd_bound_applier, extracting_concretizer
-        )
-        # We get one target_linfuns per output.
-        target_linfuns, _ = bound_propagation.bound_propagation(
-            lin_fun_extractor_algorithm,
-            f,
-            bound,
-            graph_simplifier=default_simplifier_without_linear,
-        )
+        # CROWN backward pass
 
-        return CROWNResult(
-            lC = target_linfuns[0].lin_coeffs[:out_len,:],
-            uC = -target_linfuns[0].lin_coeffs[out_len:,:],
-            ld = target_linfuns[0].offset[:out_len],
-            ud = -target_linfuns[0].offset[out_len:],
-        )
-        # return target_linfuns
+        lC = jnp.eye(len(lx[-1]))
+        uC = jnp.eye(len(ux[-1]))
+        ld = jnp.zeros(len(lx[-1]))
+        ud = jnp.zeros(len(ux[-1]))
 
-    return F
+        for i in range(len(net.seq)-1, -1, -1) :
+            layer = net.seq[i]
+            if isinstance (layer, nn.Linear) :
+                W = layer.weight
+                b = layer.bias
+                _lC = lC @ W
+                _uC = uC @ W
+                _ld = lC @ b + ld
+                _ud = uC @ b + ud
+                lC, uC, ld, ud = _lC, _uC, _ld, _ud
+            
+            elif isinstance (layer, nn.Lambda) :
+                if layer.fn == jax.nn.relu :
+                    la, ua, lb, ub = _relu_linprop(lx[i], ux[i])
+                    lCp = jnp.clip(lC, 0, jnp.inf); lCn = jnp.clip(lC, -jnp.inf, 0)
+                    uCp = jnp.clip(uC, 0, jnp.inf); uCn = jnp.clip(uC, -jnp.inf, 0)
+                    _lC = lCp * la + lCn * ua
+                    _uC = uCp * ua + uCn * la
+                    _ld = lCp @ lb + lCn @ ub + ld
+                    _ud = uCp @ ub + uCn @ lb + ud
+                    lC, uC, ld, ud = _lC, _uC, _ld, _ud
+
+        return CROWNResult(lC, uC, ld, ud)
+    return newcrown
 
 class FastlinResult (namedtuple('FastlinResult', ['C', 'ld', 'ud'])) :
     def __call__(self, x:Union[jax.Array, Interval]) -> Interval :
