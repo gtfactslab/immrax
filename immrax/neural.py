@@ -465,7 +465,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
         if refine is None :
             refine = lambda x : x
 
-        t = interval(t)
+        t = interval(t).atleast_1d()
         ix = refine(ut2i(x))
 
         n = self.sys.xlen
