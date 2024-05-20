@@ -32,7 +32,7 @@ def run_times (N:int, f:Callable, *args, **kwargs) :
 
 def d_metzler (A) :
     diag = jnp.diag_indices_from(A)
-    Am = jnp.clip(A, 0, jnp.inf); Am = Am.at[diag].set(A[diag])
+    Am = jnp.clip(A, 0, jnp.inf).at[diag].set(A[diag])
     return Am, A - Am
 
 def d_positive (B) :
@@ -109,16 +109,9 @@ def gen_ics (x0, N, key=jax.random.PRNGKey(0)) :
         X.append(jax.random.uniform(key=keys[i],shape=(N,),minval=x0.lower[i], maxval=x0.upper[i]))
     return jnp.array(X).T
 
-def set_columns_from_corner (corner:Corner, A:Interval) :
-    # Set i-th column of A based on corner
-    _Jx = jnp.empty_like(A.lower); J_x = jnp.empty_like(A.upper)
-    for i in range(len(corner)) :
-        if corner[i] == 0 :
-            _Jx = _Jx.at[:,i].set(A.lower[:,i]) # Use _A when cornered on ub
-            J_x = J_x.at[:,i].set(A.upper[:,i]) # Use A_ when cornered on lb
-        else :
-            _Jx = _Jx.at[:,i].set(A.upper[:,i]) # Use A_ when cornered on ub
-            J_x = J_x.at[:,i].set(A.lower[:,i]) # Use _A when cornered on lb
+def set_columns_from_corner(corner:Corner, A:Interval):
+    _Jx = jnp.where(corner == 0, A.lower, A.upper)
+    J_x = jnp.where(corner == 0, A.upper, A.lower)
     return _Jx, J_x
 
 def get_corners (x:Interval, corners:Tuple[Corner]|None=None) :

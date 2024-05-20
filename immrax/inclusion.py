@@ -50,6 +50,10 @@ class Interval :
     def width(self) -> jax.Array :
         return self.upper - self.lower
 
+    @property
+    def center(self) -> jax.Array :
+        return (self.lower + self.upper)/2
+
     def __len__ (self) -> int :
         return len(self.lower)
 
@@ -337,6 +341,8 @@ _add_passthrough_to_registry(lax.max_p)
 _add_passthrough_to_registry(lax.min_p)
 _add_passthrough_to_registry(lax.exp_p)
 _add_passthrough_to_registry(jax.experimental.pjit.pjit_p)
+_add_passthrough_to_registry(lax.reduce_sum_p)
+_add_passthrough_to_registry(lax.pad_p)
 
 def _inclusion_add_p (x:Interval, y:Interval) -> Interval :
     if isinstance(x, Interval) and isinstance (y, Interval) :
@@ -440,6 +446,8 @@ def _inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
     # Current implementation only works for 2D matrix multiplication.
     # TODO: Generalize to work for any call to dot_general.
 
+    _Ash = A.shape; _Bsh = B.shape
+        
     if A.ndim > 2 or B.ndim > 2 :
         raise NotImplementedError("dot_general inclusion function currently only supported for vectors and matrices.")
 
@@ -452,15 +460,26 @@ def _inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
         B = B.reshape(-1, 1)
         retdim = retdim - 1    
 
+    A = interval(A)
+    B = interval(B)
+
+    # if retdim == 2 :
+    #     print(f'{retdim} - {_Ash} @ {_Bsh}')
+    #     print(f'-> {(A.lower @ B.lower).shape}')
+    # if retdim == 1 :
+    #     print(f'{retdim} - {_Ash} @ {_Bsh}')
+    #     print(f'-> {(A.lower @ B.lower).reshape(-1).shape}')
+    # if retdim == 0 :
+    #     print(f'{retdim} - {_Ash} @ {_Bsh}')
+    #     print(f'-> {(A.lower @ B.lower).reshape(()).shape}')
+        
+
     # Extract the contraction and batch dimensions
     # ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = kwargs['dimension_numbers']
 
     # Move the batch dimensions to the front and the contraction dimensions to the back
     # A = Interval(jnp.moveaxis(A.lower, lhs_contract, 0), jnp.moveaxis(A.upper, lhs_contract, 0))
     # B = Interval(jnp.moveaxis(B.lower, rhs_contract, 0), jnp.moveaxis(B.upper, rhs_contract, 0))
-
-    A = interval(A)
-    B = interval(B)
 
     def _mul (a, b) :
         _1 = a.lower*b.lower
@@ -483,7 +502,13 @@ def _inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
     if retdim == 0 : res = res.reshape(())
     return res
 
+def _fake_inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
+    # Current implementation only works for 2D matrix multiplication.
+    A = interval(A); B = interval(B)
+    return interval(A.lower@B.lower)
+
 inclusion_registry[lax.dot_general_p] = _inclusion_dot_general_p
+# inclusion_registry[lax.dot_general_p] = _fake_inclusion_dot_general_p
 
 
 
@@ -623,7 +648,10 @@ def natif_jaxpr (jaxpr: Jaxpr, consts, *args, propagate_source_info=True) -> lis
         traceback = eqn.source_info.traceback if propagate_source_info else None
         with source_info_util.user_context(traceback, name_stack=name_stack):
             # ans = eqn.primitive.bind(*subfuns, *map(read, eqn.invars), **bind_params)
-            ans = inclusion_registry[eqn.primitive](*subfuns, *safe_map(read, eqn.invars), **bind_params)
+            try :
+                ans = inclusion_registry[eqn.primitive](*subfuns, *safe_map(read, eqn.invars), **bind_params)
+            except KeyError :
+                raise Exception(f'{eqn.primitive} not in inclusion_registry')
         if eqn.primitive.multiple_results:
             safe_map(write, eqn.outvars, ans)
         else:
@@ -989,7 +1017,7 @@ def all_corners (n:int) -> Tuple[Corner] :
 #     return F
 
 
-def mjacM (f:Callable[..., jax.Array]) -> Callable :
+def mjacM (f:Callable[..., jax.Array], argnums=None) -> Callable :
     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
     
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
@@ -1005,6 +1033,12 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
         Mixed Jacobian-Based Inclusion Function of f
 
     """
+
+    # if isinstance(argnums, int) :
+    #     single = True
+    #     argnums = (argnums,)
+    # else :
+    #     single = False
 
     # @partial(jit,static_argnames=['permutations', 'corners'])
     @api_boundary
@@ -1043,6 +1077,11 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
         leninputsfull = tuple([len(x) for x in args])
         leninputs = sum(leninputsfull)
 
+        # if argnums is None :
+        #     _argnums = range(len(args))
+        # else :
+        #     _argnums = argnums
+
         if permutations is None :
             permutations = standard_permutation(leninputs)
         elif isinstance(permutations, Permutation) :
@@ -1078,7 +1117,13 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
         def z2arg (z, **kwargs) :
             return jnp.split(z, cumsum[:-1], axis=-1)
         
-        df_func = [natif(jax.jacfwd(partial(f, **kwargs), i)) for i in range(len(args))]
+        # TODO: Understand why I needed to change this to jacrev to work with LiftedSystem
+
+        df_func = [natif(jax.jacrev(partial(f, **kwargs), i)) for i in range(len(args))]
+        # df_func = [natif(jax.jacfwd(partial(f, **kwargs), i)) for i in range(len(args))]
+        # df_func = [jax.jacfwd(partial(f, **kwargs), i) for i in range(len(args))]
+        # df_func = [natif(jax.jacfwd(partial(f, **kwargs), i)) for i in _argnums]
+        # df_func = [natif(jax.jacrev(partial(f, **kwargs), i)) for i in _argnums]
         _z = arg2z(*[arg.lower for arg in args])
         z_ = arg2z(*[arg.upper for arg in args])
 

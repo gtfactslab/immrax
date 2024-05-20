@@ -21,6 +21,8 @@ try :
     from . import neural as neural
     from .neural import (
         NeuralNetwork,
+        CROWNResult,
+        FastlinResult,
         crown,
         fastlin,
         NNCSystem,
