@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as onp
 import time
 from jax._src.util import wraps
 from jax._src.traceback_util import api_boundary
@@ -53,6 +54,25 @@ def draw_sg_union (ax, boxes, **kwargs) :
 draw_iarray = lambda ax, x, xi=0, yi=1, **kwargs : draw_sg_union(ax, [sg_box(x, xi, yi)], **kwargs)
 draw_iarrays = lambda ax, xx, xi=0, yi=1, **kwargs: draw_sg_union(ax, sg_boxes(xx, xi, yi), **kwargs)
 
+def draw_iarray_3d (ax, x, xi=0, yi=1, zi=2, **kwargs) :
+    Xl, Yl, Zl = x.lower[(xi,yi,zi),]
+    Xu, Yu, Zu = x.upper[(xi,yi,zi),]
+    kwargs.setdefault('color', 'tab:blue')
+    kwargs.setdefault('lw', 0.75)
+    faces = [ \
+        onp.array([[Xl,Yl,Zl],[Xu,Yl,Zl],[Xu,Yu,Zl],[Xl,Yu,Zl],[Xl,Yl,Zl]]), \
+        onp.array([[Xl,Yl,Zu],[Xu,Yl,Zu],[Xu,Yu,Zu],[Xl,Yu,Zu],[Xl,Yl,Zu]]), \
+        onp.array([[Xl,Yl,Zl],[Xu,Yl,Zl],[Xu,Yl,Zu],[Xl,Yl,Zu],[Xl,Yl,Zl]]), \
+        onp.array([[Xl,Yu,Zl],[Xu,Yu,Zl],[Xu,Yu,Zu],[Xl,Yu,Zu],[Xl,Yu,Zl]]), \
+        onp.array([[Xl,Yl,Zl],[Xl,Yu,Zl],[Xl,Yu,Zu],[Xl,Yl,Zu],[Xl,Yl,Zl]]), \
+        onp.array([[Xu,Yl,Zl],[Xu,Yu,Zl],[Xu,Yu,Zu],[Xu,Yl,Zu],[Xu,Yl,Zl]]) ]
+    for face in faces :
+        ax.plot3D(face[:,0], face[:,1], face[:,2], **kwargs)
+
+def draw_iarrays_3d (ax, xx, xi=0, yi=1, zi=2, color='tab:blue') :
+    for x in xx :
+        draw_iarray_3d(ax, x, xi, yi, zi, color)
+
 def plot_interval_t (ax, tt, x, **kwargs) :
     xl, xu = i2lu(x)
     alpha = kwargs.pop('alpha', 0.25)
@@ -100,7 +120,7 @@ def get_partitions_ut (x:jax.Array, N:int) -> jax.Array :
         ret.append(jnp.concatenate((_part,part_)))
     return jnp.array(ret)
 
-def gen_ics (x0, N, key=jax.random.PRNGKey(0)) :
+def gen_ics (x0, N, key=jax.random.key(0)) :
     # X = np.empty((N, len(x0)))
     X = []
     keys = jax.random.split(key, len(x0))
@@ -131,7 +151,8 @@ def I_refine (A:jax.Array, y:Interval) -> Interval :
                 reti = jax.lax.cond(jnp.abs(A[j,i].lower) > 1e-10, b1, b2)
                 # print(f'{reti=}')
                 retl = ret.lower.at[i].set(reti.lower)
-                retu = ret.upper.at[i].set(reti.upper)
+                # retu = ret.upper.at[i].set(reti.upper)
+                retu = ret.upper.at[i].set(jnp.where(reti.upper >= reti.lower, reti.upper, reti.lower))
                 ret = interval(retl, retu)
                 # print(f'{ret=}')
         return ret
