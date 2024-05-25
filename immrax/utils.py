@@ -12,6 +12,7 @@ import shapely.ops as so
 import numpy as onp
 from math import floor, exp, log
 from functools import partial
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 def timed (f:Callable) :
     @wraps(f)
@@ -57,6 +58,7 @@ draw_iarrays = lambda ax, xx, xi=0, yi=1, **kwargs: draw_sg_union(ax, sg_boxes(x
 def draw_iarray_3d (ax, x, xi=0, yi=1, zi=2, **kwargs) :
     Xl, Yl, Zl = x.lower[(xi,yi,zi),]
     Xu, Yu, Zu = x.upper[(xi,yi,zi),]
+    poly_alpha = kwargs.pop('poly_alpha', 0.)
     kwargs.setdefault('color', 'tab:blue')
     kwargs.setdefault('lw', 0.75)
     faces = [ \
@@ -68,6 +70,8 @@ def draw_iarray_3d (ax, x, xi=0, yi=1, zi=2, **kwargs) :
         onp.array([[Xu,Yl,Zl],[Xu,Yu,Zl],[Xu,Yu,Zu],[Xu,Yl,Zu],[Xu,Yl,Zl]]) ]
     for face in faces :
         ax.plot3D(face[:,0], face[:,1], face[:,2], **kwargs)
+        kwargs['alpha'] = poly_alpha
+        ax.add_collection3d(Poly3DCollection([face], **kwargs))
 
 def draw_iarrays_3d (ax, xx, xi=0, yi=1, zi=2, color='tab:blue') :
     for x in xx :
@@ -130,8 +134,8 @@ def gen_ics (x0, N, key=jax.random.key(0)) :
     return jnp.array(X).T
 
 def set_columns_from_corner(corner:Corner, A:Interval):
-    _Jx = jnp.where(corner == 0, A.lower, A.upper)
-    J_x = jnp.where(corner == 0, A.upper, A.lower)
+    _Jx = jnp.where(jnp.asarray(corner) == 0, A.lower, A.upper)
+    J_x = jnp.where(jnp.asarray(corner) == 0, A.upper, A.lower)
     return _Jx, J_x
 
 def get_corners (x:Interval, corners:Tuple[Corner]|None=None) :
@@ -139,24 +143,22 @@ def get_corners (x:Interval, corners:Tuple[Corner]|None=None) :
     xut = i2ut(x)
     return jnp.array([jnp.array([x.lower[i] if c[i] == 0 else x.upper[i] for i in range(len(x))]) for c in corners])
 
-def I_refine (A:jax.Array, y:Interval) -> Interval :
+def I_refine (A:jax.Array) -> Interval :
     A = interval(A)
-    def I_r (y) :
+    def I_r (y:Interval) :
         ret = icopy(y)
         for j in range(len(A)) :
             for i in range(len(y)) :
-                # print(f'{ret[i]=}')
                 b1 = lambda : ((-A[j,:i] @ ret[:i] - A[j,i+1:] @ ret[i+1:])/A[j,i]) & ret[i]
                 b2 = lambda : ret[i]
                 reti = jax.lax.cond(jnp.abs(A[j,i].lower) > 1e-10, b1, b2)
-                # print(f'{reti=}')
                 retl = ret.lower.at[i].set(reti.lower)
                 # retu = ret.upper.at[i].set(reti.upper)
                 retu = ret.upper.at[i].set(jnp.where(reti.upper >= reti.lower, reti.upper, reti.lower))
                 ret = interval(retl, retu)
-                # print(f'{ret=}')
         return ret
-    return I_r(y)
+    return I_r
+
 def null_space(A, rcond=None):
     """Taken from scipy, with some modifications to use jax.numpy"""
     u, s, vh = jnp.linalg.svd(A, full_matrices=True)

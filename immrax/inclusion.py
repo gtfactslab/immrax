@@ -755,7 +755,8 @@ def jacM (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         elif not isinstance(centers, Sequence) :
             raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
 
-        return [natif(jax.jacfwd(f, i))(*args) for i in range(len(args))]
+        # return [natif(jax.jacfwd(partial(f, **kwargs), i))(*args) for i in range(len(args))]
+        return [natif(jax.jacrev(partial(f, **kwargs), i))(*args) for i in range(len(args))]
         # return [interval(jax.jacfwd(f, i)(*centers[0])) for i in range(len(args))]
     return F
 

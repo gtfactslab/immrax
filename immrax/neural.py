@@ -133,6 +133,8 @@ class NeuralNetwork (Control, eqx.Module) :
         """
         return self(x)
 
+ 
+ 
 
 """
 The following code was adapted from ________.
@@ -212,8 +214,6 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
             pass
     
     obj = jnp.vstack([jnp.eye(out_len), -jnp.eye(out_len)]) if out_len is not None else None
-
-    print(f)
 
     def F (
         bound
@@ -655,20 +655,22 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                 if self.M_locality == 'hybrid' :
                     Mpre = self.sys_mjacM(t, ix, uglobal, w, permutations=permutation, centers=txuw_corners)
 
-                for j, (tc, xc, uc, wc) in enumerate(txuw_corners) :
+                for c in corners :
+                # for j, (tc, xc, uc, wc) in enumerate(txuw_corners) :
                 # def body_fun_2 (_, a2) :
                     # tc, xc, uc, wc = txuw_corners[j]
                     # j = i2
                     # tc, xc, uc, wc, c = a2
-                    _retj = jnp.empty_like(xc)
-                    retj_ = jnp.empty_like(xc)
-                    c = corners[j]
+                    # c = corners[j]
                     # print('here: ', tc, xc, uc, wc)
                     # def body_fun_3 (i3, a3) :
                     def _F (t, x) :
                         # LOWER BOUND
                         # _xi = refine(ut2i(jnp.copy(x).at[i3+n].set(x[i3])))
                         _xi = refine(x)
+
+                        # _xc = jnp.minimum(xc, _xi.upper)
+                        _xc = jnp.array([_xi.lower[i] if c[i+1] == 0 else _xi.upper[i] for i in range(n)])
 
                         # Compute Local NN verification step, otherwise use global
                         if self.nn_locality == 'local' :
@@ -680,9 +682,11 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
 
                         # Compute Local M centerings, otherwise use precomputed
                         _ui = verifier_res(_xi)
-                        uc = jnp.array([_ui[k].lower if c[k+1+n] == 0 else _ui[k].upper for k in range(p)])
+                        _uc = jnp.array([_ui[k].lower if c[k+1+n] == 0 else _ui[k].upper for k in range(p)])
+                        # uc = self.sys.control.u(t, _xc)
+
                         if self.M_locality == 'local' :
-                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, _xi, _ui, w, permutations=permutation, centers=((tc, xc, uc, wc),))[0]
+                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, _xi, _ui, w, permutations=permutation, centers=((tc, _xc, _uc, wc),))[0]
                         else :
                             Jt, Jx, Ju, Jw = Mpre[j]
 
@@ -693,7 +697,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                         _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], Ju)
                         _Jw, J_w = set_columns_from_corner(c[n+1+p:], Jw)
 
-                        fc = self.sys.olsystem.f(tc, xc, uc, wc)
+                        fc = self.sys.olsystem.f(tc, _xc, _uc, wc)
 
                         _Bp, _Bn = d_positive(_Ju)
                         B_p, B_n = d_positive(J_u)
@@ -705,18 +709,21 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
 
                         _H = _Jx + _K
                         H_ = J_x + K_
-                        _Hp, _Hn = d_metzler(_H); 
+                        _Hp, _Hn = d_positive(_H); 
                         # H_p, H_n = d_metzler(H_)
 
                         # _ret.append(_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
                         #             + _Dp@_w - _Dp@w_ + fc)
-                        return (_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
+                        return (_Hp@_x + _Hn@x_ - _Jx@_xc - _Ju@_uc + _Bp@_d + _Bn@d_
                                     + _Dp@_w - _Dp@w_ + fc)
                         
                     def F_ (t, x) :
                         # UPPER BOUND
                         # x_i = refine(ut2i(jnp.copy(x).at[i3].set(x[i3+n])))
                         x_i = refine(x)
+
+                        # x_c = jnp.maximum(xc, x_i.lower)
+                        x_c = jnp.array([x_i.lower[i] if c[i+1] == 0 else x_i.upper[i] for i in range(n)])
 
                         # Compute Local NN verification step, otherwise use global
                         if self.nn_locality == 'local' :
@@ -728,9 +735,10 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
 
                         # Compute Local M centerings, otherwise use precomputed
                         u_i = verifier_res(x_i)
-                        uc = jnp.array([u_i[k].lower if c[k+1+n] == 0 else u_i[k].upper for k in range(p)])
+                        u_c = jnp.array([u_i[k].lower if c[k+1+n] == 0 else u_i[k].upper for k in range(p)])
+                        # uc = self.sys.control.u(t, x_c)
                         if self.M_locality == 'local' :
-                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, x_i, u_i, w, permutations=permutation, centers=((tc, xc, uc, wc),))[0]
+                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, x_i, u_i, w, permutations=permutation, centers=((tc, x_c, u_c, wc),))[0]
                         else :
                             Jt, Jx, Ju, Jw = Mpre[j]
 
@@ -742,7 +750,7 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                         _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], Ju)
                         _Jw, J_w = set_columns_from_corner(c[n+1+p:], Jw)
 
-                        fc = self.sys.olsystem.f(tc, xc, uc, wc)
+                        fc = self.sys.olsystem.f(tc, x_c, u_c, wc)
 
                         _Bp, _Bn = d_positive(_Ju)
                         B_p, B_n = d_positive(J_u)
@@ -756,11 +764,11 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                         _H = _Jx + _K
                         H_ = J_x + K_
                         # _Hp, _Hn = d_metzler(_H); 
-                        H_p, H_n = d_metzler(H_)
+                        H_p, H_n = d_positive(H_)
 
                         # ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
                         #             - D_p@_w + D_p@w_ + fc)
-                        return (H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
+                        return (H_n@_x + H_p@x_ - J_x@x_c - J_u@u_c + B_n@_d + B_p@d_ 
                                     - D_p@_w + D_p@w_ + fc)
 
                     # Computing F on the faces of the hyperrectangle
