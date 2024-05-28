@@ -15,6 +15,7 @@ from itertools import accumulate, product
 from itertools import permutations as perms
 from jax._src import ad_util
 from jax._src.api import api_boundary
+import equinox as eqx
 
 @register_pytree_node_class
 class Interval :
@@ -44,6 +45,10 @@ class Interval :
     @property
     def shape (self) -> Tuple[int] :
         return self.lower.shape
+    
+    @property
+    def size (self) -> int :
+        return self.lower.size
 
     @property
     def width(self) -> jax.Array :
@@ -163,6 +168,7 @@ def icentpert (cent:ArrayLike, pert:ArrayLike) -> Interval :
     pert = jnp.asarray(pert)
     return interval(cent - pert, cent + pert)
 
+centpert2i = icentpert
 
 def i2centpert (i:Interval) -> Tuple[jax.Array, jax.Array] :
     """i2centpert: Helper to get the center and perturbation from the center of a Interval.
@@ -179,6 +185,7 @@ def i2centpert (i:Interval) -> Tuple[jax.Array, jax.Array] :
 
     """
     return (i.lower + i.upper)/2, (i.upper - i.lower)/2
+
 
 def i2lu (i:Interval) -> Tuple[jax.Array, jax.Array] :
     """i2lu: Helper to get the lower and upper bound of a Interval.
@@ -335,6 +342,17 @@ _add_passthrough_to_registry(lax.reduce_min_p)
 _add_passthrough_to_registry(lax.max_p)
 _add_passthrough_to_registry(lax.min_p)
 _add_passthrough_to_registry(lax.exp_p)
+
+# def _make_inclusion_apply_p (primitive:Primitive) -> Callable[..., Interval] :
+#     """Creates an 'inclusion function' that just applies the typical function."""
+#     def _inclusion_p (*args, **kwargs) -> Interval :
+#         return primitive.bind(*args, **kwargs)
+#     return _inclusion_p
+# def _add_apply_to_registry (primitive:Primitive) -> None :
+#     inclusion_registry[primitive] = _make_inclusion_apply_p(primitive)
+# _add_apply_to_registry(lax.scan_p)
+
+# _add_passthrough_to_registry(jax._src.pjit.pjit_p)
 
 def _inclusion_add_p (x:Interval, y:Interval) -> Interval :
     if isinstance(x, Interval) and isinstance (y, Interval) :
@@ -669,9 +687,14 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             # Read inputs to equation from environment
             invals = safe_map(read, eqn.invars)
             # Check if primitive has an inclusion function
+            # print(type(eqn.primitive))
             if eqn.primitive not in inclusion_registry :
-                raise NotImplementedError(
-                    f"{eqn.primitive} does not have a registered inclusion function")
+                try :
+                    outvals = eqn.primitive.bind(*invals, **eqn.params)
+                except Exception as e :
+                    raise NotImplementedError(
+                        f"{eqn.primitive} does not have a registered inclusion function")
+
             outvals = inclusion_registry[eqn.primitive](*invals, **eqn.params)
             # Primitives may return multiple outputs or not
             if not eqn.primitive.multiple_results :
@@ -705,6 +728,7 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         buildargs = jax.tree_util.tree_map(getlower, args, is_leaf=isinterval)
         buildkwargs = jax.tree_util.tree_map(getlower, kwargs, is_leaf=isinterval)
         closed_jaxpr = jax.make_jaxpr(f)(*buildargs, **buildkwargs)
+        # closed_jaxpr = eqx.filter_make_jaxpr(f)(*buildargs, **buildkwargs)[0]
         out = natif_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.literals, *args)
         # print(out)
         if len(out) == 1 :
@@ -715,6 +739,61 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     return wrapped
 
 Interval.__matmul__ = natif(jnp.matmul)
+
+def jacM (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
+    """Creates the M matrices for the Jacobian-based inclusion function.
+    
+    All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
+
+    Parameters
+    ----------
+    f : Callable[..., jax.Array]
+        Function to construct Jacobian Inclusion Function from
+        
+    Returns
+    -------
+    Callable[..., Interval]
+        Jacobian-Based Inclusion Function of f
+
+    """
+
+    @jit
+    @api_boundary
+    def F (*args, centers:jax.Array|Sequence[jax.Array]|None = None, **kwargs) -> Interval :
+        """Jacobian-based Inclusion Function of f.
+        
+        All positional arguments from f should be replaced with interval arguments for the inclusion function.
+        
+        Additional Args:
+            centers (jax.Array | Sequence[jax.Array] | None, optional): _description_. Defaults to None.
+
+        Parameters
+        ----------
+        *args :
+            
+        centers:jax.Array|Sequence[jax.Array]|None :
+             (Default value = None)
+        **kwargs :
+            
+
+        Returns
+        -------
+        Interval
+            Interval output from the Jacobian-based Inclusion Function
+
+        """
+        args = [interval(arg).atleast_1d() for arg in args]
+        if centers is None :
+            centers = [tuple([(x.lower + x.upper)/2 for x in args])]
+        elif isinstance(centers, jax.Array) :
+            centers = [centers]
+        elif not isinstance(centers, Sequence) :
+            raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
+
+        retl, retu = [], []
+        return [natif(jax.jacfwd(f, i))(*args) for i in range(len(args))]
+    return F
+
 
 def jacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Jacobian Inclusion Function of f using natif.
@@ -758,6 +837,7 @@ def jacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             Interval output from the Jacobian-based Inclusion Function
 
         """
+        args = [interval(arg).atleast_1d() for arg in args]
         if centers is None :
             centers = [tuple([(x.lower + x.upper)/2 for x in args])]
         elif isinstance(centers, jax.Array) :
@@ -827,6 +907,27 @@ def two_corners (n:int) -> Tuple[Corner] :
 def all_corners (n:int) -> Tuple[Corner] :
     """Returns all corners of the n-dimensional hypercube."""
     return tuple(Corner(x) for x in product((0,1), repeat=n))
+
+def get_corner (M:Interval, c:Corner) :
+    """Gets the corner of the interval M specified by the Corner c."""
+    sh = M.shape
+    M = M.reshape(-1)
+    return jnp.array([M.lower[i] if ci == 0 else M.upper[i] for i, ci in enumerate(c)]).reshape(sh)
+
+def get_corners (M:Interval, cs:Tuple[Corner]|None = None) :
+    """Gets the corners of the interval M specified by the Corners cs. Defaults to all corners if None."""
+    if cs is None :
+        cs = all_corners(M.size)
+    return [get_corner(M, c) for c in cs]
+    # return [(Mc := get_corner(M, c)) for c in cs if not jnp.allclose(Mc, 0)]
+
+def get_sparse_corners (M:Interval) :
+    """Gets the corners of the interval M that are not the same. Will"""
+    sh = M.shape
+    M = M.reshape(-1)
+    ic = jnp.isclose(M.lower, M.upper)
+    cs = [Corner(p) for p in product(*[(0,) if ic[i] else (0,1) for i in range(len(ic))])]
+    return [jnp.array([M.lower[i] if ci == 0 else M.upper[i] for i, ci in enumerate(c)]).reshape(sh) for c in cs]
 
 def mjacM (f:Callable[..., jax.Array]) -> Callable :
     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
@@ -1004,6 +1105,7 @@ def mjacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             _description_
         """
 
+        args = [interval(arg).atleast_1d() for arg in args]
         leninputsfull = tuple([len(x) for x in args])
         leninputs = sum(leninputsfull)
 

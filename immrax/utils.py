@@ -62,7 +62,6 @@ def plot_interval_t (ax, tt, x, **kwargs) :
     ax.plot(tt, xu, **kwargs)
 
 
-# @ijit
 def get_half_intervals (x:Interval, N=1, ut=False) :
     _xx_0 = i2ut(x) if ut is False else x
     n = len(_xx_0) // 2

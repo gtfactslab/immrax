@@ -33,6 +33,7 @@ from . import inclusion as inclusion
 from .inclusion import (
     Interval,
     natif,
+    jacM,
     jacif,
     Permutation,
     standard_permutation,
@@ -43,6 +44,9 @@ from .inclusion import (
     top_corner,
     two_corners,
     all_corners,
+    get_corner,
+    get_corners,
+    get_sparse_corners,
     mjacif,
     mjacM,
     interval,
