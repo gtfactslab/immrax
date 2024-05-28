@@ -4,18 +4,19 @@ import jax.numpy as jnp
 from jax import core
 from jax import lax
 from jax.core import Primitive
-from jax import jit
+from jax import jit, vmap
 from jax.typing import ArrayLike
 from jax._src.util import safe_map
 from jax.tree_util import register_pytree_node_class
-from typing import Tuple, Callable, Sequence, Iterable
+from typing import Tuple, Callable, Sequence, Iterable, Any
 import numpy as np
 from functools import partial
 from itertools import accumulate, product
 from itertools import permutations as perms
-from jax._src import ad_util
+from jax._src import ad_util, source_info_util, config
 from jax._src.api import api_boundary
 import equinox as eqx
+from jax._src.core import Jaxpr, Literal, Var, Atom, typecheck, last_used, clean_up_dead_vars
 
 @register_pytree_node_class
 class Interval :
@@ -53,6 +54,10 @@ class Interval :
     @property
     def width(self) -> jax.Array :
         return self.upper - self.lower
+
+    @property
+    def center(self) -> jax.Array :
+        return (self.lower + self.upper)/2
 
     def __len__ (self) -> int :
         return len(self.lower)
@@ -342,6 +347,9 @@ _add_passthrough_to_registry(lax.reduce_min_p)
 _add_passthrough_to_registry(lax.max_p)
 _add_passthrough_to_registry(lax.min_p)
 _add_passthrough_to_registry(lax.exp_p)
+_add_passthrough_to_registry(jax.experimental.pjit.pjit_p)
+_add_passthrough_to_registry(lax.reduce_sum_p)
+_add_passthrough_to_registry(lax.pad_p)
 
 # def _make_inclusion_apply_p (primitive:Primitive) -> Callable[..., Interval] :
 #     """Creates an 'inclusion function' that just applies the typical function."""
@@ -452,116 +460,74 @@ def _inclusion_integer_pow_p (x:Interval, y: int) -> Interval :
 inclusion_registry[lax.integer_pow_p] = _inclusion_integer_pow_p
 Interval.__pow__ = _inclusion_integer_pow_p
 
-"""
-The following two functions were taken and modified from jax_verify.
-_move_axes, and _inclusion_dot_general_p
-"""
+def _inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
+    # Current implementation only works for 2D matrix multiplication.
+    # TODO: Generalize to work for any call to dot_general.
 
-def _move_axes(
-    bound: Interval, cdims: Tuple[int, ...], bdims: Tuple[int, ...],
-    orig_axis: int, new_axis: int,
-) -> Tuple[Interval, Tuple[int, ...], Tuple[int, ...]]:
-  bound = interval(bound)
-  def new_axis_fn(old_axis):
-    if old_axis == orig_axis:
-      # This is the axis being moved. Return its new position.
-      return new_axis
-    elif (old_axis < orig_axis) and (old_axis >= new_axis):
-      # The original axis being moved was after, but it has now moved to before
-      # (or at this space). This means that this axis gets shifted back
-      return old_axis + 1
-    elif (old_axis > orig_axis) and (old_axis <= new_axis):
-      # The original axis being moved was before this one, but it has now moved
-      # to after. This means that this axis gets shifted forward.
-      return old_axis - 1
-    else:
-      # Nothing should be changing.
-      return old_axis
-
-  mapping = {old_axis: new_axis_fn(old_axis)
-             for old_axis in range(len(bound.lower.shape))}
-  permutation = sorted(range(len(bound.lower.shape)), key=lambda x: mapping[x])
-  new_bound = Interval(jax.lax.transpose(bound.lower, permutation),
-                       jax.lax.transpose(bound.upper, permutation))
-  new_cdims = tuple(new_axis_fn(old_axis) for old_axis in cdims)
-  new_bdims = tuple(new_axis_fn(old_axis) for old_axis in bdims)
-  return new_bound, new_cdims, new_bdims
-def _inclusion_dot_general_p(lhs: Interval, rhs: Interval, **kwargs) -> Interval:
-  (lhs_cdims, rhs_cdims), (lhs_bdims, rhs_bdims) = kwargs['dimension_numbers']
-
-  # Move the contracting dimensions to the front.
-  for cdim_index in range(len(lhs_cdims)):
-    lhs, lhs_cdims, lhs_bdims = _move_axes(lhs, lhs_cdims, lhs_bdims,
-                                           lhs_cdims[cdim_index], cdim_index)
-    rhs, rhs_cdims, rhs_bdims = _move_axes(rhs, rhs_cdims, rhs_bdims,
-                                           rhs_cdims[cdim_index], cdim_index)
-
-  # Because we're going to scan over the contracting dimensions, the
-  # batch dimensions are appearing len(cdims) earlier.
-  new_lhs_bdims = tuple(bdim - len(lhs_cdims) for bdim in lhs_bdims)
-  new_rhs_bdims = tuple(bdim - len(rhs_cdims) for bdim in rhs_bdims)
-
-  merge_cdims = lambda x: x.reshape((-1,) + x.shape[len(lhs_cdims):])
-  operands = ((merge_cdims(lhs.lower), merge_cdims(lhs.upper)),
-              (merge_cdims(rhs.lower), merge_cdims(rhs.upper)))
-  batch_shape = tuple(lhs.lower.shape[axis] for axis in lhs_bdims)
-  lhs_contr_shape = tuple(dim for axis, dim in enumerate(lhs.lower.shape)
-                          if axis not in lhs_cdims + lhs_bdims)
-  rhs_contr_shape = tuple(dim for axis, dim in enumerate(rhs.lower.shape)
-                          if axis not in rhs_cdims + rhs_bdims)
-  out_shape = batch_shape + lhs_contr_shape + rhs_contr_shape
-  init_carry = (jnp.zeros(out_shape), jnp.zeros(out_shape))
-
-  new_dim_numbers = (((), ()), (new_lhs_bdims, new_rhs_bdims))
-  unreduced_dotgeneral = partial(jax.lax.dot_general,
-                                           dimension_numbers=new_dim_numbers)
-
-  def scan_fun(carry: Tuple[ArrayLike, ArrayLike],
-               inp: Tuple[Tuple[ArrayLike, ArrayLike], Tuple[ArrayLike, ArrayLike]]
-               ) -> Tuple[Tuple[ArrayLike, ArrayLike], None]:
-    """Accumulates the minimum and maximum as inp traverse the first dimension.
-    
-    (The first dimension is where we have merged all contracting dimensions.)
-
-    Parameters
-    ----------
-    carry :
-        Current running sum of the lower bound and upper bound
-    carry: Tuple[ArrayLike :
+    _Ash = A.shape; _Bsh = B.shape
         
-    ArrayLike] :
-        
-    inp: Tuple[Tuple[ArrayLike :
-        
-    Tuple[ArrayLike :
-        
-    ArrayLike]] :
+    if A.ndim > 2 or B.ndim > 2 :
+        raise NotImplementedError("dot_general inclusion function currently only supported for vectors and matrices.")
+
+    retdim = 2
+
+    if A.ndim == 1 :
+        A = A.reshape(1, -1)
+        retdim = retdim - 1
+    if B.ndim == 1 :
+        B = B.reshape(-1, 1)
+        retdim = retdim - 1    
+
+    A = interval(A)
+    B = interval(B)
+
+    # if retdim == 2 :
+    #     print(f'{retdim} - {_Ash} @ {_Bsh}')
+    #     print(f'-> {(A.lower @ B.lower).shape}')
+    # if retdim == 1 :
+    #     print(f'{retdim} - {_Ash} @ {_Bsh}')
+    #     print(f'-> {(A.lower @ B.lower).reshape(-1).shape}')
+    # if retdim == 0 :
+    #     print(f'{retdim} - {_Ash} @ {_Bsh}')
+    #     print(f'-> {(A.lower @ B.lower).reshape(()).shape}')
         
 
-    Returns
-    -------
-    updated_carry
-        New version of the running sum including these elements.
-    updated_carry
-        New version of the running sum including these elements.
-        None
+    # Extract the contraction and batch dimensions
+    # ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = kwargs['dimension_numbers']
 
-    """
+    # Move the batch dimensions to the front and the contraction dimensions to the back
+    # A = Interval(jnp.moveaxis(A.lower, lhs_contract, 0), jnp.moveaxis(A.upper, lhs_contract, 0))
+    # B = Interval(jnp.moveaxis(B.lower, rhs_contract, 0), jnp.moveaxis(B.upper, rhs_contract, 0))
 
-    (lhs_low, lhs_up), (rhs_low, rhs_up) = inp
-    carry_min, carry_max = carry
-    opt_1 = unreduced_dotgeneral(lhs_low, rhs_low)
-    opt_2 = unreduced_dotgeneral(lhs_low, rhs_up)
-    opt_3 = unreduced_dotgeneral(lhs_up, rhs_low)
-    opt_4 = unreduced_dotgeneral(lhs_up, rhs_up)
-    elt_min = jnp.minimum(jnp.minimum(jnp.minimum(opt_1, opt_2), opt_3), opt_4)
-    elt_max = jnp.maximum(jnp.maximum(jnp.maximum(opt_1, opt_2), opt_3), opt_4)
-    return (carry_min + elt_min, carry_max + elt_max), None
+    def _mul (a, b) :
+        _1 = a.lower*b.lower
+        _2 = a.lower*b.upper
+        _3 = a.upper*b.lower
+        _4 = a.upper*b.upper
+        return Interval(jnp.minimum(jnp.minimum(_1,_2),jnp.minimum(_3,_4)),
+                        jnp.maximum(jnp.maximum(_1,_2),jnp.maximum(_3,_4)))
 
-  (lower, upper), _ = jax.lax.scan(scan_fun, init_carry, operands)
-  return Interval(lower, upper)
+    def _dot (a, b) :
+        _mulres = vmap(_mul)(a, b)
+        return Interval(jnp.sum(_mulres.lower, axis=0), jnp.sum(_mulres.upper, axis=0))
+
+    def _arow (a) :
+        return vmap(_dot, (None, -1))(a, B)
+
+    res = vmap(_arow)(A)
+   
+    if retdim == 1 : res = res.reshape(-1)
+    if retdim == 0 : res = res.reshape(())
+    return res
+
+def _fake_inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
+    # Current implementation only works for 2D matrix multiplication.
+    A = interval(A); B = interval(B)
+    return interval(A.lower@B.lower)
 
 inclusion_registry[lax.dot_general_p] = _inclusion_dot_general_p
+# inclusion_registry[lax.dot_general_p] = _fake_inclusion_dot_general_p
+
 
 
 def _inclusion_sin_p (x:Interval) -> Interval :
@@ -650,6 +616,72 @@ def _inclusion_tanh_p (x:Interval) -> Interval :
     return Interval(jnp.tanh(x.lower), jnp.tanh(x.upper))
 inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
 
+
+# def natif_jaxpr (jaxpr, consts, *args) :
+#     env = {}
+#     def read (var) :
+#         # Literals are values baked into the Jaxpr
+#         if type(var) is core.Literal :
+#             return var.val
+#         return env[var]
+#     def write (var, val) :
+#         env[var] = val
+    
+#     # Bind args and consts to environment
+#     # print(write)
+#     # print(jaxpr.invars)
+#     safe_map(write, jaxpr.invars, args)
+#     safe_map(write, jaxpr.constvars, consts)
+
+#     # Loop through equations (forward)
+#     for eqn in jaxpr.eqns :
+#         # Read inputs to equation from environment
+#         invals = safe_map(read, eqn.invars)
+#         # Check if primitive has an inclusion function
+#         if eqn.primitive not in inclusion_registry :
+#             raise NotImplementedError(
+#                 f"{eqn.primitive} does not have a registered inclusion function")
+#         outvals = inclusion_registry[eqn.primitive](*invals, **eqn.params)
+#         # Primitives may return multiple outputs or not
+#         if not eqn.primitive.multiple_results :
+#             outvals = [outvals]
+#         # Write the results of the primitive into the environment
+#         safe_map(write, eqn.outvars, outvals)
+#     return safe_map(read, jaxpr.outvars)
+
+def natif_jaxpr (jaxpr: Jaxpr, consts, *args, propagate_source_info=True) -> list[Any]:
+    def read(v: Atom) -> Any:
+        return v.val if isinstance(v, Literal) else env[v]
+
+    def write(v: Var, val: Any) -> None:
+        if config.enable_checks.value and not config.dynamic_shapes.value:
+            assert typecheck(v.aval, val), (v.aval, val)
+        env[v] = val
+
+    env: dict[Var, Any] = {}
+    safe_map(write, jaxpr.constvars, consts)
+    # print(jaxpr.invars)
+    # print(args)
+    safe_map(write, jaxpr.invars, args)
+    lu = last_used(jaxpr)
+    for eqn in jaxpr.eqns:
+        subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+        name_stack = source_info_util.current_name_stack() + eqn.source_info.name_stack
+        traceback = eqn.source_info.traceback if propagate_source_info else None
+        with source_info_util.user_context(traceback, name_stack=name_stack):
+            # ans = eqn.primitive.bind(*subfuns, *map(read, eqn.invars), **bind_params)
+            try :
+                ans = inclusion_registry[eqn.primitive](*subfuns, *safe_map(read, eqn.invars), **bind_params)
+            except KeyError :
+                raise Exception(f'{eqn.primitive} not in inclusion_registry')
+        if eqn.primitive.multiple_results:
+            safe_map(write, eqn.outvars, ans)
+        else:
+            write(eqn.outvars[0], ans)
+        clean_up_dead_vars(eqn, env, lu)
+    return safe_map(read, jaxpr.outvars)
+
+
 def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates a Natural Inclusion Function of f using natif.
     
@@ -666,47 +698,9 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         Natural Inclusion Function of f
 
     """
-    def natif_jaxpr (jaxpr, consts, *args) :
-        env = {}
-        def read (var) :
-            # Literals are values baked into the Jaxpr
-            if type(var) is core.Literal :
-                return var.val
-            return env[var]
-        def write (var, val) :
-            env[var] = val
-        
-        # Bind args and consts to environment
-        # print(write)
-        # print(jaxpr.invars)
-        safe_map(write, jaxpr.invars, args)
-        safe_map(write, jaxpr.constvars, consts)
-
-        # Loop through equations (forward)
-        for eqn in jaxpr.eqns :
-            # Read inputs to equation from environment
-            invals = safe_map(read, eqn.invars)
-            # Check if primitive has an inclusion function
-            # print(type(eqn.primitive))
-            if eqn.primitive not in inclusion_registry :
-                try :
-                    outvals = eqn.primitive.bind(*invals, **eqn.params)
-                except Exception as e :
-                    raise NotImplementedError(
-                        f"{eqn.primitive} does not have a registered inclusion function")
-
-            outvals = inclusion_registry[eqn.primitive](*invals, **eqn.params)
-            # Primitives may return multiple outputs or not
-            if not eqn.primitive.multiple_results :
-                outvals = [outvals]
-            # Write the results of the primitive into the environment
-            safe_map(write, eqn.outvars, outvals)
-        return safe_map(read, jaxpr.outvars)
-    
-    # @jit
-    @api_boundary
+    @wraps(f)
     def wrapped (*args, **kwargs) :
-        f"""Natural inclusion function of {f.__name__}.
+        f"""Natural inclusion function.
 
         Parameters
         ----------
@@ -719,10 +713,6 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         _type_
             _description_
         """
-        # args = [interval(arg) for arg in args]
-        # buildargs = [(arg.lower if isinstance(arg, Interval) else arg) for arg in args]
-        # buildargs = jax.tree_util.tree_map((lambda x : x.lower if isinstance(x, Interval) else x), args)
-        # buildkwargs = jax.tree_util.tree_map((lambda x : x.lower if isinstance(x, Interval) else x), kwargs)
         getlower = lambda x : x.lower if isinstance(x, Interval) else x
         isinterval = lambda x : isinstance(x, Interval)
         buildargs = jax.tree_util.tree_map(getlower, args, is_leaf=isinterval)
@@ -730,15 +720,68 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         closed_jaxpr = jax.make_jaxpr(f)(*buildargs, **buildkwargs)
         # closed_jaxpr = eqx.filter_make_jaxpr(f)(*buildargs, **buildkwargs)[0]
         out = natif_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.literals, *args)
-        # print(out)
         if len(out) == 1 :
             return out[0]
-        else :
-            return out
+        return out
 
     return wrapped
 
-Interval.__matmul__ = natif(jnp.matmul)
+Interval.__matmul__ = jit(natif(jnp.matmul))
+
+def jacM (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
+    """Creates the M matrices for the Jacobian-based inclusion function.
+    
+    All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
+
+    Parameters
+    ----------
+    f : Callable[..., jax.Array]
+        Function to construct Jacobian Inclusion Function from
+        
+    Returns
+    -------
+    Callable[..., Interval]
+        Jacobian-Based Inclusion Function of f
+
+    """
+
+    @jit
+    @api_boundary
+    def F (*args, centers:jax.Array|Sequence[jax.Array]|None = None, **kwargs) -> Interval :
+        """Jacobian-based Inclusion Function of f.
+        
+        All positional arguments from f should be replaced with interval arguments for the inclusion function.
+        
+        Additional Args:
+            centers (jax.Array | Sequence[jax.Array] | None, optional): _description_. Defaults to None.
+
+        Parameters
+        ----------
+        *args :
+            
+        centers:jax.Array|Sequence[jax.Array]|None :
+             (Default value = None)
+        **kwargs :
+            
+
+        Returns
+        -------
+        Interval
+            Interval output from the Jacobian-based Inclusion Function
+
+        """
+        args = [interval(arg).atleast_1d() for arg in args]
+        if centers is None :
+            centers = [tuple([(x.lower + x.upper)/2 for x in args])]
+        elif isinstance(centers, jax.Array) :
+            centers = [centers]
+        elif not isinstance(centers, Sequence) :
+            raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
+
+        # return [natif(jax.jacfwd(partial(f, **kwargs), i))(*args) for i in range(len(args))]
+        return [natif(jax.jacrev(partial(f, **kwargs), i))(*args) for i in range(len(args))]
+        # return [interval(jax.jacfwd(f, i)(*centers[0])) for i in range(len(args))]
+    return F
 
 def jacM (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
     """Creates the M matrices for the Jacobian-based inclusion function.
@@ -869,6 +912,26 @@ class Permutation (tuple) :
         return tuple.__new__(Permutation, (__iterable))
     def __str__(self) -> str:
         return 'Permutation' + super().__str__()
+    def sub (self, i:int) -> 'Permutation' :
+        """Returns the sub-permutation of the first i elements."""
+        return self[:i+1]
+
+    @property
+    def arr (self) -> jax.Array :
+        """Returns the Permutation in a jax.Array."""
+        return jnp.asarray(self)
+
+    @property
+    def mat (self) -> jax.Array :
+        """Returns the permutation matrix of the Permutation."""
+        n = len(self)
+        return jnp.array([[1 if j == self[i] else 0 for j in range(n)] for i in range(n)])
+
+    @property
+    def mtx (self) -> jax.Array :
+        """Returns the replacement matrix of the Permutation."""
+        n = len(self)
+        return jnp.array([[1 if j in self.sub(i) else 0 for j in range(n)] for i in range(n)])
 
 def standard_permutation (n:int) -> Tuple[Permutation] :
     """Returns the standard n-permutation :math:`(0,\\dots,n-1)`"""
@@ -929,7 +992,132 @@ def get_sparse_corners (M:Interval) :
     cs = [Corner(p) for p in product(*[(0,) if ic[i] else (0,1) for i in range(len(ic))])]
     return [jnp.array([M.lower[i] if ci == 0 else M.upper[i] for i, ci in enumerate(c)]).reshape(sh) for c in cs]
 
-def mjacM (f:Callable[..., jax.Array]) -> Callable :
+# def mjacM (f:Callable[..., jax.Array]) -> Callable :
+#     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
+    
+#     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
+
+#     Parameters
+#     ----------
+#     f : Callable[..., jax.Array]
+#         Function to construct Mixed Jacobian Inclusion Function from
+
+#     Returns
+#     -------
+#     Callable[..., Interval]
+#         Mixed Jacobian-Based Inclusion Function of f
+
+#     """
+
+#     # @partial(jit,static_argnames=['permutations', 'corners'])
+#     @api_boundary
+#     def F (*args, permutations:Tuple[Permutation]|None = None, centers:jax.Array|Sequence[jax.Array]|None = None, 
+#            corners:Tuple[Corner]|None = None,**kwargs) -> Interval :
+#         """_summary_
+
+#         Parameters
+#         ----------
+#         permutations : Tuple[Permutation] | None, optional
+#             _description_, by default None
+#         centers : jax.Array | Sequence[jax.Array] | None, optional
+#             _description_, by default None
+#         corners : Tuple[Corner] | None, optional
+#             _description_, by default None
+
+#         Returns
+#         -------
+#         Interval
+#             _description_
+
+#         Raises
+#         ------
+#         Exception
+#             _description_
+#         Exception
+#             _description_
+#         Exception
+#             _description_
+#         Exception
+#             _description_
+#         Exception
+#             _description_
+#         """
+#         args = [interval(arg).atleast_1d() for arg in args]
+#         leninputsfull = tuple([len(x) for x in args])
+#         leninputs = sum(leninputsfull)
+
+#         if permutations is None :
+#             permutations = standard_permutation(leninputs)
+#         elif isinstance(permutations, Permutation) :
+#             permutations = [permutations]
+#         elif not isinstance(permutations, Tuple) :
+#             raise Exception('Must pass jax.Array (one permutation), Sequence[jax.Array], or None (auto standard permutation) for the permutations argument')
+
+#         cumsum = tuple(accumulate(leninputsfull))
+#         permutations_pairs = []
+
+#         # Split permutation into individual inputs and indices.
+#         for permutation in permutations :
+#             if len(permutation) != leninputs :
+#                 raise Exception(f'The permutation is not the same length as the sum of the lengths of the inputs: {len(permutation)} != {leninputs}')
+#             pairs = []
+#             for o in permutation :
+#                 a = 0
+#                 while cumsum[a] - 1 < o :
+#                     a += 1
+#                 pairs.append((a,(o - cumsum[a-1] if a > 0 else o)))
+#             permutations_pairs.append(tuple(pairs))
+
+#         # Mixed Centered
+#         if centers is None :
+#             if corners is None :
+#                 # Auto-centered
+#                 centers = [tuple([(x.lower + x.upper)/2 for x in args])]
+#             else :
+#                 centers = []
+#         elif isinstance(centers, jax.Array) :
+#             centers = [centers]
+#         elif not isinstance(centers, Sequence) :
+#             raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
+
+#         if corners is not None :
+#             if not isinstance(corners, Tuple) :
+#                 raise Exception('Must pass Tuple[Corner] or None for the corners argument')
+#             centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
+
+#         # centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
+
+#         # multiple permutations/centers
+#         ret = []
+
+#         df_func = [natif(jax.jacfwd(f, i)) for i in range(len(args))]
+#         # centers is an array of centers to check
+#         for center in centers :
+#             if len(center) != len(args) :
+#                 raise Exception(f'Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around')
+#             f0 = f(*center)
+#             for pairs in permutations_pairs :
+#                 val_lower = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
+#                 val_upper = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
+#                 argr = [interval(c).atleast_1d() for c in center]
+
+#                 for argi, subi in pairs :
+#                     # Replacement operation
+#                     l = argr[argi].lower.at[subi].set(args[argi].lower[subi])
+#                     u = argr[argi].upper.at[subi].set(args[argi].upper[subi])
+#                     argr[argi] = interval(l, u)
+#                     # Mixed Jacobian matrix subi-th column. TODO: Make more efficient?
+#                     Mi = interval(df_func[argi](*argr, **kwargs)[:,subi])
+#                     val_lower[argi] = val_lower[argi].at[:,subi].set(Mi.lower)
+#                     val_upper[argi] = val_upper[argi].at[:,subi].set(Mi.upper)
+
+#                 ret.append([interval(val_lower[argi],val_upper[argi]) for argi in range(len(args))])
+        
+#         return ret
+#     return F
+
+
+def mjacM (f:Callable[..., jax.Array], argnums=None) -> Callable :
     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
     
     All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
@@ -945,6 +1133,12 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
         Mixed Jacobian-Based Inclusion Function of f
 
     """
+
+    # if isinstance(argnums, int) :
+    #     single = True
+    #     argnums = (argnums,)
+    # else :
+    #     single = False
 
     # @partial(jit,static_argnames=['permutations', 'corners'])
     @api_boundary
@@ -983,6 +1177,11 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
         leninputsfull = tuple([len(x) for x in args])
         leninputs = sum(leninputsfull)
 
+        # if argnums is None :
+        #     _argnums = range(len(args))
+        # else :
+        #     _argnums = argnums
+
         if permutations is None :
             permutations = standard_permutation(leninputs)
         elif isinstance(permutations, Permutation) :
@@ -991,19 +1190,6 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
             raise Exception('Must pass jax.Array (one permutation), Sequence[jax.Array], or None (auto standard permutation) for the permutations argument')
 
         cumsum = tuple(accumulate(leninputsfull))
-        permutations_pairs = []
-
-        # Split permutation into individual inputs and indices.
-        for permutation in permutations :
-            if len(permutation) != leninputs :
-                raise Exception(f'The permutation is not the same length as the sum of the lengths of the inputs: {len(permutation)} != {leninputs}')
-            pairs = []
-            for o in permutation :
-                a = 0
-                while cumsum[a] - 1 < o :
-                    a += 1
-                pairs.append((a,(o - cumsum[a-1] if a > 0 else o)))
-            permutations_pairs.append(tuple(pairs))
 
         # Mixed Centered
         if centers is None :
@@ -1022,34 +1208,58 @@ def mjacM (f:Callable[..., jax.Array]) -> Callable :
                 raise Exception('Must pass Tuple[Corner] or None for the corners argument')
             centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
 
-        # centers.extend([tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners])
-
         # multiple permutations/centers
         ret = []
 
-        df_func = [natif(jax.jacfwd(f, i)) for i in range(len(args))]
-        # centers is an array of centers to check
+        def arg2z (*args) :
+            return jnp.concatenate(args)
+
+        def z2arg (z, **kwargs) :
+            return jnp.split(z, cumsum[:-1], axis=-1)
+        
+        # TODO: Understand why I needed to change this to jacrev to work with LiftedSystem
+
+        df_func = [natif(jax.jacrev(partial(f, **kwargs), i)) for i in range(len(args))]
+        # df_func = [natif(jax.jacfwd(partial(f, **kwargs), i)) for i in range(len(args))]
+        # df_func = [jax.jacfwd(partial(f, **kwargs), i) for i in range(len(args))]
+        # df_func = [natif(jax.jacfwd(partial(f, **kwargs), i)) for i in _argnums]
+        # df_func = [natif(jax.jacrev(partial(f, **kwargs), i)) for i in _argnums]
+        _z = arg2z(*[arg.lower for arg in args])
+        z_ = arg2z(*[arg.upper for arg in args])
+
         for center in centers :
             if len(center) != len(args) :
                 raise Exception(f'Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around')
-            f0 = f(*center)
-            for pairs in permutations_pairs :
-                val_lower = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
-                val_upper = [jnp.empty((len(f0), leninput)) for leninput in leninputsfull]
-                argr = [interval(c).atleast_1d() for c in center]
+            # f0 = f(*center)
+            zc = arg2z(*center)
+            for sig in permutations :
+                Z = interval(
+                    jnp.where(sig.mtx, jnp.tile(_z, (len(sig),1)), jnp.tile(zc, (len(sig),1))),
+                    jnp.where(sig.mtx, jnp.tile(z_, (len(sig),1)), jnp.tile(zc, (len(sig),1)))
+                )
+                _cumsum = (0,) + cumsum
+                retc = []
+                npsig = np.asarray(sig)
 
-                for argi, subi in pairs :
-                    # Replacement operation
-                    l = argr[argi].lower.at[subi].set(args[argi].lower[subi])
-                    u = argr[argi].upper.at[subi].set(args[argi].upper[subi])
-                    argr[argi] = interval(l, u)
-                    # Mixed Jacobian matrix subi-th column. TODO: Make more efficient?
-                    Mi = interval(df_func[argi](*argr, **kwargs)[:,subi])
-                    val_lower[argi] = val_lower[argi].at[:,subi].set(Mi.lower)
-                    val_upper[argi] = val_upper[argi].at[:,subi].set(Mi.upper)
+                # # Using jax.lax.scan to build columns
+                # for i in range(len(args)) :
+                #     idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i+1])
+                #     def to_scan (_, arg) :
+                #         sigj, z = arg
+                #         return None, df_func[i](*natif(z2arg)(z))[:,sigj]
+                #     _, Mi = jax.lax.scan(to_scan, None, (npsig[idx], Z[idx])) #
+                #     # print(Mi.shape)
+                #     # print(npsig[idx])
+                #     retc.append(Mi[npsig[idx]-_cumsum[i]].T)
 
-                ret.append([interval(val_lower[argi],val_upper[argi]) for argi in range(len(args))])
-        
+                # Using vmap to build columns
+                for i in range(len(args)) :
+                    idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i+1])
+                    Mi = jax.vmap(df_func[i])(*natif(z2arg)(Z[idx]))
+                    # sig.arr[idx]-_cumsum[i] rearranges/extracts the columns of Mi
+                    retc.append(Mi[np.arange(leninputsfull[i]),:,npsig[idx]-_cumsum[i]].T)
+ 
+                ret.append(retc)
         return ret
     return F
 

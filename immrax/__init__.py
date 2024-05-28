@@ -21,6 +21,8 @@ try :
     from . import neural as neural
     from .neural import (
         NeuralNetwork,
+        CROWNResult,
+        FastlinResult,
         crown,
         fastlin,
         NNCSystem,
@@ -35,6 +37,7 @@ from .inclusion import (
     natif,
     jacM,
     jacif,
+    jacM,
     Permutation,
     standard_permutation,
     two_permutations,
