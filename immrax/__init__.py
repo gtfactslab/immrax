@@ -1,3 +1,5 @@
+from .inclusion import *
+
 from . import system as system
 from .system import (
     System,
@@ -30,39 +32,6 @@ try :
     )
 except ImportError:
     pass
-
-from . import inclusion as inclusion
-from .inclusion import (
-    Interval,
-    natif,
-    jacM,
-    jacif,
-    jacM,
-    Permutation,
-    standard_permutation,
-    two_permutations,
-    all_permutations,
-    Corner,
-    bot_corner,
-    top_corner,
-    two_corners,
-    all_corners,
-    get_corner,
-    get_corners,
-    get_sparse_corners,
-    mjacif,
-    mjacM,
-    interval,
-    icopy,
-    icentpert,
-    i2centpert,
-    i2lu,
-    lu2i,
-    i2ut,
-    ut2i,
-    iconcatenate,
-    izeros,
-)
 
 from . import embedding as embedding
 from .embedding import (
