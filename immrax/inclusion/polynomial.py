@@ -116,17 +116,18 @@ if __name__ == '__main__' :
     a = jnp.array([1., 3., 5.])
     x = jnp.array([2.])
 
-    assert jnp.allclose(jnp.polyval(a, x), polynomial(a, x))
-    assert jnp.allclose(jax.jit(polynomial)(a, x), polynomial(a, x))
-    assert jnp.allclose(jax.jacfwd(jnp.polyval, 0)(a, x), jax.jacfwd(polynomial, 0)(a, x))
-    assert jnp.allclose(jax.jacfwd(jnp.polyval, 1)(a, x), jax.jacfwd(polynomial, 1)(a, x))
-    assert jnp.allclose(jax.jacfwd(polynomial, 0)(a, x), jax.jit(jax.jacfwd(polynomial, 0))(a, x))
-    assert jnp.allclose(jax.jacfwd(polynomial, 1)(a, x), jax.jit(jax.jacfwd(polynomial, 1))(a, x))
-    assert jnp.allclose(jax.jacrev(jnp.polyval, 0)(a, x), jax.jacrev(polynomial, 0)(a, x))
-    assert jnp.allclose(jax.jacrev(jnp.polyval, 1)(a, x), jax.jacrev(polynomial, 1)(a, x))
-    assert jnp.allclose(jax.jacrev(polynomial, 0)(a, x), jax.jit(jax.jacrev(polynomial, 0))(a, x))
-    assert jnp.allclose(jax.jacrev(polynomial, 1)(a, x), jax.jit(jax.jacrev(polynomial, 1))(a, x))
-    print('Passed all tests of primitive functionality.')
+    with jax.disable_jit() :
+        assert jnp.allclose(jnp.polyval(a, x), polynomial(a, x))
+        assert jnp.allclose(jax.jit(polynomial)(a, x), polynomial(a, x))
+        assert jnp.allclose(jax.jacfwd(jnp.polyval, 0)(a, x), jax.jacfwd(polynomial, 0)(a, x))
+        assert jnp.allclose(jax.jacfwd(jnp.polyval, 1)(a, x), jax.jacfwd(polynomial, 1)(a, x))
+        assert jnp.allclose(jax.jacfwd(polynomial, 0)(a, x), jax.jit(jax.jacfwd(polynomial, 0))(a, x))
+        assert jnp.allclose(jax.jacfwd(polynomial, 1)(a, x), jax.jit(jax.jacfwd(polynomial, 1))(a, x))
+        assert jnp.allclose(jax.jacrev(jnp.polyval, 0)(a, x), jax.jacrev(polynomial, 0)(a, x))
+        assert jnp.allclose(jax.jacrev(jnp.polyval, 1)(a, x), jax.jacrev(polynomial, 1)(a, x))
+        assert jnp.allclose(jax.jacrev(polynomial, 0)(a, x), jax.jit(jax.jacrev(polynomial, 0))(a, x))
+        assert jnp.allclose(jax.jacrev(polynomial, 1)(a, x), jax.jit(jax.jacrev(polynomial, 1))(a, x))
+        print('Passed all tests of primitive functionality.')
 
     """
     We need to disable JIT for this inclusion function to work as I expected it to.

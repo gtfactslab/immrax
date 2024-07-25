@@ -13,7 +13,7 @@ class Trajectory :
     def __init__(self, ts:jax.Array, xs:jax.Array) -> None:
         self._ts = ts
         self._xs = xs
-        self.tfinite = jnp.where(jnp.isfinite(t))
+        self.tfinite = jnp.where(jnp.isfinite(ts))
         self.ts = self._ts[self.tfinite]
         self.xs = self._xs[self.tfinite]
 
@@ -149,7 +149,8 @@ class System (abc.ABC) :
                 raise Exception(f'{solver=} is not a valid solver')
 
             saveat = SaveAt(t0=True, t1=True, steps=True)
-            return Trajectory.from_diffrax(diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs))
+            # return Trajectory.from_diffrax(diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs))
+            return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
 
         elif self.evolution == 'discrete' :
             if not isinstance(t0, int) or not isinstance(tf, int) :

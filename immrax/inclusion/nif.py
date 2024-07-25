@@ -46,7 +46,7 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         # Build a jaxpr via evaluation on the lower bounds only. TODO: Do we need eqx.filter_make_jaxpr?
         # closed_jaxpr = jax.make_jaxpr(f)(*buildargs, **buildkwargs)
         closed_jaxpr = eqx.filter_make_jaxpr(f)(*buildargs, **buildkwargs)[0]
-        print(closed_jaxpr)
+        # print(closed_jaxpr)
         # Evaluate the jaxpr on the interval arguments using natif_jaxpr.
         out = natif_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.literals, *args)
         if len(out) == 1 :

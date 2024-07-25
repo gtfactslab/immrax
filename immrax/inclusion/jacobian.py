@@ -359,7 +359,9 @@ def mjacM (f:Callable[..., jax.Array], argnums=None) -> Callable :
                     idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i+1])
                     Mi = jax.vmap(df_func[i])(*natif(z2arg)(Z[idx]))
                     # sig.arr[idx]-_cumsum[i] rearranges/extracts the columns of Mi
-                    retc.append(Mi[np.arange(leninputsfull[i]),:,npsig[idx]-_cumsum[i]].T)
+                    # retc.append(Mi[np.arange(leninputsfull[i]),:,npsig[idx]-_cumsum[i]].T)
+                    retc.append(Mi[np.arange(leninputsfull[i]),:,np.arange(leninputsfull[i])].T)
+                    # print(Mi.shape)
  
                 ret.append(retc)
         return ret
