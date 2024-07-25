@@ -116,7 +116,8 @@ def jacif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
             raise Exception('Must pass jax.Array (one center), Sequence[jax.Array], or None (auto-centered) for the centers argument')
 
         retl, retu = [], []
-        df = [natif(jax.jacfwd(f, i))(*args) for i in range(len(args))]
+        df = [natif(jax.jacrev(f, i))(*args) for i in range(len(args))]
+        # df = [natif(jax.jacfwd(f, i))(*args) for i in range(len(args))]
         for center in centers :
             if len(center) != len(args) :
                 raise Exception(f'Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around')

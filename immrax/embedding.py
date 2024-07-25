@@ -209,8 +209,8 @@ class TransformEmbedding (InclusionEmbedding) :
 
         """
         F = if_transform(sys.f)
-        Fi = [if_transform(sys.fi[i]) for i in range(sys.xlen)]
-        super().__init__(sys, F, Fi) 
+        # Fi = [if_transform(sys.fi[i]) for i in range(sys.xlen)]
+        super().__init__(sys, F) 
     
 def natemb (sys:System) :
     """Creates an EmbeddingSystem using the natural inclusion function of the dynamics of a System.
