@@ -146,8 +146,6 @@ def I_refine (A:jax.Array) -> Interval :
     A = interval(A)
     def I_r (y:Interval) :
         ret = icopy(y)
-        print(A.shape)
-        print(y.shape)
         for j in range(len(A)) :
             for i in range(len(y)) :
                 b1 = lambda : ((-A[j,:i] @ ret[:i] - A[j,i+1:] @ ret[i+1:])/A[j,i]) & ret[i]
