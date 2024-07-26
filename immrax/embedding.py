@@ -130,14 +130,15 @@ class InclusionEmbedding (EmbeddingSystem) :
         
     def E(self, t: Any, x: jax.Array, *args, 
             refine:Callable[[Interval], Interval]|None=None, **kwargs) -> jax.Array:
-        if refine is None :
-            refine = lambda x : x
 
         if self.evolution == 'continuous' :
             n = self.sys.xlen
             _x = x[:n]; x_ = x[n:]
 
-            Fkwargs = partial(self.F, **kwargs)
+            if refine is not None :
+                Fkwargs = lambda t, x, *args : self.F(t, refine(x), *args, **kwargs)
+            else :
+                Fkwargs = partial(self.F, **kwargs)
 
             # Computing F on the faces of the hyperrectangle
 
