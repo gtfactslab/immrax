@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as onp
 import time
 from jax._src.util import wraps
 from jax._src.traceback_util import api_boundary
@@ -11,6 +12,7 @@ import shapely.ops as so
 import numpy as onp
 from math import floor, exp, log
 from functools import partial
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 def timed (f:Callable) :
     @wraps(f)
@@ -32,7 +34,7 @@ def run_times (N:int, f:Callable, *args, **kwargs) :
 
 def d_metzler (A) :
     diag = jnp.diag_indices_from(A)
-    Am = jnp.clip(A, 0, jnp.inf); Am = Am.at[diag].set(A[diag])
+    Am = jnp.clip(A, 0, jnp.inf).at[diag].set(A[diag])
     return Am, A - Am
 
 def d_positive (B) :
@@ -53,6 +55,28 @@ def draw_sg_union (ax, boxes, **kwargs) :
 draw_iarray = lambda ax, x, xi=0, yi=1, **kwargs : draw_sg_union(ax, [sg_box(x, xi, yi)], **kwargs)
 draw_iarrays = lambda ax, xx, xi=0, yi=1, **kwargs: draw_sg_union(ax, sg_boxes(xx, xi, yi), **kwargs)
 
+def draw_iarray_3d (ax, x, xi=0, yi=1, zi=2, **kwargs) :
+    Xl, Yl, Zl = x.lower[(xi,yi,zi),]
+    Xu, Yu, Zu = x.upper[(xi,yi,zi),]
+    poly_alpha = kwargs.pop('poly_alpha', 0.)
+    kwargs.setdefault('color', 'tab:blue')
+    kwargs.setdefault('lw', 0.75)
+    faces = [ \
+        onp.array([[Xl,Yl,Zl],[Xu,Yl,Zl],[Xu,Yu,Zl],[Xl,Yu,Zl],[Xl,Yl,Zl]]), \
+        onp.array([[Xl,Yl,Zu],[Xu,Yl,Zu],[Xu,Yu,Zu],[Xl,Yu,Zu],[Xl,Yl,Zu]]), \
+        onp.array([[Xl,Yl,Zl],[Xu,Yl,Zl],[Xu,Yl,Zu],[Xl,Yl,Zu],[Xl,Yl,Zl]]), \
+        onp.array([[Xl,Yu,Zl],[Xu,Yu,Zl],[Xu,Yu,Zu],[Xl,Yu,Zu],[Xl,Yu,Zl]]), \
+        onp.array([[Xl,Yl,Zl],[Xl,Yu,Zl],[Xl,Yu,Zu],[Xl,Yl,Zu],[Xl,Yl,Zl]]), \
+        onp.array([[Xu,Yl,Zl],[Xu,Yu,Zl],[Xu,Yu,Zu],[Xu,Yl,Zu],[Xu,Yl,Zl]]) ]
+    for face in faces :
+        ax.plot3D(face[:,0], face[:,1], face[:,2], **kwargs)
+        kwargs['alpha'] = poly_alpha
+        ax.add_collection3d(Poly3DCollection([face], **kwargs))
+
+def draw_iarrays_3d (ax, xx, xi=0, yi=1, zi=2, color='tab:blue') :
+    for x in xx :
+        draw_iarray_3d(ax, x, xi, yi, zi, color)
+
 def plot_interval_t (ax, tt, x, **kwargs) :
     xl, xu = i2lu(x)
     alpha = kwargs.pop('alpha', 0.25)
@@ -62,7 +86,6 @@ def plot_interval_t (ax, tt, x, **kwargs) :
     ax.plot(tt, xu, **kwargs)
 
 
-# @ijit
 def get_half_intervals (x:Interval, N=1, ut=False) :
     _xx_0 = i2ut(x) if ut is False else x
     n = len(_xx_0) // 2
@@ -100,7 +123,7 @@ def get_partitions_ut (x:jax.Array, N:int) -> jax.Array :
         ret.append(jnp.concatenate((_part,part_)))
     return jnp.array(ret)
 
-def gen_ics (x0, N, key=jax.random.PRNGKey(0)) :
+def gen_ics (x0, N, key=jax.random.key(0)) :
     # X = np.empty((N, len(x0)))
     X = []
     keys = jax.random.split(key, len(x0))
@@ -109,16 +132,9 @@ def gen_ics (x0, N, key=jax.random.PRNGKey(0)) :
         X.append(jax.random.uniform(key=keys[i],shape=(N,),minval=x0.lower[i], maxval=x0.upper[i]))
     return jnp.array(X).T
 
-def set_columns_from_corner (corner:Corner, A:Interval) :
-    # Set i-th column of A based on corner
-    _Jx = jnp.empty_like(A.lower); J_x = jnp.empty_like(A.upper)
-    for i in range(len(corner)) :
-        if corner[i] == 0 :
-            _Jx = _Jx.at[:,i].set(A.lower[:,i]) # Use _A when cornered on ub
-            J_x = J_x.at[:,i].set(A.upper[:,i]) # Use A_ when cornered on lb
-        else :
-            _Jx = _Jx.at[:,i].set(A.upper[:,i]) # Use A_ when cornered on ub
-            J_x = J_x.at[:,i].set(A.lower[:,i]) # Use _A when cornered on lb
+def set_columns_from_corner(corner:Corner, A:Interval):
+    _Jx = jnp.where(jnp.asarray(corner) == 0, A.lower, A.upper)
+    J_x = jnp.where(jnp.asarray(corner) == 0, A.upper, A.lower)
     return _Jx, J_x
 
 def get_corners (x:Interval, corners:Tuple[Corner]|None=None) :
@@ -126,23 +142,22 @@ def get_corners (x:Interval, corners:Tuple[Corner]|None=None) :
     xut = i2ut(x)
     return jnp.array([jnp.array([x.lower[i] if c[i] == 0 else x.upper[i] for i in range(len(x))]) for c in corners])
 
-def I_refine (A:jax.Array, y:Interval) -> Interval :
+def I_refine (A:jax.Array) -> Interval :
     A = interval(A)
-    def I_r (y) :
+    def I_r (y:Interval) :
         ret = icopy(y)
         for j in range(len(A)) :
             for i in range(len(y)) :
-                # print(f'{ret[i]=}')
                 b1 = lambda : ((-A[j,:i] @ ret[:i] - A[j,i+1:] @ ret[i+1:])/A[j,i]) & ret[i]
                 b2 = lambda : ret[i]
                 reti = jax.lax.cond(jnp.abs(A[j,i].lower) > 1e-10, b1, b2)
-                # print(f'{reti=}')
                 retl = ret.lower.at[i].set(reti.lower)
-                retu = ret.upper.at[i].set(reti.upper)
+                # retu = ret.upper.at[i].set(reti.upper)
+                retu = ret.upper.at[i].set(jnp.where(reti.upper >= reti.lower, reti.upper, reti.lower))
                 ret = interval(retl, retu)
-                # print(f'{ret=}')
         return ret
-    return I_r(y)
+    return I_r
+
 def null_space(A, rcond=None):
     """Taken from scipy, with some modifications to use jax.numpy"""
     u, s, vh = jnp.linalg.svd(A, full_matrices=True)

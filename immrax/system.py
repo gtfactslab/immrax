@@ -5,11 +5,21 @@ from jaxtyping import Integer, Float, PyTree
 import sympy
 from typing import List, Literal, Union, Any, Optional, Callable, Dict, Tuple
 from sympy2jax import SymbolicModule
-from diffrax import diffeqsolve, ODETerm, Dopri5, Tsit5, Euler, SaveAt, AbstractSolver
+from diffrax import diffeqsolve, ODETerm, Dopri5, Tsit5, Euler, SaveAt, AbstractSolver, Solution
 from functools import partial
+from immutabledict import immutabledict
 
 class Trajectory :
-    pass
+    def __init__(self, ts:jax.Array, xs:jax.Array) -> None:
+        self._ts = ts
+        self._xs = xs
+        self.tfinite = jnp.where(jnp.isfinite(ts))
+        self.ts = self._ts[self.tfinite]
+        self.xs = self._xs[self.tfinite]
+
+    @staticmethod
+    def from_diffrax (sol:Solution) -> 'Trajectory' :
+        return Trajectory(sol.ts, sol.ys)
 
 class EvolutionError (Exception) :
     def __init__(self, t:Any, evolution:Literal['continuous','discrete']) -> None:
@@ -18,12 +28,19 @@ class EvolutionError (Exception) :
 class System (abc.ABC) :
     """System
     
-    An ODE of the form
+    A dynamical system of one of the following forms:
     
     .. math::
-        \\dot{x} = f(t, x, \\dots),
+        \\dot{x} = f(t, x, \\dots), \\text{ or } \\x^+ = f(t, x, \\dots).
     
     where :math:`t\\in\\T\\in\\{\\mathbb{Z},\\mathbb{R}\\}` is a discrete or continuous time variable, :math:`x\\in\\mathbb{R}^n` is the state of the system, and :math:`\\dots` are some other inputs, perhaps control and disturbance.
+
+    There are two main attributes that need to be defined in a subclass:
+
+    - `evolution` : Literal['continuous', 'discrete'], which specifies whether the system is continuous or discrete.
+    - `xlen` : int, which specifies the dimension of the state space.
+
+    The main method that needs to be defined is `f(t, x, *args, **kwargs)`, which returns the time evolution of the state at time `t` and state `x`.
     """
     evolution:Literal['continuous', 'discrete']
     xlen:int
@@ -39,9 +56,9 @@ class System (abc.ABC) :
         x : jax.Array
             The state of the system
         *args :
-            control inputs, disturbance inputs, etc. Depends on parent class.
+            Inputs (control, disturbance, etc.) as positional arguments depending on parent class.
         **kwargs :
-            
+            Other keyword arguments depending on parent class.
 
         Returns
         -------
@@ -50,6 +67,7 @@ class System (abc.ABC) :
 
         """
     
+ 
     def fi (self, i:int, t:Union[Integer,Float], x:jax.Array, *args, **kwargs) -> jax.Array :
         """The i-th component of the right hand side of the system
 
@@ -75,38 +93,76 @@ class System (abc.ABC) :
     
         return self.f(t,x,*args,**kwargs)[i]
 
-    def __call__(self, *args: Any, **kwds: Any) -> Any:
-        return self.f(*args, **kwds)
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self.f(*args, **kwargs)
 
-    # Every argument for jit is static except x0.
-    # Thus, recompiled for every new time horizon.
-    
-    # @partial(jax.jit, static_argnums=(0,1,2,4,5), static_argnames=('f_kwargs',))
     @partial(jax.jit, static_argnums=(0,4), static_argnames=('solver','f_kwargs'))
-    def compute_trajectory (self, t0:Union[Integer,Float], tf:Union[Integer,Float], x0:jax.Array, 
-                            # inputs:Optional[Dict[str, Callable[[Union[Integer,Float], jax.Array], jax.Array]]] = [],
+    def compute_trajectory (self, t0:Union[Integer,Float], 
+                            tf:Union[Integer,Float], 
+                            x0:jax.Array, 
                             inputs:Tuple[Callable[[int,jax.Array], jax.Array]] = (),
-                            dt:float = 0.1, * ,
-                            solver:Union[Literal['euler', 'rk45', 'tsit5'],AbstractSolver] = 'tsit5', f_kwargs={}, **kwargs) -> Trajectory :
-        def func (t, x, args) :
-            # inputargs = {k: v(t, x) for k,v in inputs.items()}
-            return self.f(t, x, *[u(t, x) for u in inputs], **f_kwargs)
-            # return self.f(t, x, *inputs)
-        term = ODETerm(func)
-        if solver == 'euler' :
-            solver = Euler()
-        elif solver == 'rk45' :
-            solver = Dopri5()
-        elif solver == 'tsit5' :
-            solver = Tsit5()
-        elif isinstance(solver, AbstractSolver) :
-            pass
-        else :
-            raise Exception(f'{solver=} is not a valid solver')
-        # saveat = SaveAt(ts=jnp.arange(t0,tf,dt), t1=True)
-        saveat = SaveAt(t0=True, t1=True, steps=True)
-        return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+                            dt:float = 0.01, * ,
+                            solver:Union[Literal['euler', 'rk45', 'tsit5'], AbstractSolver] = 'tsit5', 
+                            f_kwargs:immutabledict=immutabledict({}), 
+                            **kwargs) -> Trajectory :
+        """Computes the trajectory of the system from time t0 to tf with initial condition x0.
 
+        Parameters
+        ----------
+        t0 : Union[Integer,Float]
+            Initial time
+        tf : Union[Integer,Float]
+            Final time
+        x0 : jax.Array
+            Initial condition
+        inputs : Tuple[Callable[[int,jax.Array], jax.Array]], optional
+            A tuple of Callables u(t,x) returning time/state varying inputs as positional arguments into f, by default ()
+        dt : float, optional
+            Time step, by default 0.01
+        solver : Union[Literal['euler', 'rk45', 'tsit5'], AbstractSolver], optional
+            Solver to use for diffrax, by default 'tsit5'
+        f_kwargs : immutabledict, optional
+            An immutabledict to pass as keyword arguments to the dynamics f, by default {}
+        **kwargs : 
+            Additional kwargs to pass to the solver from diffrax
+
+        Returns
+        -------
+        Trajectory
+            _description_
+        """
+        def func (t, x, args) :
+            # Unpack the inputs
+            return self.f(t, x, *[u(t, x) for u in inputs], **f_kwargs)
+
+        if self.evolution == 'continuous' :
+            term = ODETerm(func)
+            if solver == 'euler' :
+                solver = Euler()
+            elif solver == 'rk45' :
+                solver = Dopri5()
+            elif solver == 'tsit5' :
+                solver = Tsit5()
+            elif isinstance(solver, AbstractSolver) :
+                pass
+            else :
+                raise Exception(f'{solver=} is not a valid solver')
+
+            saveat = SaveAt(t0=True, t1=True, steps=True)
+            # return Trajectory.from_diffrax(diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs))
+            return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+
+        elif self.evolution == 'discrete' :
+            if not isinstance(t0, int) or not isinstance(tf, int) :
+                raise Exception(f'Times {t0=} and {tf=} must be integers for discrete evolution, got {type(t0)=} and {type(tf)=}')
+            
+            # Use jax.lax.scan to compute the trajectory of the discrete system
+            def step (x, t) :
+                xtp1 = func(t, x, None)
+                return xtp1, xtp1
+            times = jnp.arange(t0, tf+1)
+            _, traj = jax.lax.scan(step, x0, times)
+            return Trajectory(times, jnp.vstack((x0, traj)))
 
 class ReversedSystem (System) :
     """ReversedSystem
@@ -120,9 +176,6 @@ class ReversedSystem (System) :
 
     def f (self, t:Union[Integer,Float], x:jax.Array, *args, **kwargs) -> jax.Array :
         return -self.sys.f(t,x,*args,**kwargs)
-
-# def revsys (sys:System) :
-#     return ReversedSystem(sys)
 
 class LinearTransformedSystem (System) :
     """Linear Transformed System
