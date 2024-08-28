@@ -1,21 +1,23 @@
-# [build-system]
-# requires = [""]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.setuptools]
-packages = ["immrax"]
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [project]
 name = "immrax"
 version = "0.1.0"
 dependencies = [
-    "numpy",
-    "scipy",
+    "numpy<2",
+    "scipy==1.11.4",
     "tqdm",
     "shapely",
     "matplotlib",
     "tabulate",
     "sympy",
     "sympy2jax",
+	"jax[cpu]<=0.4.23",
     "jaxtyping",
     "diffrax",
     "equinox",
