@@ -1,32 +1,35 @@
 import abc
 import jax
-from jax import lax
 import jax.numpy as jnp
 from jaxtyping import Integer, Float
-import sympy
 from typing import List, Literal, Union, Any, Callable, Tuple
-from .system import System
+
+from immrax.utils import I_refine, null_space
+from .system import LiftedSystem, System, Trajectory
 from .inclusion import interval, natif, jacif, mjacif, i2ut, ut2i, Interval
 from .control import Control, ControlledSystem
 from functools import partial
+from immutabledict import immutabledict
 
-class EmbeddingSystem (System, abc.ABC) :
+
+class EmbeddingSystem(System, abc.ABC):
     """EmbeddingSystem
-    
+
     Embeds a System
-    
+
     ..math::
         \\mathbb{R}^n \\times \\text{inputs} \\to\\mathbb{R}^n`
-    
+
     into an Embedding System evolving on the upper triangle
-    
+
     ..math::
         \\mathcal{T}^{2n} \\times \\text{embedded inputs} \\to \\mathbb{T}^{2n}.
     """
-    sys:System
+
+    sys: System
 
     @abc.abstractmethod
-    def E(self, t:Union[Integer,Float], x: jax.Array, *args, **kwargs) -> jax.Array :
+    def E(self, t: Union[Integer, Float], x: jax.Array, *args, **kwargs) -> jax.Array:
         """The right hand side of the embedding system.
 
         Parameters
@@ -38,7 +41,7 @@ class EmbeddingSystem (System, abc.ABC) :
         *args :
             interval-valued control inputs, disturbance inputs, etc. Depends on parent class.
         **kwargs :
-            
+
 
         Returns
         -------
@@ -47,7 +50,9 @@ class EmbeddingSystem (System, abc.ABC) :
 
         """
 
-    def Ei(self, i:int, t:Union[Integer,Float], x: jax.Array, *args, **kwargs) -> jax.Array :
+    def Ei(
+        self, i: int, t: Union[Integer, Float], x: jax.Array, *args, **kwargs
+    ) -> jax.Array:
         """The right hand side of the embedding system.
 
         Parameters
@@ -69,31 +74,41 @@ class EmbeddingSystem (System, abc.ABC) :
         """
         return self.E(t, x, *args, **kwargs)[i]
 
-    def f(self, t:Union[Integer,Float], x: jax.Array, *args, **kwargs) -> jax.Array:
+    def f(self, t: Union[Integer, Float], x: jax.Array, *args, **kwargs) -> jax.Array:
         return self.E(t, x, *args, **kwargs)
 
-    def fi(self, i: int, t:Union[Integer,Float], x: jax.Array, *args, **kwargs) -> jax.Array:
+    def fi(
+        self, i: int, t: Union[Integer, Float], x: jax.Array, *args, **kwargs
+    ) -> jax.Array:
         return self.Ei(i, t, x, *args, **kwargs)
 
-class InclusionEmbedding (EmbeddingSystem) :
+
+class InclusionEmbedding(EmbeddingSystem):
     """EmbeddingSystem
-    
+
     Embeds a System
-    
+
     ..math::
         \\mathbb{R}^n \\times \\text{inputs} \\to\\mathbb{R}^n`,
-    
+
     into an Embedding System evolving on the upper triangle
-    
+
     ..math::
         \\mathcal{T}^{2n} \\times \\text{embedded inputs} \\to \\mathbb{T}^{2n},
-    
+
     using an Inclusion Function for the dynamics f.
     """
-    sys:System
-    F:Callable[..., Interval]
-    Fi:List[Callable[..., Interval]]
-    def __init__(self, sys:System, F:Callable[..., Interval], Fi:Callable[..., Interval] = None) -> None:
+
+    sys: System
+    F: Callable[..., Interval]
+    Fi: List[Callable[..., Interval]]
+
+    def __init__(
+        self,
+        sys: System,
+        F: Callable[..., Interval],
+        Fi: Callable[..., Interval] = None,
+    ) -> None:
         """Initialize an EmbeddingSystem using a System and an inclusion function for f.
 
         Args:
@@ -102,11 +117,15 @@ class InclusionEmbedding (EmbeddingSystem) :
         """
         self.sys = sys
         self.F = F
-        self.Fi = Fi if Fi is not None else (lambda i, t, x, *args, **kwargs : self.F(t,x,*args,**kwargs)[i])
+        self.Fi = (
+            Fi
+            if Fi is not None
+            else (lambda i, t, x, *args, **kwargs: self.F(t, x, *args, **kwargs)[i])
+        )
         self.evolution = sys.evolution
-        self.xlen = sys.xlen * 2 
+        self.xlen = sys.xlen * 2
 
-    # def E(self, t: Any, x: jax.Array, *args, 
+    # def E(self, t: Any, x: jax.Array, *args,
     #         refine:Callable[[Interval], Interval]|None=None, **kwargs) -> jax.Array:
     #     if refine is None :
     #         refine = lambda x : x
@@ -127,38 +146,49 @@ class InclusionEmbedding (EmbeddingSystem) :
     #         return i2ut(self.F(interval(t), refine(ut2i(x)), *args, **kwargs))
     #     else :
     #         raise Exception("evolution needs to be 'continuous' or 'discrete'")
-        
-    def E(self, t: Any, x: jax.Array, *args, 
-            refine:Callable[[Interval], Interval]|None=None, **kwargs) -> jax.Array:
 
-        if self.evolution == 'continuous' :
+    def E(
+        self,
+        t: Any,
+        x: jax.Array,
+        *args,
+        refine: Callable[[Interval], Interval] | None = None,
+        **kwargs
+    ) -> jax.Array:
+
+        if self.evolution == "continuous":
             n = self.sys.xlen
-            _x = x[:n]; x_ = x[n:]
+            _x = x[:n]
+            x_ = x[n:]
 
-            if refine is not None :
-                Fkwargs = lambda t, x, *args : self.F(t, refine(x), *args, **kwargs)
-            else :
+            if refine is not None:
+                Fkwargs = lambda t, x, *args: self.F(t, refine(x), *args, **kwargs)
+            else:
                 Fkwargs = partial(self.F, **kwargs)
 
             # Computing F on the faces of the hyperrectangle
 
-            _X = interval(jnp.tile(_x, (n,1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n,1))))
-            _E = jax.vmap(Fkwargs, (None, 0) + (None,)*len(args))(t, _X, *args)
+            _X = interval(
+                jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
+            )
+            _E = jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, _X, *args)
             # _E = jnp.array([self.Fi[i](t, _X[i], *args, **kwargs).lower for i in range(n)])
 
-            X_ = interval(jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n,1))), jnp.tile(x_, (n,1)))
-            E_ = jax.vmap(Fkwargs, (None, 0) + (None,)*len(args))(t, X_, *args)
+            X_ = interval(
+                jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
+            )
+            E_ = jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, X_, *args)
             # E_ = jnp.array([self.Fi[i](t, X_[i], *args, **kwargs).upper for i in range(n)])
 
             # return jnp.concatenate((_E, E_))
             return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
 
-        elif self.evolution == 'discrete' :
+        elif self.evolution == "discrete":
             # Convert x from ut to i, compute through F, convert back to ut.
             return i2ut(self.F(interval(t), refine(ut2i(x)), *args, **kwargs))
-        else :
+        else:
             raise Exception("evolution needs to be 'continuous' or 'discrete'")
-        
+
     # def Ei(self, i: int, t: Any, x: jax.Array, *args, **kwargs) -> jax.Array:
     #     if self.evolution == 'continuous':
     #         n = self.sys.xlen
@@ -176,7 +206,8 @@ class InclusionEmbedding (EmbeddingSystem) :
     #     else :
     #         raise Exception("evolution needs to be 'continuous' or 'discrete'")
 
-def ifemb (sys:System, F:Callable[..., Interval]) :
+
+def ifemb(sys: System, F: Callable[..., Interval]):
     """Creates an EmbeddingSystem using an inclusion function for the dynamics of a System.
 
     Parameters
@@ -194,8 +225,9 @@ def ifemb (sys:System, F:Callable[..., Interval]) :
     """
     return InclusionEmbedding(sys, F)
 
-class TransformEmbedding (InclusionEmbedding) :
-    def __init__(self, sys:System, if_transform = natif) -> None:
+
+class TransformEmbedding(InclusionEmbedding):
+    def __init__(self, sys: System, if_transform=natif) -> None:
         """Initialize an EmbeddingSystem using a System and an inclusion function transform.
 
         Parameters
@@ -211,9 +243,10 @@ class TransformEmbedding (InclusionEmbedding) :
         """
         F = if_transform(sys.f)
         # Fi = [if_transform(sys.fi[i]) for i in range(sys.xlen)]
-        super().__init__(sys, F) 
-    
-def natemb (sys:System) :
+        super().__init__(sys, F)
+
+
+def natemb(sys: System):
     """Creates an EmbeddingSystem using the natural inclusion function of the dynamics of a System.
 
     Parameters
@@ -229,7 +262,8 @@ def natemb (sys:System) :
     """
     return TransformEmbedding(sys, if_transform=natif)
 
-def jacemb (sys:System) :
+
+def jacemb(sys: System):
     """Creates an EmbeddingSystem using the Jacobian-based inclusion function of the dynamics of a System.
 
     Parameters
@@ -245,7 +279,8 @@ def jacemb (sys:System) :
     """
     return TransformEmbedding(sys, if_transform=jacif)
 
-def mjacemb (sys:System) :
+
+def mjacemb(sys: System):
     """Creates an EmbeddingSystem using the Mixed Jacobian-based inclusion function of the dynamics of a System.
 
     Parameters
@@ -261,12 +296,76 @@ def mjacemb (sys:System) :
     """
     return TransformEmbedding(sys, if_transform=mjacif)
 
+
+class AuxVarEmbedding(TransformEmbedding):
+    def __init__(self, sys: System, H: jax.Array, if_transform=natif) -> None:
+        self.H = H
+        self.Hdag = jnp.linalg.pinv(H)
+        self.N = null_space(H.T)
+        self.A = self.N.T
+        self.Hp = self.Hdag + self.A  # TODO: this can be parameterized
+
+        # Test if columns of A are in null space of H
+        # print(jnp.all(jnp.isclose(A @ H, 0.0, atol=1e-5)))
+
+        self.IH = jax.jit(I_refine(self.A))
+
+        liftsys = LiftedSystem(sys, self.H, self.Hp)
+
+        # FIXME: mjacif doesn't work here, I think it should
+        super().__init__(liftsys, if_transform)
+
+    def E(
+        self,
+        t: Any,
+        x: jax.Array,
+        *args,
+        refine: Callable[[Interval], Interval] | None = None,
+        **kwargs
+    ) -> jax.Array:
+
+        if refine is not None:
+            raise (
+                Exception(
+                    "Class AuxVarEmbedding does not support passing refine as an argument, since the refinement is calculated from the auxillary variables."
+                )
+            )
+
+        if self.evolution == "continuous":
+            n = self.sys.xlen
+            _x = x[:n]
+            x_ = x[n:]
+
+            Fkwargs = lambda t, x, *args: self.F(t, self.IH(x), *args, **kwargs)
+
+            # Computing F on the faces of the hyperrectangle
+
+            _X = interval(
+                jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
+            )
+            _E = jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, _X, *args)
+            # _E = jnp.array([self.Fi[i](t, _X[i], *args, **kwargs).lower for i in range(n)])
+
+            X_ = interval(
+                jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
+            )
+            E_ = jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, X_, *args)
+            # E_ = jnp.array([self.Fi[i](t, X_[i], *args, **kwargs).upper for i in range(n)])
+
+            # return jnp.concatenate((_E, E_))
+            return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
+
+        elif self.evolution == "discrete":
+            # Convert x from ut to i, compute through F, convert back to ut.
+            return i2ut(self.F(interval(t), self.IH(ut2i(x)), *args, **kwargs))
+        else:
+            raise Exception("evolution needs to be 'continuous' or 'discrete'")
+
+
 # class InterconnectedEmbedding (EmbeddingSystem) :
 #     def __init__(self, sys:System, if_transform:IFTransform = natif) -> None:
 #         self.sys = sys
 #         self.F = if_transform(sys.f)
 #         self.Fi = [if_transform(partial(sys.fi, i)) for i in range(sys.xlen)]
 #         self.evolution = sys.evolution
-#         self.xlen = sys.xlen * 2 
-
-
+#         self.xlen = sys.xlen * 2

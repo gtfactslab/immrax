@@ -1,25 +1,13 @@
 import immrax as irx
-from immrax.utils import I_refine, draw_iarray, null_space
-import jax
+from immrax.embedding import AuxVarEmbedding, TransformEmbedding
+from immrax.utils import draw_iarray
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-from immutabledict import immutabledict
 
-x0 = irx.icentpert(jnp.array([1, 0, 1]), jnp.array([0.1, 0.1, 0.2]))
-
-# Add auxiliary variable for interval refinement
+# TODO: What is the uncertainty in x[2] in the initial condition?
+x0_aux = irx.icentpert(jnp.array([1, 0, 1]), jnp.array([0.1, 0.1, 0.2]))
+x0 = irx.icentpert(jnp.array([1, 0]), jnp.array([0.1, 0.1]))
 H = jnp.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
-N = null_space(H.T)
-A = N.T
-Hp = jnp.linalg.pinv(H) + A
-
-# Test if columns of A are in null space of H
-# print(jnp.all(jnp.isclose(A @ H, 0.0, atol=1e-5)))
-
-IH = jax.jit(I_refine(A))
-# print(I_refine(A)(irx.icentpert(jnp.array([1, 0, 1]), 0.1)))
-# print(H.shape)
-print(Hp @ jnp.array([1.0, 0.0, 1.0]))
 
 
 class HarmOsc(irx.System):
@@ -33,18 +21,15 @@ class HarmOsc(irx.System):
 
 
 # Create UT embedded system
-# FIXME: mjacif doesn't work here, I think it should
-olsys = HarmOsc()
-liftsys = irx.LiftedSystem(olsys, H, Hp)
-Fnat = jax.jit(irx.jacif(liftsys.f))
-embsys = irx.ifemb(liftsys, Fnat)
+osc = HarmOsc()
+embsys = AuxVarEmbedding(osc, H)
+embsys2 = TransformEmbedding(osc)
 
 # Compute trajectory in embedding
 traj = embsys.compute_trajectory(
     0.0,
     1.56,
-    irx.i2ut(x0),
-    f_kwargs=immutabledict({"refine": IH}),
+    irx.i2ut(x0_aux),
 )
 
 # Clean up and display results
