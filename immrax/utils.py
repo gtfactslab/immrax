@@ -142,7 +142,7 @@ def get_corners (x:Interval, corners:Tuple[Corner]|None=None) :
     xut = i2ut(x)
     return jnp.array([jnp.array([x.lower[i] if c[i] == 0 else x.upper[i] for i in range(len(x))]) for c in corners])
 
-def I_refine (A:jax.Array) -> Interval :
+def I_refine (A:jax.Array) -> Callable[[Interval], Interval] :
     A = interval(A)
     def I_r (y:Interval) :
         ret = icopy(y)
