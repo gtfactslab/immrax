@@ -1,6 +1,7 @@
 import abc
 import jax
 import jax.numpy as jnp
+import scipy
 from jaxtyping import Integer, Float
 from typing import List, Literal, Union, Any, Callable, Tuple
 
@@ -153,7 +154,7 @@ class InclusionEmbedding(EmbeddingSystem):
         x: jax.Array,
         *args,
         refine: Callable[[Interval], Interval] | None = None,
-        **kwargs
+        **kwargs,
     ) -> jax.Array:
 
         if self.evolution == "continuous":
@@ -302,15 +303,19 @@ class AuxVarEmbedding(TransformEmbedding):
         self.H = H
         self.Hdag = jnp.linalg.pinv(H)
         self.N = null_space(H.T)
-        self.A = self.N.T
-        self.Hp = self.Hdag + self.A  # TODO: this can be parameterized
+        self.A = self.N.T  # Rows of A are a basis for null space of H
+        self.Hp = self.Hdag
 
-        # Test if columns of A are in null space of H
-        # print(jnp.all(jnp.isclose(A @ H, 0.0, atol=1e-5)))
-
-        self.IH = jax.jit(I_refine(self.A))
+        # Test if A is in left null space of H
+        # print(jnp.all(jnp.isclose(self.A @ self.H, 0.0, atol=1e-5)))
 
         liftsys = LiftedSystem(sys, self.H, self.Hp)
+
+        # TODO: this choice of A is arbitrary. Everything evolving on our
+        # LiftedSystem satisfies y = Hx for some base state x. Therefore,
+        # for any A in the left null space of H, Ay = AHx = 0. This is the
+        # constraint that I_refine exploits
+        self.IH = jax.jit(I_refine(self.A))
 
         # FIXME: mjacif doesn't work here, I think it should
         super().__init__(liftsys, if_transform)
@@ -321,7 +326,7 @@ class AuxVarEmbedding(TransformEmbedding):
         x: jax.Array,
         *args,
         refine: Callable[[Interval], Interval] | None = None,
-        **kwargs
+        **kwargs,
     ) -> jax.Array:
 
         if refine is not None:
