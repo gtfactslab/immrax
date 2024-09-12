@@ -149,7 +149,7 @@ def I_refine (A:jax.Array) -> Callable[[Interval], Interval]:
         # Set up linear algebra computations for the refinement
         bounding_vars = interval(null_vector.at[var_index].set(0))
         ref_var = interval(null_vector[var_index])
-        b1 = lambda: ((-bounding_vars @ null_vector) / ref_var) & ret[var_index]
+        b1 = lambda: ((-bounding_vars @ ret) / ref_var) & ret[var_index]
         b2 = lambda: ret[var_index]
 
         # Compute refinement based on null vector, if possible 

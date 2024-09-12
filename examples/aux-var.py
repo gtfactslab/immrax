@@ -1,8 +1,7 @@
 import immrax as irx
 from immrax.embedding import AuxVarEmbedding, TransformEmbedding
-from immrax.inclusion import interval
 from immrax.utils import draw_iarray
-import jax 
+from immrax.inclusion import interval
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
@@ -14,7 +13,6 @@ x0_int = irx.icentpert(x0, uncertainties)
 
 fig, axs = plt.subplots(2, 3, figsize=(5, 5))
 axs = axs.reshape(-1)
-
 
 class HarmOsc(irx.System):
     def __init__(self) -> None:
@@ -45,24 +43,19 @@ for timestep, bound in zip(ts_clean, y_int):
     draw_iarray(axs[0], bound)
 
 # Plot refined trajectories
-x0_aux = x0
 H = jnp.array([[1.0, 0.0], [0.0, 1.0]])
 for i in range(len(aux_vars)):
     # Add new refinement
     print(f"Adding auxillary variable {aux_vars[i]}")
-    x0_aux = jnp.append(x0_aux, jnp.dot(x0, aux_vars[i]))
     H = jnp.append(H, jnp.array([aux_vars[i]]), axis=0)
-    uncertainties = jnp.append(
-        uncertainties, 0.2
-    )  # HACK: what should uncertainty be here?
-    x0_aux_int = irx.icentpert(x0_aux, uncertainties)
+    lifted_x0_int = interval(H) @ x0_int
 
     # Compute new refined trajectory
     auxsys = AuxVarEmbedding(osc, H, num_samples=30)
     traj = auxsys.compute_trajectory(
         0.0,
         1.56,
-        irx.i2ut(x0_aux_int),
+        irx.i2ut(lifted_x0_int),
     )
 
     # Clean up and display results
