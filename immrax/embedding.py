@@ -1,7 +1,6 @@
 import abc
 import jax
 import jax.numpy as jnp
-import scipy
 from jaxtyping import Integer, Float
 from typing import List, Literal, Union, Any, Callable, Tuple
 
@@ -299,23 +298,19 @@ def mjacemb(sys: System):
 
 
 class AuxVarEmbedding(TransformEmbedding):
-    def __init__(self, sys: System, H: jax.Array, if_transform=natif) -> None:
+    def __init__(self, sys: System, H: jax.Array, if_transform=natif, num_samples=100) -> None:
         self.H = H
         self.Hdag = jnp.linalg.pinv(H)
         self.N = null_space(H.T)
-        self.A = self.N.T  # Rows of A are a basis for null space of H
+        self.A_lib = jax.random.ball(jax.random.key(0), self.H.shape[0] - self.H.shape[1], shape=(num_samples,)) @ self.N.T
         self.Hp = self.Hdag
 
         # Test if A is in left null space of H
-        # print(jnp.all(jnp.isclose(self.A @ self.H, 0.0, atol=1e-5)))
+        # print(jnp.all(jnp.isclose(self.A_lib @ self.H, 0.0, atol=1e-5)))
 
         liftsys = LiftedSystem(sys, self.H, self.Hp)
 
-        # TODO: this choice of A is arbitrary. Everything evolving on our
-        # LiftedSystem satisfies y = Hx for some base state x. Therefore,
-        # for any A in the left null space of H, Ay = AHx = 0. This is the
-        # constraint that I_refine exploits
-        self.IH = jax.jit(I_refine(self.A))
+        self.IH = jax.jit(I_refine(self.A_lib))
 
         # FIXME: mjacif doesn't work here, I think it should
         super().__init__(liftsys, if_transform)
@@ -344,7 +339,6 @@ class AuxVarEmbedding(TransformEmbedding):
             Fkwargs = lambda t, x, *args: self.F(t, self.IH(x), *args, **kwargs)
 
             # Computing F on the faces of the hyperrectangle
-
             _X = interval(
                 jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
             )

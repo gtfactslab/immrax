@@ -1,10 +1,13 @@
 import immrax as irx
 from immrax.embedding import AuxVarEmbedding, TransformEmbedding
+from immrax.inclusion import interval
 from immrax.utils import draw_iarray
+import jax 
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-aux_vars = jnp.array([[1.0, 1.0], [1.0, -1.0]])
+
+aux_vars = jnp.array([[1.0, 1.0], [1.0, -1.0], [-1.0, 1.0], [-1.0, -1.0]])
 x0 = jnp.array([1.0, 0.0])
 uncertainties = jnp.array([0.1, 0.1])
 x0_int = irx.icentpert(x0, uncertainties)
@@ -55,7 +58,7 @@ for i in range(len(aux_vars)):
     x0_aux_int = irx.icentpert(x0_aux, uncertainties)
 
     # Compute new refined trajectory
-    auxsys = AuxVarEmbedding(osc, H)
+    auxsys = AuxVarEmbedding(osc, H, num_samples=30)
     traj = auxsys.compute_trajectory(
         0.0,
         1.56,

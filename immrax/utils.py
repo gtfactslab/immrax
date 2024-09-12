@@ -142,21 +142,32 @@ def get_corners (x:Interval, corners:Tuple[Corner]|None=None) :
     xut = i2ut(x)
     return jnp.array([jnp.array([x.lower[i] if c[i] == 0 else x.upper[i] for i in range(len(x))]) for c in corners])
 
-def I_refine (A:jax.Array) -> Callable[[Interval], Interval] :
-    A = interval(A)
-    def I_r (y:Interval) :
+def I_refine (A:jax.Array) -> Callable[[Interval], Interval]:
+    def vec_refine(null_vector: jax.Array, var_index: int, y:Interval):
         ret = icopy(y)
-        for j in range(len(A)) :
-            for i in range(len(y)) :
-                b1 = lambda : ((-A[j,:i] @ ret[:i] - A[j,i+1:] @ ret[i+1:])/A[j,i]) & ret[i]
-                b2 = lambda : ret[i]
-                reti = jax.lax.cond(jnp.abs(A[j,i].lower) > 1e-10, b1, b2)
-                retl = ret.lower.at[i].set(reti.lower)
-                # retu = ret.upper.at[i].set(reti.upper)
-                retu = ret.upper.at[i].set(jnp.where(reti.upper >= reti.lower, reti.upper, reti.lower))
-                ret = interval(retl, retu)
-        return ret
-    return I_r
+
+        # Set up linear algebra computations for the refinement
+        bounding_vars = interval(null_vector.at[var_index].set(0))
+        ref_var = interval(null_vector[var_index])
+        b1 = lambda: ((-bounding_vars @ null_vector) / ref_var) & ret[var_index]
+        b2 = lambda: ret[var_index]
+
+        # Compute refinement based on null vector, if possible 
+        ndb0 = (jnp.abs(null_vector[var_index]) > 1e-10)
+        ret = jax.lax.cond(ndb0, b1, b2) 
+
+        # fix fpe problem with upper < lower
+        retu = jnp.where(ret.upper >= ret.lower, ret.upper, ret.lower)
+        return interval(ret.lower, retu)
+
+    mat_refine = jax.vmap(vec_refine, in_axes=(0, None, None), out_axes=0)
+    mat_refine_all = jax.vmap(mat_refine, in_axes=(None, 0, None), out_axes=1)
+
+    def best_refinement(y:Interval):
+        refinements = mat_refine_all(A, jnp.arange(len(y)), y)
+        return interval(jnp.max(refinements.lower, axis=0), jnp.min(refinements.upper, axis=0))
+    
+    return best_refinement
 
 def null_space(A, rcond=None):
     """Taken from scipy, with some modifications to use jax.numpy"""
