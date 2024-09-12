@@ -298,11 +298,12 @@ def mjacemb(sys: System):
 
 
 class AuxVarEmbedding(TransformEmbedding):
-    def __init__(self, sys: System, H: jax.Array, if_transform=natif, num_samples=100) -> None:
+    def __init__(self, sys: System, H: jax.Array, if_transform=natif, num_samples=1000) -> None:
         self.H = H
         self.Hdag = jnp.linalg.pinv(H)
         self.N = null_space(H.T)
         self.A_lib = jax.random.ball(jax.random.key(0), self.H.shape[0] - self.H.shape[1], shape=(num_samples,)) @ self.N.T
+        # self.A_lib = jnp.vstack((self.A_lib, self.N.T))
         self.Hp = self.Hdag
 
         # Test if A is in left null space of H
