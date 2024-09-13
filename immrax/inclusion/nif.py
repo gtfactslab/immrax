@@ -112,6 +112,9 @@ _add_passthrough_to_registry(lax.broadcast_in_dim_p)
 _add_passthrough_to_registry(lax.concatenate_p)
 _add_passthrough_to_registry(lax.gather_p)
 _add_passthrough_to_registry(lax.scatter_p)
+_add_passthrough_to_registry(lax.scatter_add_p)
+_add_passthrough_to_registry(lax.scatter_max_p)
+_add_passthrough_to_registry(lax.scatter_min_p)
 if hasattr(lax, 'select_p') :
     _add_passthrough_to_registry(lax.select_p)
 if hasattr(lax, 'select_n_p') :

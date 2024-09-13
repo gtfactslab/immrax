@@ -10,14 +10,14 @@ name = "immrax"
 version = "0.1.0"
 dependencies = [
     "numpy<2",
-    "scipy==1.11.4",
+    "scipy",
     "tqdm",
     "shapely",
     "matplotlib",
     "tabulate",
     "sympy",
     "sympy2jax",
-	"jax[cpu]<=0.4.23",
+	"jax",
     "jaxtyping",
     "diffrax",
     "equinox",
