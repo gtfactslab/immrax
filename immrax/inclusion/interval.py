@@ -93,6 +93,9 @@ class Interval :
     def __getitem__(self, i:int) :
         return Interval(self.lower[i], self.upper[i])
 
+    def __iter__(self):
+        raise IndexError("Interval is not iterable. Iterators are mutable, stateful objects which to not align with JAXs function paradigm.")
+
 # HELPER FUNCTIONS 
 
 def interval (lower:ArrayLike, upper:ArrayLike=None) :
@@ -285,4 +288,3 @@ def iconcatenate (intervals:Iterable[Interval], axis:int=0) -> Interval :
     """
     return interval(jnp.concatenate([i.lower for i in intervals], axis=axis),
                     jnp.concatenate([i.upper for i in intervals], axis=axis))
-

@@ -10,6 +10,7 @@ from typing import Callable, List, Tuple
 import shapely.geometry as sg
 import shapely.ops as so
 import numpy as onp
+import scipy.optimize as opt
 from math import floor, exp, log
 from functools import partial
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -168,6 +169,53 @@ def I_refine (A:jax.Array) -> Callable[[Interval], Interval]:
         return interval(jnp.max(refinements.lower, axis=0), jnp.min(refinements.upper, axis=0))
     
     return best_refinement
+
+def linprog_refine(H: jax.Array) -> Callable[[Interval], Interval]:
+    def I_r(y: Interval):
+        ret = icopy(y)
+        n = len(ret)
+        # min sum_{j \ne i} |a_j| (y_j.upper - y_j.lower) s.t. a_i = 1 and a @ H = 0
+        # We do this by adding synthetic variables a_j', and requiring that a_j <= a_j' and -a_j <= a_j'
+        obj_vec = jnp.array(
+            [(ret[i].upper - ret[i].lower) for i in range(n)]
+        )
+        obj_vec = jnp.append(jnp.zeros_like(obj_vec), obj_vec)
+        A_eq = jnp.kron(jnp.array([1, 0]), H.T) 
+        A_eq = jnp.vstack((A_eq, jnp.zeros_like(A_eq[0])))
+        b_eq = jnp.zeros(A_eq.shape[0]).at[-1].set(1) # Need H.T @ a = 0, a_i = 1
+        A_ub = jnp.kron(jnp.array([[1, -1], [-1, -1]]), jnp.eye(n))
+        b_ub = jnp.zeros_like(obj_vec) # Need a_j - a_j' <= 0, -a_j - a_j' <= 0
+
+        # Choose the best vector in the null space to bound each variable
+        for i in range(n):
+            obj_vec_i = obj_vec.at[i + n].set(0)
+            A_eq_i = A_eq.at[-1, i].set(1)
+
+            sol = opt.linprog(
+                c=obj_vec_i,
+                A_eq=A_eq_i,
+                b_eq=b_eq,
+                A_ub=A_ub,
+                b_ub=b_ub,
+                bounds=(None, None)
+            )
+
+            # If a vector that gives extra info on this var is found, refine bounds
+            if sol.success:
+                null_vec = interval(sol.x[:n])
+                reti = (
+                    (-null_vec[:i] @ ret[:i] - null_vec[i + 1 :] @ ret[i + 1 :])
+                ) & ret[i]
+
+                retl = ret.lower.at[i].set(reti.lower)
+                retu = ret.upper.at[i].set(
+                    jnp.where(reti.upper >= reti.lower, reti.upper, reti.lower)
+                )
+                ret = interval(retl, retu)
+
+        return ret
+
+    return I_r
 
 def null_space(A, rcond=None):
     """Taken from scipy, with some modifications to use jax.numpy"""
