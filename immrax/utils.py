@@ -230,19 +230,19 @@ def I_refine(A: jax.Array) -> Callable[[Interval], Interval]:
 def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Interval]:
     def I_r(y: Interval) -> Interval:
         ret = icopy(y)
+        refine_bounds = icopy(y)
         n = len(ret)
         H_ind = jnp.delete(H, collapsed_row, axis=0)
         A_eq = H[collapsed_row].reshape(1, -1)
         A_ub = jnp.vstack((H_ind, -H_ind))
 
-        for i in range(0, n):
+        refine_bounds_ind_u = jnp.delete(refine_bounds.upper, collapsed_row)
+        refine_bounds_ind_l = jnp.delete(refine_bounds.lower, collapsed_row)
+        b_ub = jnp.concatenate((refine_bounds_ind_u, -refine_bounds_ind_l))
+        b_eq = refine_bounds.lower[collapsed_row].reshape(-1)
+
+        for i in range(n):
             obj_vec_i = jnp.zeros(n).at[i].set(1) @ H  # FIXME: could be H[i]
-            ret_ind_u = jnp.delete(
-                ret.upper, collapsed_row
-            )  # I do this here because ret is shrinking
-            ret_ind_l = jnp.delete(ret.lower, collapsed_row)
-            b_ub = jnp.concatenate((ret_ind_u, -ret_ind_l))
-            b_eq = ret.lower[collapsed_row].reshape(-1)
 
             sol_min = linprog(
                 obj=obj_vec_i,
@@ -281,21 +281,38 @@ def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Int
             # assert jnp.allclose(-obj_vec_i @ sol_max.x, sp_sol_max.fun)
 
             # If a vector that gives extra info on this var is found, refine bounds
+            obj_min = obj_vec_i @ sol_min.x
+            obj_max = obj_vec_i @ sol_max.x
+            ret_old = icopy(ret)
             if sol_min.success:
-                obj = obj_vec_i @ sol_min.x
-                retl = ret.lower.at[i].set(jnp.maximum(obj, ret.lower[i]))
+                retl = ret.lower.at[i].set(jnp.maximum(obj_min, ret.lower[i]))
                 ret = interval(retl, ret.upper)
 
             if sol_max.success:
-                obj = obj_vec_i @ sol_max.x
-                retu = ret.upper.at[i].set(jnp.minimum(obj, ret.upper[i]))
+                retu = ret.upper.at[i].set(jnp.minimum(obj_max, ret.upper[i]))
                 ret = interval(ret.lower, retu)
 
-            # if sol_min.fun ~= sol_max.fun, then this introduces linear dependence on the next refinment
+            # I update b_eq and b_ub here because ret is shrinking
+            # If sol_min.fun ~= sol_max.fun, then this introduces linear dependence on the next refinment
             # However, this can only occur if the only feasible points are "on a corner" of the hypercube
             # (i.e. the subspace barely intersects the interval).
             # Therefore, refining with the original interval (along that dimension) should give the same
             # results, since it is uniquely specified anyways.
+            if jnp.allclose(
+                obj_min, obj_max
+            ):  # Dimension i is fully constrained, don't refine
+                refine_bounds_u = refine_bounds.upper.at[i].set(ret_old.upper[i])
+                refine_bounds_l = refine_bounds.lower.at[i].set(ret_old.lower[i])
+                refine_bounds = interval(refine_bounds_l, refine_bounds_u)
+            else:  # use refinement on dimension i in next refinement
+                refine_bounds_u = refine_bounds.upper.at[i].set(ret.upper[i])
+                refine_bounds_l = refine_bounds.lower.at[i].set(ret.lower[i])
+                refine_bounds = interval(refine_bounds_l, refine_bounds_u)
+
+            refine_bounds_ind_u = jnp.delete(refine_bounds.upper, collapsed_row)
+            refine_bounds_ind_l = jnp.delete(refine_bounds.lower, collapsed_row)
+            b_ub = jnp.concatenate((refine_bounds_ind_u, -refine_bounds_ind_l))
+            b_eq = refine_bounds.lower[collapsed_row].reshape(-1)
 
         return ret
 

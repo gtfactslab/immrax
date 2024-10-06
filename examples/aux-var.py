@@ -78,7 +78,8 @@ class HarmOsc(irx.System):
 
 # Number of subdivisions of [0, pi] to make aux vars for
 # Certain values of this are not good choices, as they will generate angles theta=0 or theta=pi/2
-N = 3
+# This will introduce dependence in the aux vars, causing problems with the JAX LP solver
+N = 2
 aux_vars = jnp.array(
     [
         [jnp.cos(n * jnp.pi / (N + 1)), jnp.sin(n * jnp.pi / (N + 1))]
