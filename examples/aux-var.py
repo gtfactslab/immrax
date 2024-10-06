@@ -2,10 +2,12 @@ from typing import List
 
 import jax
 import jax.numpy as jnp
+from diffrax import diffeqsolve, ODETerm, Tsit5, SaveAt, AbstractSolver, Solution
 import matplotlib.pyplot as plt
 import numpy as onp
 from pypoman import plot_polygon
 from scipy.spatial import HalfspaceIntersection
+
 
 import immrax as irx
 from immrax.embedding import AuxVarEmbedding, TransformEmbedding
@@ -19,11 +21,8 @@ A: jax.Array = jnp.array([[0.0, -1.0], [1.0, 0.0]])  # row major
 sim_len = 1.56
 
 
-# TODO: I have to do this for now because I can't jit a linear program
 def linprog_traj(A, x0, H, t0, tf, dt=0.01):
     sim_len = int((tf - t0) / dt)
-    bounds: List[None | Interval] = [None] * sim_len
-    bounds[0] = x0
     Hp = jnp.linalg.pinv(H)
 
     def update(x: irx.Interval, *args) -> irx.Interval:
@@ -38,32 +37,29 @@ def linprog_traj(A, x0, H, t0, tf, dt=0.01):
         x_ = x.upper
 
         # Computing F on the faces of the hyperrectangle
-        # interval(_x, x_.at[i].set(_x))
-
         _X = interval(
             jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
         )
-        _E_lower: List[None | jax.Array] = [None] * len(_X)
-        for i in range(len(_X)):
-            fx = Fkwargs(i, _X[i])
-            _E_lower[i] = fx.lower
-        _E = irx.interval(_E_lower, _E_lower)
+        _E = jax.vmap(Fkwargs, in_axes=(0, 0))(jnp.arange(len(_X)), _X)
 
         X_ = interval(
             jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
         )
-        E__upper: List[None | jax.Array] = [None] * len(_X)
-        for i in range(len(X_)):
-            fx = Fkwargs(i, X_[i])
-            E__upper[i] = fx.upper
-        E_ = irx.interval(E__upper, E__upper)
+        E_ = jax.vmap(Fkwargs, in_axes=(0, 0))(jnp.arange(len(X_)), X_)
 
         return irx.interval(jnp.diag(_E.lower), jnp.diag(E_.upper))
 
-    for i in range(1, sim_len):
-        bounds[i] = bounds[i - 1] + interval(dt) * update(bounds[i - 1])
+    def func(t, x, args): 
+        return update(x)
 
-    return bounds
+    term = ODETerm(func)
+    solver = Tsit5()
+    # saveat = SaveAt(ts=jnp.linspace(t0, tf, sim_len, endpoint=False))
+    saveat = SaveAt(t0=True, t1=True, steps=True)
+    sol = diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat)
+    tfinite = jnp.where(jnp.isfinite(traj.ts))
+
+    return sol.ys[tfinite]
 
 
 class HarmOsc(irx.System):
@@ -134,7 +130,6 @@ for i in range(len(aux_vars)):
         0.0,
         sim_len,
         irx.i2ut(lifted_x0_int),
-        solver="euler",
     )
     tfinite = jnp.where(jnp.isfinite(traj.ts))
     ts_clean = traj.ts[tfinite]
@@ -164,7 +159,8 @@ for i in range(len(aux_vars)):
 
     plt.sca(axs_lp[i])
     axs_lp[i].set_title(rf"$\theta = {i+1} \frac{{\pi}}{{{N+1}}}$")
-    for bound in lp_traj:
+    for timestep in range(len(lp_traj)):
+        bound = lp_traj[timestep]
         cons = onp.hstack(
             (
                 onp.vstack((-H, H)),

@@ -64,7 +64,7 @@ class SimplexStep:
 
     @property
     def success(self) -> bool:
-        return bool(self.feasible and not self.unbounded)
+        return jnp.logical_and(self.feasible, jnp.logical_not(self.unbounded))
 
 
 def fuzzy_argmin(arr: jnp.ndarray, tolerance: float = 1e-5) -> jax.Array:
