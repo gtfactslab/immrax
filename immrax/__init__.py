@@ -18,7 +18,7 @@ from .control import (
     # FOHControlledSystem,
 )
 
-try : 
+try:
     import jax_verify
     from . import neural as neural
     from .neural import (
@@ -41,7 +41,9 @@ from .embedding import (
     ifemb,
     natemb,
     jacemb,
-    mjacemb
+    mjacemb,
 )
 
 from . import utils as utils
+
+from . import optim as optim

@@ -31,7 +31,7 @@ def linprog_traj(A, x0, H, t0, tf, dt=0.01):
         lifted_upd = lambda x: H @ sys_upd(Hp @ x)
         emb_upd = natif(lifted_upd)
 
-        Fkwargs = lambda x: emb_upd(linprog_refine(H)(x))
+        Fkwargs = lambda i, x: emb_upd(linprog_refine(H, collapsed_row=i)(x))
 
         n = H.shape[0]
         _x = x.lower
@@ -45,7 +45,7 @@ def linprog_traj(A, x0, H, t0, tf, dt=0.01):
         )
         _E_lower: List[None | jax.Array] = [None] * len(_X)
         for i in range(len(_X)):
-            fx = Fkwargs(_X[i])
+            fx = Fkwargs(i, _X[i])
             _E_lower[i] = fx.lower
         _E = irx.interval(_E_lower, _E_lower)
 
@@ -54,7 +54,7 @@ def linprog_traj(A, x0, H, t0, tf, dt=0.01):
         )
         E__upper: List[None | jax.Array] = [None] * len(_X)
         for i in range(len(X_)):
-            fx = Fkwargs(X_[i])
+            fx = Fkwargs(i, X_[i])
             E__upper[i] = fx.upper
         E_ = irx.interval(E__upper, E__upper)
 
@@ -78,7 +78,7 @@ class HarmOsc(irx.System):
 
 # Number of subdivisions of [0, pi] to make aux vars for
 # Certain values of this are not good choices, as they will generate angles theta=0 or theta=pi/2
-N = 6
+N = 3
 aux_vars = jnp.array(
     [
         [jnp.cos(n * jnp.pi / (N + 1)), jnp.sin(n * jnp.pi / (N + 1))]

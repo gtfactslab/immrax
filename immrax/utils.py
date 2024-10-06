@@ -22,6 +22,7 @@ from immrax.inclusion import (
     interval,
     ut2i,
 )
+from immrax.optim import linprog
 
 
 def timed(f: Callable):
@@ -226,37 +227,75 @@ def I_refine(A: jax.Array) -> Callable[[Interval], Interval]:
     return best_refinement
 
 
-def linprog_refine(H: jax.Array) -> Callable[[Interval], Interval]:
+def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Interval]:
     def I_r(y: Interval) -> Interval:
         ret = icopy(y)
         n = len(ret)
-        A_ub = jnp.vstack((H, -H))
+        H_ind = jnp.delete(H, collapsed_row, axis=0)
+        A_eq = H[collapsed_row].reshape(1, -1)
+        A_ub = jnp.vstack((H_ind, -H_ind))
 
-        for i in range(n):
-            obj_vec_i = jnp.zeros(n).at[i].set(1) @ H
-            b_ub = jnp.concatenate((ret.upper, -ret.lower))
+        for i in range(0, n):
+            obj_vec_i = jnp.zeros(n).at[i].set(1) @ H  # FIXME: could be H[i]
+            ret_ind_u = jnp.delete(
+                ret.upper, collapsed_row
+            )  # I do this here because ret is shrinking
+            ret_ind_l = jnp.delete(ret.lower, collapsed_row)
+            b_ub = jnp.concatenate((ret_ind_u, -ret_ind_l))
+            b_eq = ret.lower[collapsed_row].reshape(-1)
 
-            sol_min = opt.linprog(
-                c=obj_vec_i,
+            sol_min = linprog(
+                obj=obj_vec_i,
+                A_eq=A_eq,
+                b_eq=b_eq,
                 A_ub=A_ub,
                 b_ub=b_ub,
-                bounds=(None, None),
+                unbounded=True,
             )
-            sol_max = opt.linprog(
-                c=-obj_vec_i,
+            # sp_sol_min = opt.linprog(
+            #     c=obj_vec_i,
+            #     A_eq=A_eq,
+            #     b_eq=b_eq,
+            #     A_ub=A_ub,
+            #     b_ub=b_ub,
+            #     bounds=(None, None),
+            # )
+            # assert jnp.allclose(obj_vec_i @ sol_min.x, sp_sol_min.fun)
+
+            sol_max = linprog(
+                obj=-obj_vec_i,
+                A_eq=A_eq,
+                b_eq=b_eq,
                 A_ub=A_ub,
                 b_ub=b_ub,
-                bounds=(None, None),
+                unbounded=True,
             )
+            # sp_sol_max = opt.linprog(
+            #     c=-obj_vec_i,
+            #     A_eq=A_eq,
+            #     b_eq=b_eq,
+            #     A_ub=A_ub,
+            #     b_ub=b_ub,
+            #     bounds=(None, None),
+            # )
+            # assert jnp.allclose(-obj_vec_i @ sol_max.x, sp_sol_max.fun)
 
             # If a vector that gives extra info on this var is found, refine bounds
             if sol_min.success:
-                retl = ret.lower.at[i].set(jnp.maximum(sol_min.fun, ret.lower[i]))
+                obj = obj_vec_i @ sol_min.x
+                retl = ret.lower.at[i].set(jnp.maximum(obj, ret.lower[i]))
                 ret = interval(retl, ret.upper)
 
             if sol_max.success:
-                retu = ret.upper.at[i].set(jnp.minimum(-sol_max.fun, ret.upper[i]))
+                obj = obj_vec_i @ sol_max.x
+                retu = ret.upper.at[i].set(jnp.minimum(obj, ret.upper[i]))
                 ret = interval(ret.lower, retu)
+
+            # if sol_min.fun ~= sol_max.fun, then this introduces linear dependence on the next refinment
+            # However, this can only occur if the only feasible points are "on a corner" of the hypercube
+            # (i.e. the subspace barely intersects the interval).
+            # Therefore, refining with the original interval (along that dimension) should give the same
+            # results, since it is uniquely specified anyways.
 
         return ret
 
