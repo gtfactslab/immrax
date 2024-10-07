@@ -1,15 +1,15 @@
 import abc
+from functools import partial
+from typing import Any, Callable, List, Union
+
 import jax
 import jax.numpy as jnp
-from jaxtyping import Integer, Float
-from typing import List, Literal, Union, Any, Callable, Tuple
+from jaxtyping import Float, Integer
 
 from immrax.utils import I_refine, null_space
-from .system import LiftedSystem, System, Trajectory
-from .inclusion import interval, natif, jacif, mjacif, i2ut, ut2i, Interval
-from .control import Control, ControlledSystem
-from functools import partial
-from immutabledict import immutabledict
+
+from .inclusion import Interval, i2ut, interval, jacif, mjacif, natif, ut2i
+from .system import LiftedSystem, System
 
 
 class EmbeddingSystem(System, abc.ABC):
