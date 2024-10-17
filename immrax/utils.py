@@ -22,7 +22,7 @@ from immrax.inclusion import (
     interval,
     ut2i,
 )
-from immrax.optim import linprog
+from immrax.optim import linprog, compare
 
 
 def timed(f: Callable):
@@ -252,6 +252,16 @@ def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Int
                 unbounded=True,
             )
 
+            # sp_sol_min = opt.linprog(
+            #     c=obj_vec_i,
+            #     A_eq=A_eq,
+            #     b_eq=b_eq,
+            #     A_ub=A_ub,
+            #     b_ub=b_ub,
+            #     bounds=(None, None),
+            # )
+            # assert compare(sol_min, sp_sol_min)[0]
+
             sol_max = linprog(
                 obj=-obj_vec_i,
                 A_eq=A_eq,
@@ -261,10 +271,19 @@ def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Int
                 unbounded=True,
             )
 
+            # sp_sol_max = opt.linprog(
+            #     c=-obj_vec_i,
+            #     A_eq=A_eq,
+            #     b_eq=b_eq,
+            #     A_ub=A_ub,
+            #     b_ub=b_ub,
+            #     bounds=(None, None),
+            # )
+            # assert compare(sol_max, sp_sol_max)[0]
+
             # If a vector that gives extra info on this var is found, refine bounds
             obj_min = obj_vec_i @ sol_min.x
             obj_max = obj_vec_i @ sol_max.x
-            ret_old = icopy(ret)
 
             new_lower_i = jnp.where(
                 sol_min.success, jnp.maximum(obj_min, ret.lower[i]), ret.lower[i]

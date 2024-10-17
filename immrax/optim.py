@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
+import scipy.optimize as opt
 
 from typing import Tuple
 from functools import partial
@@ -45,6 +46,10 @@ class SimplexStep:
     @property
     def success(self) -> jax.Array:
         return jnp.logical_and(self.feasible, jnp.logical_not(self.unbounded))
+
+    @property
+    def fun(self) -> jax.Array:
+        return -self.tableau[-1, -1]
 
 
 def fuzzy_argmin(arr: jnp.ndarray, tolerance: float = 1e-5) -> jax.Array:
@@ -154,6 +159,8 @@ def _simplex(step: SimplexStep, num_cost_rows: int) -> SimplexStep:
 
         return SimplexStep(tableau, basis, x, step.feasible, unbounded)
 
+    # NOTE: this looses reverse mode autodiff. We can accomplish all the same calculations
+    # with forward mode, which this does not lose, but they might be slightly less efficient.
     step = jax.lax.while_loop(_iteration_needed, pivot, step)
 
     # Uncomment to debug
@@ -204,6 +211,7 @@ def linprog(
     x = jnp.concatenate((jnp.zeros_like(c), b))
     aux_start = SimplexStep(tableau, basis, x, jnp.array([True]), jnp.array([False]))
     aux_sol = _simplex(aux_start, num_cost_rows=2)
+    x = aux_sol.x[: c.size]
 
     # Remove auxiliary variables from tableau for real problem
     tableau = aux_sol.tableau[:-1, :]
@@ -213,6 +221,13 @@ def linprog(
         axis=1,
         assume_unique_indices=True,
     )
+
+    redundant_cons = jnp.concatenate((aux_sol.basis > A.shape[1], jnp.array([False])))
+    redundant_cons = redundant_cons.repeat(tableau.shape[1]).reshape(tableau.shape)
+    # TODO: I don't know if this is correct in general. Really, what I want to do is
+    # make the column corresponding to the auxiliary variable basic, but I'm not sure
+    # of an efficient way to identify this column
+    tableau = jnp.where(redundant_cons, -tableau, tableau)
 
     real_start = SimplexStep(
         tableau,
@@ -233,6 +248,34 @@ def linprog(
     return sol
 
 
+def compare(my_sol: SimplexStep, sp_sol: opt.OptimizeResult) -> Tuple[bool, str]:
+    if sp_sol.status == 2:
+        if not my_sol.feasible:
+            return True, "SUCCESS: problem is infeasible"
+        else:
+            return False, "FAILURE: we did not detect problem as infeasible"
+    elif sp_sol.status == 3:
+        if my_sol.unbounded:
+            return True, "SUCCESS: problem is unbounded"
+        else:
+            return False, "FAILURE: we did not detect problem as unbounded"
+    elif sp_sol.status == 0:
+        if my_sol.success:
+            correct = jnp.allclose(my_sol.fun, sp_sol.fun, atol=1e-5)
+
+            if correct:
+                return True, f"SUCCESS: x={my_sol.x}"
+            else:
+                return False, "FAILURE: objective value does not match"
+        else:
+            if not my_sol.feasible:
+                return True, "FAILURE: we incorrectly identified problem as infeasible"
+            elif my_sol.unbounded:
+                return False, "FAILURE: we incorrectly identified problem as unbounded"
+
+    return False, "FAILURE: unknown status"
+
+
 if __name__ == "__main__":
     import scipy.optimize as opt
 
@@ -246,6 +289,10 @@ if __name__ == "__main__":
     ):
         my_sol = linprog(c, A_eq, b_eq, A_ub, b_ub, unbounded)
 
+        # The method output by the first phase of the simplex method is not actually feasible
+        # I do not detect this problem in my implementation
+        # Consider changing to just linear solver, extract non-zero indices
+
         bounds = (None, None) if unbounded else (0, None)
         sp_A_eq = A_eq if A_eq.size > 0 else None
         sp_b_eq = b_eq if b_eq.size > 0 else None
@@ -253,29 +300,7 @@ if __name__ == "__main__":
         sp_b_ub = b_ub if b_ub.size > 0 else None
         sp_sol = opt.linprog(c, sp_A_ub, sp_b_ub, sp_A_eq, sp_b_eq, bounds=bounds)
 
-        if sp_sol.status == 2:
-            if not my_sol.feasible:
-                print("SUCCESS: problem is infeasible")
-            else:
-                print("FAILURE: we did not detect problem as infeasible")
-        elif sp_sol.status == 3:
-            if my_sol.unbounded:
-                print("SUCCESS: problem is unbounded")
-            else:
-                print("FAILURE: we did not detect problem as unbounded")
-        elif sp_sol.status == 0:
-            if my_sol.success:
-                correct = jnp.allclose(c @ my_sol.x, sp_sol.fun)
-
-                if correct:
-                    print(f"SUCCESS: x={my_sol.x}")
-                else:
-                    print("FAILURE: objective value does not match")
-            else:
-                if not my_sol.feasible:
-                    print("FAILURE: we incorrectly identified problem as infeasible")
-                elif my_sol.unbounded:
-                    print("FAILURE: we incorrectly identified problem as unbounded")
+        print(compare(my_sol, sp_sol))
 
     A = jnp.array(
         [
@@ -348,5 +373,13 @@ if __name__ == "__main__":
     A_ub = jnp.array([[1.0, 0], [0, 1], [-1, 0], [0, -1]])
     b_ub = jnp.array([0.9, 0.1, -0.9, 0.1])
     c = jnp.array([0.0, 1])
+
+    verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
+
+    A_eq = jnp.array([[0.5, 0.5]])
+    b_eq = jnp.array([0.4])
+    A_ub = jnp.array([[1.0, 0.0], [0.0, 1.0], [-1.0, -0.0], [-0.0, -1.0]])
+    b_ub = jnp.array([0.9, 0.1, -0.9, 0.1])
+    c = -jnp.array([0.0, 1.0])
 
     verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)

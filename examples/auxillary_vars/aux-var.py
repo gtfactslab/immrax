@@ -1,13 +1,12 @@
 from typing import List
 
+from diffrax import AbstractSolver, ODETerm, SaveAt, Solution, Tsit5, diffeqsolve
 import jax
 import jax.numpy as jnp
-from diffrax import diffeqsolve, ODETerm, Tsit5, SaveAt, AbstractSolver, Solution
 import matplotlib.pyplot as plt
 import numpy as onp
 from pypoman import plot_polygon
 from scipy.spatial import HalfspaceIntersection
-
 
 import immrax as irx
 from immrax.embedding import AuxVarEmbedding, TransformEmbedding
@@ -23,6 +22,8 @@ sim_len = 1.56
 
 def linprog_traj(A, x0, H, t0, tf, dt=0.01):
     sim_len = int((tf - t0) / dt)
+    # bounds: List[None | Interval] = [None] * sim_len
+    # bounds[0] = x0
     Hp = jnp.linalg.pinv(H)
 
     def update(x: irx.Interval, *args) -> irx.Interval:
@@ -41,15 +42,25 @@ def linprog_traj(A, x0, H, t0, tf, dt=0.01):
             jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
         )
         _E = jax.vmap(Fkwargs, in_axes=(0, 0))(jnp.arange(len(_X)), _X)
+        # _E_lower: List[None | jax.Array] = [None] * len(_X)
+        # for i in range(len(_X)):
+        #     fx = Fkwargs(i, _X[i])
+        #     _E_lower[i] = fx.lower
+        # _E = irx.interval(_E_lower, _E_lower)
 
         X_ = interval(
             jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
         )
         E_ = jax.vmap(Fkwargs, in_axes=(0, 0))(jnp.arange(len(X_)), X_)
+        # E__upper: List[None | jax.Array] = [None] * len(_X)
+        # for i in range(len(X_)):
+        #     fx = Fkwargs(i, X_[i])
+        #     E__upper[i] = fx.upper
+        # E_ = irx.interval(E__upper, E__upper)
 
         return irx.interval(jnp.diag(_E.lower), jnp.diag(E_.upper))
 
-    def func(t, x, args): 
+    def func(t, x, args):
         return update(x)
 
     term = ODETerm(func)
@@ -60,6 +71,10 @@ def linprog_traj(A, x0, H, t0, tf, dt=0.01):
     tfinite = jnp.where(jnp.isfinite(traj.ts))
 
     return sol.ys[tfinite]
+
+    # for i in range(1, sim_len):
+    #     bounds[i] = bounds[i - 1] + interval(dt) * update(bounds[i - 1])
+    # return bounds
 
 
 class HarmOsc(irx.System):
