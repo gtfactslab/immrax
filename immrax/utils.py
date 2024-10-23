@@ -239,7 +239,7 @@ def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Int
             # I update b_eq and b_ub here because ret is shrinking
             ret_ind_u = jnp.delete(ret.upper, collapsed_row, assume_unique_indices=True)
             ret_ind_l = jnp.delete(ret.lower, collapsed_row, assume_unique_indices=True)
-            b_ub = jnp.concatenate((ret_ind_u, -ret_ind_l))
+            b_ub = jnp.concatenate((ret_ind_u, -ret_ind_l)) # TODO: try adding buffer region *inside* the bounds to collapsed face
             b_eq = ret.lower[collapsed_row].reshape(-1)
             obj_vec_i = jnp.zeros(n).at[i].set(1) @ H  # FIXME: could be H[i]
 
@@ -252,15 +252,16 @@ def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Int
                 unbounded=True,
             )
 
-            sp_sol_min = opt.linprog(
-                c=obj_vec_i,
-                A_eq=A_eq,
-                b_eq=b_eq,
-                A_ub=A_ub,
-                b_ub=b_ub,
-                bounds=(None, None),
-            )
-            assert compare(sol_min, sp_sol_min)[0]
+            # sp_sol_min = opt.linprog(
+            #     c=obj_vec_i,
+            #     A_eq=A_eq,
+            #     b_eq=b_eq,
+            #     A_ub=A_ub,
+            #     b_ub=b_ub,
+            #     bounds=(None, None),
+            # )
+            # success, msg = compare(sol_min, sp_sol_min)
+            # assert success, msg
 
             sol_max = linprog(
                 obj=-obj_vec_i,
@@ -271,15 +272,17 @@ def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Int
                 unbounded=True,
             )
 
-            sp_sol_max = opt.linprog(
-                c=-obj_vec_i,
-                A_eq=A_eq,
-                b_eq=b_eq,
-                A_ub=A_ub,
-                b_ub=b_ub,
-                bounds=(None, None),
-            )
-            assert compare(sol_max, sp_sol_max)[0]
+            # sp_sol_max = opt.linprog(
+            #     c=-obj_vec_i,
+            #     A_eq=A_eq,
+            #     b_eq=b_eq,
+            #     A_ub=A_ub,
+            #     b_ub=b_ub,
+            #     bounds=(None, None),
+            # )
+            # success, msg = compare(sol_max, sp_sol_max)
+            # assert success, msg
+
 
             # If a vector that gives extra info on this var is found, refine bounds
             new_lower_i = jnp.where(

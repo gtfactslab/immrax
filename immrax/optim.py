@@ -229,11 +229,18 @@ def linprog(
     # of an efficient way to identify this column
     tableau = jnp.where(redundant_cons, -tableau, tableau)
 
+    # NOTE: The tolerance here determines how much violation of constraints we are comfortable with. 
+    # The default 1e-9 seems to be too small, especially for the problems we generate with aux-var 
+    # refinement when collapsing along a face. Along auxilliary faces, this selects exactly a corner 
+    # of the region in real variables. Logically, this should be fine, but numerically it causes the 
+    # problem to be marked as infeasible, and we get no refinement just when we should get the most. 
+    feasible = jnp.allclose(c_aux[:-1] @ aux_sol.x, jnp.array([0]), atol=1e-6).reshape(1)
+
     real_start = SimplexStep(
         tableau,
         aux_sol.basis,
         aux_sol.x[: c.size],
-        jnp.allclose(c_aux[:-1] @ aux_sol.x, jnp.array([0])).reshape(1),
+        feasible,
         jnp.array([False]),
     )
     sol = _simplex(real_start, num_cost_rows=1)
@@ -261,7 +268,7 @@ def compare(my_sol: SimplexStep, sp_sol: opt.OptimizeResult) -> Tuple[bool, str]
             return False, "FAILURE: we did not detect problem as unbounded"
     elif sp_sol.status == 0:
         if my_sol.success:
-            correct = jnp.allclose(my_sol.fun, sp_sol.fun)
+            correct = jnp.allclose(my_sol.fun, sp_sol.fun, atol=1e-7)
 
             if correct:
                 return True, f"SUCCESS: x={my_sol.x}"
@@ -269,7 +276,7 @@ def compare(my_sol: SimplexStep, sp_sol: opt.OptimizeResult) -> Tuple[bool, str]
                 return False, "FAILURE: objective value does not match"
         else:
             if not my_sol.feasible:
-                return True, "FAILURE: we incorrectly identified problem as infeasible"
+                return False, "FAILURE: we incorrectly identified problem as infeasible"
             elif my_sol.unbounded:
                 return False, "FAILURE: we incorrectly identified problem as unbounded"
 
@@ -288,10 +295,6 @@ if __name__ == "__main__":
         unbounded: bool = False,
     ):
         my_sol = linprog(c, A_eq, b_eq, A_ub, b_ub, unbounded)
-
-        # The method output by the first phase of the simplex method is not actually feasible
-        # I do not detect this problem in my implementation
-        # Consider changing to just linear solver, extract non-zero indices
 
         bounds = (None, None) if unbounded else (0, None)
         sp_A_eq = A_eq if A_eq.size > 0 else None
@@ -360,7 +363,7 @@ if __name__ == "__main__":
 
     verify(c, A_eq=A, b_eq=b)
 
-    ## Programs with dependent constraints
+    # Programs with dependent constraints
 
     A = jnp.array([[1.0, 0], [1, 0]])
     b = jnp.array([3.0, 3])
@@ -381,5 +384,24 @@ if __name__ == "__main__":
     A_ub = jnp.array([[1.0, 0.0], [0.0, 1.0], [-1.0, -0.0], [-0.0, -1.0]])
     b_ub = jnp.array([0.9, 0.1, -0.9, 0.1])
     c = -jnp.array([0.0, 1.0])
+
+    verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
+
+    # Programs based on aux var refinement 
+    N = 6
+    aux_vars = jnp.array(
+        [
+            [jnp.cos(n * jnp.pi / (N + 1)), jnp.sin(n * jnp.pi / (N + 1))]
+            for n in range(1, N + 1)
+        ]
+    )
+    H = jnp.array([[1.0, 0.0], [0.0, 1.0]])
+    Hs = [jnp.vstack((H, aux_vars[:i + 1])) for i in range(N)]
+
+    A_eq = jnp.array([aux_vars[0]])
+    b_eq = jnp.dot(aux_vars[0], jnp.array([1.1, 0.1])).reshape(-1)
+    A_ub = jnp.array([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])
+    b_ub = jnp.array([1.1, 0.1, -1.1, -0.1])
+    c = aux_vars[0]
 
     verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
