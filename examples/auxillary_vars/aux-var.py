@@ -136,7 +136,7 @@ for i in range(len(aux_vars)):
     H = jnp.append(H, jnp.array([aux_vars[i]]), axis=0)
     lifted_x0_int = interval(H) @ x0_int
 
-    Compute new refined trajectory
+    # Compute new refined trajectory
     auxsys = AuxVarEmbedding(osc, H, num_samples=10 ** (i + 1))
     traj, time = run_times(
         1,
