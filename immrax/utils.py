@@ -252,15 +252,15 @@ def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Int
                 unbounded=True,
             )
 
-            # sp_sol_min = opt.linprog(
-            #     c=obj_vec_i,
-            #     A_eq=A_eq,
-            #     b_eq=b_eq,
-            #     A_ub=A_ub,
-            #     b_ub=b_ub,
-            #     bounds=(None, None),
-            # )
-            # assert compare(sol_min, sp_sol_min)[0]
+            sp_sol_min = opt.linprog(
+                c=obj_vec_i,
+                A_eq=A_eq,
+                b_eq=b_eq,
+                A_ub=A_ub,
+                b_ub=b_ub,
+                bounds=(None, None),
+            )
+            assert compare(sol_min, sp_sol_min)[0]
 
             sol_max = linprog(
                 obj=-obj_vec_i,
@@ -271,26 +271,23 @@ def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Int
                 unbounded=True,
             )
 
-            # sp_sol_max = opt.linprog(
-            #     c=-obj_vec_i,
-            #     A_eq=A_eq,
-            #     b_eq=b_eq,
-            #     A_ub=A_ub,
-            #     b_ub=b_ub,
-            #     bounds=(None, None),
-            # )
-            # assert compare(sol_max, sp_sol_max)[0]
+            sp_sol_max = opt.linprog(
+                c=-obj_vec_i,
+                A_eq=A_eq,
+                b_eq=b_eq,
+                A_ub=A_ub,
+                b_ub=b_ub,
+                bounds=(None, None),
+            )
+            assert compare(sol_max, sp_sol_max)[0]
 
             # If a vector that gives extra info on this var is found, refine bounds
-            obj_min = obj_vec_i @ sol_min.x
-            obj_max = obj_vec_i @ sol_max.x
-
             new_lower_i = jnp.where(
-                sol_min.success, jnp.maximum(obj_min, ret.lower[i]), ret.lower[i]
+                sol_min.success, jnp.maximum(sol_min.fun, ret.lower[i]), ret.lower[i]
             )[0]
             retl = ret.lower.at[i].set(new_lower_i)
             new_upper_i = jnp.where(
-                sol_max.success, jnp.minimum(obj_max, ret.upper[i]), ret.upper[i]
+                sol_max.success, jnp.minimum(-sol_max.fun, ret.upper[i]), ret.upper[i]
             )[0]
             retu = ret.upper.at[i].set(new_upper_i)
             ret = interval(retl, retu)
@@ -299,6 +296,59 @@ def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Int
 
     return I_r
 
+
+def sp_linprog_refine(
+    H: jax.Array, collapsed_row: int
+) -> Callable[[Interval], Interval]:
+    def I_r(y: Interval) -> Interval:
+        ret = icopy(y)
+        n = len(ret)
+        H_ind = jnp.delete(H, collapsed_row, axis=0, assume_unique_indices=True)
+        A_eq = H[collapsed_row].reshape(1, -1)
+        A_ub = jnp.vstack((H_ind, -H_ind))
+
+        for i in range(n):
+            # I update b_eq and b_ub here because ret is shrinking
+            ret_ind_u = jnp.delete(ret.upper, collapsed_row, assume_unique_indices=True)
+            ret_ind_l = jnp.delete(ret.lower, collapsed_row, assume_unique_indices=True)
+            b_ub = jnp.concatenate((ret_ind_u, -ret_ind_l))
+            b_eq = ret.lower[collapsed_row].reshape(-1)
+            obj_vec_i = jnp.zeros(n).at[i].set(1) @ H  # FIXME: could be H[i]
+
+            sol_min = opt.linprog(
+                c=obj_vec_i,
+                A_eq=A_eq,
+                b_eq=b_eq,
+                A_ub=A_ub,
+                b_ub=b_ub,
+                bounds=(None, None),
+            )
+
+            sol_max = opt.linprog(
+                c=-obj_vec_i,
+                A_eq=A_eq,
+                b_eq=b_eq,
+                A_ub=A_ub,
+                b_ub=b_ub,
+                bounds=(None, None),
+            )
+
+            # If a vector that gives extra info on this var is found, refine bounds
+            new_lower_i = ret.lower[i]
+            new_upper_i = ret.upper[i]
+            if sol_min.success:
+                new_lower_i = jnp.maximum(sol_min.fun, ret.lower[i])
+            if sol_max.success:
+                new_upper_i = jnp.minimum(-sol_max.fun, ret.upper[i])
+
+            retl = ret.lower.at[i].set(new_lower_i)
+            retu = ret.upper.at[i].set(new_upper_i)
+
+            ret = interval(retl, retu)
+
+        return ret
+
+    return I_r
 
 def null_space(A, rcond=None):
     """Taken from scipy, with some modifications to use jax.numpy"""

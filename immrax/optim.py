@@ -261,7 +261,7 @@ def compare(my_sol: SimplexStep, sp_sol: opt.OptimizeResult) -> Tuple[bool, str]
             return False, "FAILURE: we did not detect problem as unbounded"
     elif sp_sol.status == 0:
         if my_sol.success:
-            correct = jnp.allclose(my_sol.fun, sp_sol.fun, atol=1e-5)
+            correct = jnp.allclose(my_sol.fun, sp_sol.fun)
 
             if correct:
                 return True, f"SUCCESS: x={my_sol.x}"
