@@ -1,0 +1,3 @@
+Run on nvidia 3050, runs out of VRAM on LP refinement for 5 aux vars 
+ - Both trajectories are integrated with diffrax using TSIT5 
+ - The LP solver is the traceable row operation version

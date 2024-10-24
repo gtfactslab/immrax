@@ -229,12 +229,14 @@ def linprog(
     # of an efficient way to identify this column
     tableau = jnp.where(redundant_cons, -tableau, tableau)
 
-    # NOTE: The tolerance here determines how much violation of constraints we are comfortable with. 
-    # The default 1e-9 seems to be too small, especially for the problems we generate with aux-var 
-    # refinement when collapsing along a face. Along auxilliary faces, this selects exactly a corner 
-    # of the region in real variables. Logically, this should be fine, but numerically it causes the 
-    # problem to be marked as infeasible, and we get no refinement just when we should get the most. 
-    feasible = jnp.allclose(c_aux[:-1] @ aux_sol.x, jnp.array([0]), atol=1e-6).reshape(1)
+    # NOTE: The tolerance here determines how much violation of constraints we are comfortable with.
+    # The default 1e-9 seems to be too small, especially for the problems we generate with aux-var
+    # refinement when collapsing along a face. Along auxilliary faces, this selects exactly a corner
+    # of the region in real variables. Logically, this should be fine, but numerically it causes the
+    # problem to be marked as infeasible, and we get no refinement just when we should get the most.
+    feasible = jnp.allclose(c_aux[:-1] @ aux_sol.x, jnp.array([0]), atol=1e-3).reshape(
+        1
+    )
 
     real_start = SimplexStep(
         tableau,
@@ -387,7 +389,7 @@ if __name__ == "__main__":
 
     verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
 
-    # Programs based on aux var refinement 
+    # Programs based on aux var refinement
     N = 6
     aux_vars = jnp.array(
         [
@@ -396,7 +398,7 @@ if __name__ == "__main__":
         ]
     )
     H = jnp.array([[1.0, 0.0], [0.0, 1.0]])
-    Hs = [jnp.vstack((H, aux_vars[:i + 1])) for i in range(N)]
+    Hs = [jnp.vstack((H, aux_vars[: i + 1])) for i in range(N)]
 
     A_eq = jnp.array([aux_vars[0]])
     b_eq = jnp.dot(aux_vars[0], jnp.array([1.1, 0.1])).reshape(-1)
