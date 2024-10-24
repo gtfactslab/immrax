@@ -197,8 +197,8 @@ def get_corners(x: Interval, corners: Tuple[Corner] | None = None):
     )
 
 
-def I_refine(A: jax.Array) -> Callable[[Interval], Interval]:
-    def vec_refine(null_vector: jax.Array, var_index: int, y: Interval):
+def sample_refine(A: jax.Array) -> Callable[[Interval, jax.Array], Interval]:
+    def vec_refine(null_vector: jax.Array, var_index: jax.Array, y: Interval):
         ret = icopy(y)
 
         # Set up linear algebra computations for the refinement
@@ -224,11 +224,11 @@ def I_refine(A: jax.Array) -> Callable[[Interval], Interval]:
             jnp.max(refinements.lower, axis=0), jnp.min(refinements.upper, axis=0)
         )
 
-    return best_refinement
+    return lambda y, _: best_refinement(y)
 
 
-def linprog_refine(H: jax.Array, collapsed_row: int) -> Callable[[Interval], Interval]:
-    def I_r(y: Interval) -> Interval:
+def linprog_refine(H: jax.Array) -> Callable[[Interval, jax.Array], Interval]:
+    def I_r(y: Interval, collapsed_row: jax.Array) -> Interval:
         ret = icopy(y)
         n = len(ret)
         H_ind = jnp.delete(H, collapsed_row, axis=0, assume_unique_indices=True)
