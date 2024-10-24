@@ -15,6 +15,8 @@ from immrax.utils import draw_iarray, run_times
 
 # Read papers about contraction and stability
 
+vdp_mu = 1
+
 x0_int = irx.icentpert(jnp.array([1.0, 0.0]), jnp.array([0.1, 0.1]))
 sim_len = 1.56
 plt.rcParams.update({"text.usetex": True, "font.family": "CMU Serif", "font.size": 14})
@@ -36,15 +38,27 @@ class HarmOsc(irx.System):
     def __init__(self) -> None:
         self.evolution = "continuous"
         self.xlen = 2
+        self.name = "Harmonic Oscillator"
 
     def f(self, t, x: jnp.ndarray) -> jnp.ndarray:
         x1, x2 = x.ravel()
         return jnp.array([-x2, x1])
 
 
+class VanDerPolOsc(irx.System):
+    def __init__(self) -> None:
+        self.evolution = "continuous"
+        self.xlen = 2
+        self.name = "Van der Pol Oscillator"
+
+    def f(self, t, x: jnp.ndarray) -> jnp.ndarray:
+        x1, x2 = x.ravel()
+        return jnp.array([vdp_mu * (x1 - 1 / 3 * x1**3 - x2), x1 / vdp_mu])
+
+
 # Trajectory of unrefined system
-osc = HarmOsc()
-embsys = TransformEmbedding(osc)
+sys = VanDerPolOsc() # Can use an arbitrary system here
+embsys = TransformEmbedding(sys)
 traj = embsys.compute_trajectory(
     0.0,
     sim_len,
@@ -57,12 +71,12 @@ ys_clean = traj.ys[tfinite]
 y_int = [irx.ut2i(y) for y in ys_clean]
 for bound in y_int:
     draw_iarray(plt.gca(), bound, alpha=0.4)
-plt.gcf().suptitle("Harmonic Oscillator with Uncertainty (No Refinement)")
+plt.gcf().suptitle(f"{sys.name} with Uncertainty (No Refinement)")
 
 
 def plot_refined_traj(mode: Literal["sample", "linprog"]):
     fig, axs = plt.subplots(int(jnp.ceil(N / 3)), 3, figsize=(5, 5))
-    fig.suptitle(f"Harmonic Oscillator with Uncertainty ({mode} Refinement)")
+    fig.suptitle(f"{sys.name} with Uncertainty ({mode} Refinement)")
     axs = axs.reshape(-1)
 
     H = jnp.array([[1.0, 0.0], [0.0, 1.0]])
@@ -73,7 +87,7 @@ def plot_refined_traj(mode: Literal["sample", "linprog"]):
         lifted_x0_int = interval(H) @ x0_int
 
         # Compute sample refined trajectory
-        auxsys = AuxVarEmbedding(osc, H, mode=mode, num_samples=10 ** (i + 1))
+        auxsys = AuxVarEmbedding(sys, H, mode=mode, num_samples=10 ** (i + 1))
         traj, time = run_times(
             1,
             auxsys.compute_trajectory,
