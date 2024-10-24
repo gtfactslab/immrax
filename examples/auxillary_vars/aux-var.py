@@ -1,3 +1,5 @@
+import pickle
+
 from diffrax import ODETerm, SaveAt, Tsit5, diffeqsolve
 import jax
 import jax.numpy as jnp
@@ -5,11 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as onp
 from pypoman import plot_polygon
 from scipy.spatial import HalfspaceIntersection
-import pickle
 
 import immrax as irx
 from immrax.embedding import AuxVarEmbedding, TransformEmbedding
-from immrax.inclusion import Interval, interval, natif
+from immrax.inclusion import interval, mjacif
 from immrax.utils import draw_iarray, linprog_refine, run_times
 
 # Code up gradient descent steps in dual var
@@ -27,7 +28,7 @@ def linprog_traj(A, x0, H, t0, tf, dt=0.01):
     def update(x: irx.Interval, *args) -> irx.Interval:
         sys_upd = lambda x: A @ x
         lifted_upd = lambda x: H @ sys_upd(Hp @ x)
-        emb_upd = natif(lifted_upd)
+        emb_upd = mjacif(lifted_upd)
 
         Fkwargs = lambda i, x: emb_upd(linprog_refine(H, collapsed_row=i)(x))
 
