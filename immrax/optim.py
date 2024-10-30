@@ -238,6 +238,18 @@ def linprog(
         1
     )
 
+    # I can increase the above tolerance a lot, but the bigger it gets the more I allow
+    # solutions to violate constraints. This directly makes my refinement worse (by considering
+    # points outside the feasible region). I am confident that I find the right set of basic
+    # variables, but error propagated over all the row operations with large tolerances can
+    # make the solution wrong. Really what I want to do is project this final point back
+    # onto the feasible subspace.
+
+    # To do this, I build the (n-m) x n matrix encoding the constraint that every non-basic
+    # variable is zero. Then, vstack A on top of this matrix, b on top of a vector of 0s,
+    # and solve the system Ax = b. Since I can't guarantee the rows of A are independent,
+    # I can't invert A, but I might be able to pinv
+
     real_start = SimplexStep(
         tableau,
         aux_sol.basis,

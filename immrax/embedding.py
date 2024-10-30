@@ -328,7 +328,6 @@ class AuxVarEmbedding(TransformEmbedding):
                 "Invalid mode argument. Mode must be either 'sample' or 'linprog'."
             )
 
-        # FIXME: mjacif doesn't work here, I think it should
         super().__init__(liftsys, if_transform)
 
     def E(

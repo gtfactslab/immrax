@@ -5,7 +5,9 @@ from diffrax import ODETerm, SaveAt, Tsit5, diffeqsolve
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as onp
-from pypoman import plot_polygon
+from pypoman import (
+    plot_polygon,
+)  # TODO: Add pypoman to requirements. Need pycddlib==2.1.8.post1 for some reason
 from scipy.spatial import HalfspaceIntersection
 
 import immrax as irx
@@ -57,7 +59,7 @@ class VanDerPolOsc(irx.System):
 
 
 # Trajectory of unrefined system
-sys = VanDerPolOsc() # Can use an arbitrary system here
+sys = HarmOsc()  # Can use an arbitrary system here
 embsys = TransformEmbedding(sys)
 traj = embsys.compute_trajectory(
     0.0,
@@ -87,7 +89,9 @@ def plot_refined_traj(mode: Literal["sample", "linprog"]):
         lifted_x0_int = interval(H) @ x0_int
 
         # Compute sample refined trajectory
-        auxsys = AuxVarEmbedding(sys, H, mode=mode, num_samples=10 ** (i + 1))
+        auxsys = AuxVarEmbedding(
+            sys, H, mode=mode, num_samples=10 ** (i + 1), if_transform=mjacif
+        )
         traj, time = run_times(
             1,
             auxsys.compute_trajectory,
