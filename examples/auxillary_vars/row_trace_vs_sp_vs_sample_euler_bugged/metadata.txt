@@ -1,0 +1,6 @@
+These pickle files contain lists of trajectories of the harmonic oscillator. 
+
+lp_traj* files were computed using my (traceable) lp refinement
+sp_lp_traj* files used scipy's lp solver to do refinemnt. 
+
+The scipy refinement had a bug, where I forgot to negate the objective value of the maximum solution, leading to incorrectly large intervals.

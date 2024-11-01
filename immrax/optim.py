@@ -1,59 +1,40 @@
 import jax
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
+import scipy.optimize as opt
 
 from typing import Tuple
 from functools import partial
 
-import scipy.optimize as opt
-
 
 @register_pytree_node_class
 class SimplexStep:
-    feasible: jax.Array
-    unbounded: jax.Array
-    x: jax.Array
+    tableau: jax.Array
     basis: jax.Array
     n_basis: jax.Array
-    B_inv: jax.Array
-    b_hat: jax.Array
-    simplex_muls: jax.Array
-    reduced_cost_muls: jax.Array
 
     def __init__(
         self,
+        tableau,
+        basis,
+        x,
         feasible,
         unbounded,
-        x,
-        basis,
-        n_basis,
-        B_inv,
-        b_hat,
-        simplex_muls,
-        reduced_cost_muls,
     ):
+        self.tableau = tableau
+        self.basis = basis
+        self.x = x
         self.feasible = feasible
         self.unbounded = unbounded
-        self.x = x
-        self.basis = basis
-        self.n_basis = n_basis
-        self.B_inv = B_inv
-        self.b_hat = b_hat
-        self.simplex_muls = simplex_muls
-        self.reduced_cost_muls = reduced_cost_muls
 
     def tree_flatten(self):
         return (
             (
+                self.tableau,
+                self.basis,
+                self.x,
                 self.feasible,
                 self.unbounded,
-                self.x,
-                self.basis,
-                self.n_basis,
-                self.B_inv,
-                self.b_hat,
-                self.simplex_muls,
-                self.reduced_cost_muls,
             ),
             "SimplexStep",
         )
@@ -63,8 +44,12 @@ class SimplexStep:
         return cls(*children)
 
     @property
-    def success(self) -> bool:
+    def success(self) -> jax.Array:
         return jnp.logical_and(self.feasible, jnp.logical_not(self.unbounded))
+
+    @property
+    def fun(self) -> jax.Array:
+        return -self.tableau[-1, -1]
 
 
 def fuzzy_argmin(arr: jnp.ndarray, tolerance: float = 1e-5) -> jax.Array:
@@ -119,7 +104,7 @@ def _standard_form(
 
 def _iteration_needed(step: SimplexStep) -> jax.Array:
     _iteration_needed = jnp.less(
-        step.reduced_cost_muls, -1e-5
+        step.tableau[-1, :-1], -1e-5
     ).any()  # Stop when optimal solution found
     _iteration_needed = jnp.logical_and(
         _iteration_needed, step.feasible
@@ -130,103 +115,59 @@ def _iteration_needed(step: SimplexStep) -> jax.Array:
     return _iteration_needed[0]
 
 
-def _simplex(
-    A: jax.Array,
-    b: jax.Array,
-    c: jax.Array,
-    basis: jax.Array,
-    n_basis: jax.Array,
-    feasible: jax.Array = jnp.array([1]).astype(bool).reshape(1),
-) -> SimplexStep:
-    def _simplex_step(step: SimplexStep) -> SimplexStep:
-        # perform ratio test (Bland's rule)
-        # Get index of first negative element in step.reduced_cost_muls
-        neg_cost_mul_idx = jnp.where(
-            step.reduced_cost_muls < -1e-5,
-            size=step.reduced_cost_muls.size,
-            fill_value=step.reduced_cost_muls.size,
-        )[0]
-        entering_idx = step.n_basis[jnp.min(neg_cost_mul_idx)]
-        exiting_col = A[:, entering_idx]
-        exiting_rates = step.B_inv @ exiting_col
+def _simplex(step: SimplexStep, num_cost_rows: int) -> SimplexStep:
+    def pivot(step: SimplexStep) -> SimplexStep:
+        tableau = step.tableau
 
-        b_hat = jnp.maximum(
-            step.b_hat, jnp.zeros_like(step.b_hat)
-        )  # hack to make sure that fpe from matmul don't change basis selection
-        div = jnp.divide(step.b_hat, exiting_rates)
+        # Find entering variable (with Bland's rule)
+        neg_cost_mul_idx = jnp.where(
+            tableau[-1, :-1] < -1e-5,
+            size=tableau.shape[1] - 1,
+            fill_value=tableau.shape[1] - 1,
+        )[0]
+        entering_col = jnp.min(neg_cost_mul_idx)
+
+        # Find exiting variable / pivot row
+        exiting_rates = tableau[:-num_cost_rows, entering_col]
+        div = jnp.divide(tableau[:-num_cost_rows, -1], exiting_rates)
         ratios = jax.lax.select(
             jnp.greater(exiting_rates, 1e-5), div, jnp.inf * jnp.ones_like(div)
         )  # Don't worry about constraints that entering var improves / doesn't affect
-        exiting_idx = step.basis[fuzzy_argmin(ratios)]
+        exiting_row = fuzzy_argmin(ratios)
+        unbounded = jnp.all(exiting_rates < -1e-5).reshape(1)
 
-        # Update basis set
-        basis = step.basis.at[jnp.nonzero(step.basis == exiting_idx, size=1)].set(
-            entering_idx
+        # Pivot
+        pivot_val = tableau[exiting_row, entering_col]
+        tableau = tableau.at[exiting_row].set(
+            tableau[exiting_row] / pivot_val
+        )  # normalize pivot val to 1
+        other_rows = jnp.setdiff1d(
+            jnp.arange(tableau.shape[0]),
+            exiting_row,
+            assume_unique=True,
+            size=tableau.shape[0] - 1,
         )
-        n_basis = step.n_basis.at[
-            jnp.nonzero(step.n_basis == entering_idx, size=1)
-        ].set(exiting_idx)
+        for i in other_rows:
+            tableau = tableau.at[i].set(
+                tableau[i] - tableau[i, entering_col] * tableau[exiting_row]
+            )
 
-        # Find Solution
-        B = A[:, basis]
-        B_inv = jnp.linalg.inv(B)
+        # Update basis set, BFS
+        basis = step.basis.at[exiting_row].set(entering_col)
+        x = jnp.zeros_like(step.x)
+        x = x.at[basis].set(tableau[:-num_cost_rows, -1])
 
-        b_hat = B_inv @ b
-        x = jnp.zeros(A.shape[1])
-        x = x.at[basis].set(b_hat)
+        return SimplexStep(tableau, basis, x, step.feasible, unbounded)
 
-        N = A[:, n_basis]
-        simplex_muls = c[basis] @ B_inv
-        reduced_cost_muls = c[n_basis] - simplex_muls @ N
-
-        dependent_constraints = jnp.any(jnp.isnan(B_inv))
-
-        return SimplexStep(
-            jnp.logical_and(step.feasible, jnp.logical_not(dependent_constraints)),
-            jnp.less(exiting_rates, -1e-5).all().reshape(1),
-            x,
-            basis,
-            n_basis,
-            B_inv,
-            b_hat,
-            simplex_muls,
-            reduced_cost_muls,
-        )
-
-    # Find Solution
-    B = A[:, basis]
-    B_inv = jnp.linalg.inv(B)
-    b_hat = jnp.linalg.solve(B, b)
-
-    b_hat = B_inv @ b
-    x = jnp.zeros(A.shape[1])
-    x = x.at[basis].set(b_hat)
-
-    # Check if solution is optimal
-    N = A[:, n_basis]
-    simplex_muls = c[basis] @ B_inv
-    reduced_cost_muls = c[n_basis] - simplex_muls @ N
-
-    dependent_constraints = jnp.any(jnp.isnan(B_inv))
-
-    val = SimplexStep(
-        jnp.logical_and(feasible, jnp.logical_not(dependent_constraints)),
-        jnp.array([0]).astype(bool),
-        x,
-        basis,
-        n_basis,
-        B_inv,
-        b_hat,
-        simplex_muls,
-        reduced_cost_muls,
-    )
-    val = jax.lax.while_loop(_iteration_needed, _simplex_step, val)
+    # NOTE: this looses reverse mode autodiff. We can accomplish all the same calculations
+    # with forward mode, which this does not lose, but they might be slightly less efficient.
+    step = jax.lax.while_loop(_iteration_needed, pivot, step)
 
     # Uncomment to debug
-    # while _iteration_needed(val):
-    #     val = _simplex_step(val)
+    # while _iteration_needed(step):
+    #     step = pivot(step)
 
-    return val
+    return step
 
 
 @partial(jax.jit, static_argnames=["unbounded"])
@@ -257,15 +198,66 @@ def linprog(
     # _simplex assumes that the last A.shape[0] variables form a feasible basis for the problem
     # This is not true in general (e.g. for problems with lots of equality constraints)
     # Therefore, we first solve a problem with auxiliary variables to find a feasible basis
-    A_aux = jnp.hstack((A, jnp.eye(A.shape[0])))
-    c_aux = jnp.concatenate((jnp.zeros_like(c), jnp.ones(A.shape[0])))
-    n_basis, basis = jnp.split(
-        jnp.arange(A_aux.shape[1]), (A_aux.shape[1] - A_aux.shape[0],)
-    )
-    aux_sol = _simplex(A_aux, b, c_aux, basis, n_basis)
-    aux_sol.feasible = jnp.equal(c_aux @ aux_sol.x, 0).reshape(1)
+    tableau = jnp.hstack((A, jnp.eye(A.shape[0]), b.reshape(-1, 1)))
+    c_extended = jnp.concatenate((c, jnp.zeros(A.shape[0] + 1)))
+    c_aux = jnp.concatenate((jnp.zeros_like(c), jnp.ones(A.shape[0]), jnp.zeros(1)))
+    tableau = jnp.vstack((tableau, c_extended, c_aux))
 
-    sol = _simplex(A, b, c, aux_sol.basis, aux_sol.n_basis, aux_sol.feasible)
+    # Zero out reduced cost muls of initial basis
+    for i in range(A.shape[0]):
+        tableau = tableau.at[-1].set(tableau[-1] - tableau[i])
+
+    basis = jnp.arange(A.shape[1], A.shape[1] + A.shape[0])
+    x = jnp.concatenate((jnp.zeros_like(c), b))
+    aux_start = SimplexStep(tableau, basis, x, jnp.array([True]), jnp.array([False]))
+    aux_sol = _simplex(aux_start, num_cost_rows=2)
+    x = aux_sol.x[: c.size]
+
+    # Remove auxiliary variables from tableau for real problem
+    tableau = aux_sol.tableau[:-1, :]
+    tableau = jnp.delete(
+        tableau,
+        jnp.arange(A.shape[1], A.shape[1] + A.shape[0]),
+        axis=1,
+        assume_unique_indices=True,
+    )
+
+    redundant_cons = jnp.concatenate((aux_sol.basis > A.shape[1], jnp.array([False])))
+    redundant_cons = redundant_cons.repeat(tableau.shape[1]).reshape(tableau.shape)
+    # TODO: I don't know if this is correct in general. Really, what I want to do is
+    # make the column corresponding to the auxiliary variable basic, but I'm not sure
+    # of an efficient way to identify this column
+    tableau = jnp.where(redundant_cons, -tableau, tableau)
+
+    # NOTE: The tolerance here determines how much violation of constraints we are comfortable with.
+    # The default 1e-9 seems to be too small, especially for the problems we generate with aux-var
+    # refinement when collapsing along a face. Along auxilliary faces, this selects exactly a corner
+    # of the region in real variables. Logically, this should be fine, but numerically it causes the
+    # problem to be marked as infeasible, and we get no refinement just when we should get the most.
+    feasible = jnp.allclose(c_aux[:-1] @ aux_sol.x, jnp.array([0]), atol=1e-3).reshape(
+        1
+    )
+
+    # I can increase the above tolerance a lot, but the bigger it gets the more I allow
+    # solutions to violate constraints. This directly makes my refinement worse (by considering
+    # points outside the feasible region). I am confident that I find the right set of basic
+    # variables, but error propagated over all the row operations with large tolerances can
+    # make the solution wrong. Really what I want to do is project this final point back
+    # onto the feasible subspace.
+
+    # To do this, I build the (n-m) x n matrix encoding the constraint that every non-basic
+    # variable is zero. Then, vstack A on top of this matrix, b on top of a vector of 0s,
+    # and solve the system Ax = b. Since I can't guarantee the rows of A are independent,
+    # I can't invert A, but I might be able to pinv
+
+    real_start = SimplexStep(
+        tableau,
+        aux_sol.basis,
+        aux_sol.x[: c.size],
+        feasible,
+        jnp.array([False]),
+    )
+    sol = _simplex(real_start, num_cost_rows=1)
 
     # Remove synthetic variables from returned result
     if unbounded:
@@ -277,15 +269,55 @@ def linprog(
     return sol
 
 
-if __name__ == "__main__":
-
-    def log(sol: SimplexStep):
-        if not sol.feasible:
-            print("Problem is infeasible")
-        elif sol.unbounded:
-            print("Problem is unbounded")
+def compare(my_sol: SimplexStep, sp_sol: opt.OptimizeResult) -> Tuple[bool, str]:
+    if sp_sol.status == 2:
+        if not my_sol.feasible:
+            return True, "SUCCESS: problem is infeasible"
         else:
-            print(sol.x)
+            return False, "FAILURE: we did not detect problem as infeasible"
+    elif sp_sol.status == 3:
+        if my_sol.unbounded:
+            return True, "SUCCESS: problem is unbounded"
+        else:
+            return False, "FAILURE: we did not detect problem as unbounded"
+    elif sp_sol.status == 0:
+        if my_sol.success:
+            correct = jnp.allclose(my_sol.fun, sp_sol.fun, atol=1e-7)
+
+            if correct:
+                return True, f"SUCCESS: x={my_sol.x}"
+            else:
+                return False, "FAILURE: objective value does not match"
+        else:
+            if not my_sol.feasible:
+                return False, "FAILURE: we incorrectly identified problem as infeasible"
+            elif my_sol.unbounded:
+                return False, "FAILURE: we incorrectly identified problem as unbounded"
+
+    return False, "FAILURE: unknown status"
+
+
+if __name__ == "__main__":
+    import scipy.optimize as opt
+
+    def verify(
+        c: jax.Array,
+        A_eq: jax.Array = jnp.empty((0, 0)),
+        b_eq: jax.Array = jnp.empty((0,)),
+        A_ub: jax.Array = jnp.empty((0, 0)),
+        b_ub: jax.Array = jnp.empty((0,)),
+        unbounded: bool = False,
+    ):
+        my_sol = linprog(c, A_eq, b_eq, A_ub, b_ub, unbounded)
+
+        bounds = (None, None) if unbounded else (0, None)
+        sp_A_eq = A_eq if A_eq.size > 0 else None
+        sp_b_eq = b_eq if b_eq.size > 0 else None
+        sp_A_ub = A_ub if A_ub.size > 0 else None
+        sp_b_ub = b_ub if b_ub.size > 0 else None
+        sp_sol = opt.linprog(c, sp_A_ub, sp_b_ub, sp_A_eq, sp_b_eq, bounds=bounds)
+
+        print(compare(my_sol, sp_sol))
 
     A = jnp.array(
         [
@@ -298,7 +330,7 @@ if __name__ == "__main__":
     b = jnp.array([1, 12, 2, 9])
     c = jnp.array([-4, -2])
 
-    log(linprog(c, A_ub=A, b_ub=b))
+    verify(c, A_ub=A, b_ub=b)
 
     A = jnp.array(
         [
@@ -308,7 +340,7 @@ if __name__ == "__main__":
     b = jnp.array([10])
     c = jnp.array([1])
 
-    log(linprog(c, A_ub=A, b_ub=b, unbounded=True))
+    verify(c, A_ub=A, b_ub=b, unbounded=True)
 
     A = jnp.array(
         [
@@ -318,7 +350,7 @@ if __name__ == "__main__":
     b = jnp.array([-10])
     c = jnp.array([-1])
 
-    log(linprog(c, A_ub=A, b_ub=b))
+    verify(c, A_ub=A, b_ub=b)
 
     A = jnp.array(
         [
@@ -329,7 +361,7 @@ if __name__ == "__main__":
     b = jnp.array([1, -2])
     c = jnp.array([-4, -2])
 
-    log(linprog(c, A_ub=A, b_ub=b))
+    verify(c, A_ub=A, b_ub=b)
 
     A = jnp.array(
         [
@@ -343,15 +375,47 @@ if __name__ == "__main__":
     b = jnp.array([1.2, 1.1, 0.1, 0.9, 0.1])
     c = jnp.array([1.0, 0, -1, 0, 0, 0, 0, 0])
 
-    sol = opt.linprog(c, A_eq=A, b_eq=b)
-    print(sol.x)
+    verify(c, A_eq=A, b_eq=b)
 
-    log(linprog(c, A_eq=A, b_eq=b))
+    # Programs with dependent constraints
 
-    A_eq = jnp.array([[0.90096885, 0.43388376]])
-    b_eq = jnp.array([0.7674836])
+    A = jnp.array([[1.0, 0], [1, 0]])
+    b = jnp.array([3.0, 3])
+    c = jnp.array([-1.0, 0])
+
+    verify(c, A_ub=A, b_ub=b)
+
+    A_eq = jnp.array([[1.0, 2]])
+    b_eq = jnp.array([1.0])
     A_ub = jnp.array([[1.0, 0], [0, 1], [-1, 0], [0, -1]])
     b_ub = jnp.array([0.9, 0.1, -0.9, 0.1])
     c = jnp.array([0.0, 1])
 
-    log(linprog(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True))
+    verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
+
+    A_eq = jnp.array([[0.5, 0.5]])
+    b_eq = jnp.array([0.4])
+    A_ub = jnp.array([[1.0, 0.0], [0.0, 1.0], [-1.0, -0.0], [-0.0, -1.0]])
+    b_ub = jnp.array([0.9, 0.1, -0.9, 0.1])
+    c = -jnp.array([0.0, 1.0])
+
+    verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
+
+    # Programs based on aux var refinement
+    N = 6
+    aux_vars = jnp.array(
+        [
+            [jnp.cos(n * jnp.pi / (N + 1)), jnp.sin(n * jnp.pi / (N + 1))]
+            for n in range(1, N + 1)
+        ]
+    )
+    H = jnp.array([[1.0, 0.0], [0.0, 1.0]])
+    Hs = [jnp.vstack((H, aux_vars[: i + 1])) for i in range(N)]
+
+    A_eq = jnp.array([aux_vars[0]])
+    b_eq = jnp.dot(aux_vars[0], jnp.array([1.1, 0.1])).reshape(-1)
+    A_ub = jnp.array([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])
+    b_ub = jnp.array([1.1, 0.1, -1.1, -0.1])
+    c = aux_vars[0]
+
+    verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)

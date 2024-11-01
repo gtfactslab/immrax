@@ -1,12 +1,12 @@
 import abc
 from functools import partial
-from typing import Any, Callable, List, Union
+from typing import Any, Callable, List, Union, Literal
 
 import jax
 import jax.numpy as jnp
 from jaxtyping import Float, Integer
 
-from immrax.utils import I_refine, null_space
+from immrax.utils import sample_refine, linprog_refine, null_space
 
 from .inclusion import Interval, i2ut, interval, jacif, mjacif, natif, ut2i
 from .system import LiftedSystem, System
@@ -155,7 +155,6 @@ class InclusionEmbedding(EmbeddingSystem):
         refine: Callable[[Interval], Interval] | None = None,
         **kwargs,
     ) -> jax.Array:
-
         if self.evolution == "continuous":
             n = self.sys.xlen
             _x = x[:n]
@@ -298,22 +297,37 @@ def mjacemb(sys: System):
 
 
 class AuxVarEmbedding(TransformEmbedding):
-    def __init__(self, sys: System, H: jax.Array, if_transform=natif, num_samples=1000) -> None:
+    def __init__(
+        self,
+        sys: System,
+        H: jax.Array,
+        mode: Literal["sample", "linprog"] = "sample",
+        if_transform=natif,
+        num_samples=1000,
+    ) -> None:
         self.H = H
-        self.Hdag = jnp.linalg.pinv(H)
-        self.N = null_space(H.T)
-        self.A_lib = jax.random.ball(jax.random.key(0), self.H.shape[0] - self.H.shape[1], shape=(num_samples,)) @ self.N.T
-        # self.A_lib = jnp.vstack((self.A_lib, self.N.T))
-        self.Hp = self.Hdag
-
-        # Test if A is in left null space of H
-        # print(jnp.all(jnp.isclose(self.A_lib @ self.H, 0.0, atol=1e-5)))
+        self.Hp = jnp.linalg.pinv(H)
 
         liftsys = LiftedSystem(sys, self.H, self.Hp)
 
-        self.IH = jax.jit(I_refine(self.A_lib))
+        if mode == "sample":
+            self.N = null_space(H.T)
+            self.A_lib = (
+                jax.random.ball(
+                    jax.random.key(0),
+                    self.H.shape[0] - self.H.shape[1],
+                    shape=(num_samples,),
+                )
+                @ self.N.T
+            )
+            self.IH = jax.jit(sample_refine(self.A_lib))
+        elif mode == "linprog":
+            self.IH = jax.jit(linprog_refine(self.H))
+        else:
+            raise ValueError(
+                "Invalid mode argument. Mode must be either 'sample' or 'linprog'."
+            )
 
-        # FIXME: mjacif doesn't work here, I think it should
         super().__init__(liftsys, if_transform)
 
     def E(
@@ -324,7 +338,6 @@ class AuxVarEmbedding(TransformEmbedding):
         refine: Callable[[Interval], Interval] | None = None,
         **kwargs,
     ) -> jax.Array:
-
         if refine is not None:
             raise (
                 Exception(
@@ -337,29 +350,32 @@ class AuxVarEmbedding(TransformEmbedding):
             _x = x[:n]
             x_ = x[n:]
 
-            Fkwargs = lambda t, x, *args: self.F(t, self.IH(x), *args, **kwargs)
+            Fkwargs = lambda t, x, collapsed_row, *args: self.F(
+                t, self.IH(x, collapsed_row), *args, **kwargs
+            )
 
             # Computing F on the faces of the hyperrectangle
             _X = interval(
                 jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
             )
-            _E = jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, _X, *args)
-            # _E = jnp.array([self.Fi[i](t, _X[i], *args, **kwargs).lower for i in range(n)])
+            _E = jax.vmap(Fkwargs, in_axes=(None, 0, 0) + (None,) * len(args))(
+                t, _X, jnp.arange(len(_X)), *args
+            )
 
             X_ = interval(
                 jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
             )
-            E_ = jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, X_, *args)
-            # E_ = jnp.array([self.Fi[i](t, X_[i], *args, **kwargs).upper for i in range(n)])
+            E_ = jax.vmap(Fkwargs, in_axes=(None, 0, 0) + (None,) * len(args))(
+                t, X_, jnp.arange(len(X_)), *args
+            )
 
-            # return jnp.concatenate((_E, E_))
             return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
 
         elif self.evolution == "discrete":
             # Convert x from ut to i, compute through F, convert back to ut.
             return i2ut(self.F(interval(t), self.IH(ut2i(x)), *args, **kwargs))
         else:
-            raise Exception("evolution needs to be 'continuous' or 'discrete'")
+            raise ValueError("evolution needs to be 'continuous' or 'discrete'")
 
 
 # class InterconnectedEmbedding (EmbeddingSystem) :
