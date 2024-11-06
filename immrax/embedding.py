@@ -155,6 +155,8 @@ class InclusionEmbedding(EmbeddingSystem):
         refine: Callable[[Interval], Interval] | None = None,
         **kwargs,
     ) -> jax.Array:
+        t = interval(t)
+        
         if self.evolution == "continuous":
             n = self.sys.xlen
             _x = x[:n]
