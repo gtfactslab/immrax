@@ -345,6 +345,8 @@ class AuxVarEmbedding(TransformEmbedding):
                 )
             )
 
+        t = interval(t)
+
         if self.evolution == "continuous":
             n = self.sys.xlen
             _x = x[:n]
