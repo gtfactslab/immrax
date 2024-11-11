@@ -71,7 +71,7 @@ ln -s /usr/local/lib/libcoinhsl.so $CONDA_PREFIX/lib/libcoinhsl.so
 If you find this library useful, please cite our paper with the following bibtex entry.
 ```
 @article{immrax,
-title = {immrax: A Parallelizable and Differentiable Toolbox for Interval Analysis and Mixed Monotone Reachability in JAX},
+title = {immrax: A Parallelizable and Differentiable Toolbox for Interval Analysis and Mixed Monotone Reachability in {JAX}},
 journal = {IFAC-PapersOnLine},
 volume = {58},
 number = {11},
