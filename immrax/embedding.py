@@ -156,7 +156,7 @@ class InclusionEmbedding(EmbeddingSystem):
         **kwargs,
     ) -> jax.Array:
         t = interval(t)
-        
+
         if self.evolution == "continuous":
             n = self.sys.xlen
             _x = x[:n]
@@ -308,7 +308,10 @@ class AuxVarEmbedding(TransformEmbedding):
         num_samples=1000,
     ) -> None:
         self.H = H
-        self.Hp = jnp.linalg.pinv(H)
+        # self.Hp = jnp.linalg.pinv(H)
+        self.Hp = jnp.hstack(
+            (jnp.eye(H.shape[1]), jnp.zeros((H.shape[1], H.shape[0] - H.shape[1])))
+        )
 
         liftsys = LiftedSystem(sys, self.H, self.Hp)
 
