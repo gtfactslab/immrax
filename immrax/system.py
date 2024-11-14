@@ -1,35 +1,59 @@
 import abc
-import jax
-import jax.numpy as jnp
-from jaxtyping import Integer, Float, PyTree
-import sympy
-from typing import List, Literal, Union, Any, Optional, Callable, Dict, Tuple
-from sympy2jax import SymbolicModule
-from diffrax import (
-    diffeqsolve,
-    ODETerm,
-    Dopri5,
-    Tsit5,
-    Euler,
-    SaveAt,
-    AbstractSolver,
-    Solution,
-)
 from functools import partial
+from typing import Any, Callable, List, Literal, Tuple, Union
+
+from diffrax import (
+    AbstractSolver,
+    Dopri5,
+    Euler,
+    ODETerm,
+    SaveAt,
+    Solution,
+    Tsit5,
+    diffeqsolve,
+)
 from immutabledict import immutabledict
+import jax
+from jax.tree_util import register_pytree_node_class
+import jax.numpy as jnp
+from jaxtyping import Float, Integer
+import sympy
+from sympy2jax import SymbolicModule
 
 
+@register_pytree_node_class
 class Trajectory:
-    def __init__(self, ts: jax.Array, xs: jax.Array) -> None:
+    _ts: jnp.ndarray
+    _ys: jnp.ndarray
+    tfinite: jnp.ndarray
+
+    def __init__(self, ts: jax.Array, ys: jax.Array) -> None:
         self._ts = ts
-        self._xs = xs
-        self.tfinite = jnp.where(jnp.isfinite(ts))
-        self.ts = self._ts[self.tfinite]
-        self.xs = self._xs[self.tfinite]
+        self._ys = ys
+        self.tfinite = jnp.where(
+            jnp.isfinite(ts),
+            jnp.ones_like(ts, dtype=jnp.bool),
+            jnp.zeros_like(ts, dtype=jnp.bool),
+        )
 
     @staticmethod
     def from_diffrax(sol: Solution) -> "Trajectory":
         return Trajectory(sol.ts, sol.ys)
+
+    def tree_flatten(self):
+        return ((self._ts, self._ys), "Trajectory")
+
+    @classmethod
+    def tree_unflatten(cls, _, children):
+        return cls(*children)
+
+    @property
+    def ts(self):
+        return self._ts[self.tfinite]
+
+    @property
+    def ys(self):
+        return self._ys[self.tfinite]
 
 
 class EvolutionError(Exception):
@@ -170,8 +194,9 @@ class System(abc.ABC):
                 raise Exception(f"{solver=} is not a valid solver")
 
             saveat = SaveAt(t0=True, t1=True, steps=True)
-            # return Trajectory.from_diffrax(diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs))
-            return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+            return Trajectory.from_diffrax(
+                diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+            )
 
         elif self.evolution == "discrete":
             if not isinstance(t0, int) or not isinstance(tf, int):

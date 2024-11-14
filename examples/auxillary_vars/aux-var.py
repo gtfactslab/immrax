@@ -93,9 +93,7 @@ def plot_refined_traj(mode: Literal["sample", "linprog"]):
             sim_len,
             irx.i2ut(lifted_x0_int),
         )
-        tfinite = jnp.where(jnp.isfinite(traj.ts))
-        ys_clean = traj.ys[tfinite]
-        ys_int = [irx.ut2i(y) for y in ys_clean]
+        ys_int = [irx.ut2i(y) for y in traj.ys]
         print(f"\t{mode} for {i+1} aux vars took: {time}")
         print(f"\tFinal bound: \n{ys_int[-1][:2]}")
         pickle.dump(ys_int, open(f"{mode}_traj_{i}.pkl", "wb"))
