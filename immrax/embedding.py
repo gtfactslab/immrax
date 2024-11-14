@@ -316,15 +316,14 @@ class AuxVarEmbedding(TransformEmbedding):
         liftsys = LiftedSystem(sys, self.H, self.Hp)
 
         if mode == "sample":
-            self.N = null_space(H.T)
-            self.A_lib = (
-                jax.random.ball(
-                    jax.random.key(0),
-                    self.H.shape[0] - self.H.shape[1],
-                    shape=(num_samples,),
-                )
-                @ self.N.T
-            )
+            self.N = jnp.array(
+                [
+                    jnp.squeeze(null_space(jnp.vstack([jnp.eye(sys.xlen), aug_var]).T))
+                    for aug_var in H[sys.xlen :]
+                ]
+            ).T
+            self.N = jnp.vstack([self.N[: sys.xlen], jnp.diag(self.N[-1])])
+            self.A_lib = self.N.T
             self.IH = jax.jit(sample_refine(self.A_lib))
         elif mode == "linprog":
             self.IH = jax.jit(linprog_refine(self.H))
