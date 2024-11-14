@@ -44,6 +44,7 @@ from .embedding import (
     mjacemb,
 )
 
+from . import refinement as refinement
 from . import utils as utils
 
 from . import optim as optim

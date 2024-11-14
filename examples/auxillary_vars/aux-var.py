@@ -20,10 +20,10 @@ from immrax.utils import angular_sweep, draw_iarray, run_times
 vdp_mu = 1
 
 x0_int = irx.icentpert(jnp.array([1.0, 0.0]), jnp.array([0.1, 0.1]))
-sim_len = 6.28
+sim_len = 1.57
 plt.rcParams.update({"text.usetex": True, "font.family": "CMU Serif", "font.size": 14})
 # Certain values of N are not good choices, as they will generate angle theta=pi/2, which is redundant with the actual state vars
-N = 10
+N = 2
 aux_vars = angular_sweep(N)
 plt.figure()
 

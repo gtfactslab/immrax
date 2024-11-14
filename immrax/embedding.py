@@ -1,5 +1,4 @@
 import abc
-from itertools import permutations
 from functools import partial
 from typing import Any, Callable, List, Literal, Union
 
@@ -7,8 +6,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Float, Integer
 
-from immrax.utils import angular_sweep, linprog_refine, null_space, sample_refine
-
+from .refinement import SampleRefinement, LinProgRefinement
 from .inclusion import Interval, i2ut, interval, jacif, mjacif, natif, ut2i
 from .system import LiftedSystem, System
 
@@ -317,40 +315,9 @@ class AuxVarEmbedding(TransformEmbedding):
         liftsys = LiftedSystem(sys, self.H, self.Hp)
 
         if mode == "sample":
-            self.N = jnp.array(
-                [
-                    jnp.squeeze(null_space(jnp.vstack([jnp.eye(sys.xlen), aug_var]).T))
-                    for aug_var in H[sys.xlen :]
-                ]
-            ).T
-            self.N = jnp.vstack([self.N[: sys.xlen], jnp.diag(self.N[-1])])
-            # Sample aux vars independently
-            self.A_lib = self.N.T
-
-            # Sample aux vars pairwise
-            if self.N.shape[1] > 1:
-                points = angular_sweep(num_samples)
-                extended_points = jnp.hstack(
-                    [
-                        points,
-                        jnp.zeros((num_samples, self.N.shape[1] - points.shape[1])),
-                    ]
-                )
-                non_zero_indices = jnp.array([0, 1])
-                for perm in permutations(range(self.N.shape[1]), len(non_zero_indices)):
-                    permuted_matrix = jnp.zeros_like(extended_points)
-                    for i, p in enumerate(perm):
-                        permuted_matrix = permuted_matrix.at[:, p].set(
-                            extended_points[:, non_zero_indices[i]]
-                        )
-                    permuted_matrix = permuted_matrix @ self.N.T
-                    self.A_lib = jnp.vstack([self.A_lib, permuted_matrix])
-                    assert jnp.allclose(self.A_lib @ self.H, 0, atol=1e-6)
-
-            # Create refinement
-            self.IH = jax.jit(sample_refine(self.A_lib))
+            self.IH = SampleRefinement(H, num_samples).refine()
         elif mode == "linprog":
-            self.IH = jax.jit(linprog_refine(self.H))
+            self.IH = LinProgRefinement(H).refine()
         else:
             raise ValueError(
                 "Invalid mode argument. Mode must be either 'sample' or 'linprog'."
