@@ -1,6 +1,6 @@
 import abc
 from functools import partial
-from typing import Any, Callable, List, Literal, Tuple, Union
+from typing import Any, Callable, List, Literal, Union
 
 from diffrax import (
     AbstractSolver,
@@ -38,7 +38,9 @@ class Trajectory:
 
     @staticmethod
     def from_diffrax(sol: Solution) -> "Trajectory":
-        return Trajectory(sol.ts, sol.ys)
+        ts = sol.ts if sol.ts is not None else jnp.empty(0)
+        ys = sol.ys if sol.ys is not None else jnp.empty(0)
+        return Trajectory(ts, ys)
 
     def tree_flatten(self):
         return ((self._ts, self._ys), "Trajectory")
@@ -142,7 +144,7 @@ class System(abc.ABC):
         t0: Union[Integer, Float],
         tf: Union[Integer, Float],
         x0: jax.Array,
-        inputs: Tuple[Callable[[int, jax.Array], jax.Array]] = (),
+        inputs: List[Callable[[int, jax.Array], jax.Array]] = [],
         dt: float = 0.01,
         *,
         solver: Union[Literal["euler", "rk45", "tsit5"], AbstractSolver] = "tsit5",
@@ -432,7 +434,7 @@ class SympySystem(OpenLoopSystem):
         return jnp.asarray(self._f(**self._txuw_to_kwargs(t, x, u, w)))
 
     def fi(
-        self, i: int, t: [Integer, Float], x: jax.Array, u: jax.Array, w: jax.Array
+        self, i: int, t: Union[Integer, Float], x: jax.Array, u: jax.Array, w: jax.Array
     ) -> jax.Array:
         """Get the value of the i-th component of the RHS of the dynamical system.
 
