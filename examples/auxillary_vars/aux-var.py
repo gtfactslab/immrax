@@ -13,26 +13,18 @@ from scipy.spatial import HalfspaceIntersection
 import immrax as irx
 from immrax.embedding import AuxVarEmbedding, TransformEmbedding
 from immrax.inclusion import interval, mjacif
-from immrax.utils import draw_iarray, run_times
+from immrax.utils import angular_sweep, draw_iarray, run_times
 
 # Read papers about contraction and stability
 
 vdp_mu = 1
 
 x0_int = irx.icentpert(jnp.array([1.0, 0.0]), jnp.array([0.1, 0.1]))
-sim_len = 1.56
+sim_len = 6.28
 plt.rcParams.update({"text.usetex": True, "font.family": "CMU Serif", "font.size": 14})
-# Number of subdivisions of [0, pi] to make aux vars for
-# Certain values of this are not good choices, as they will generate angles theta=0 or theta=pi/2
-# This will introduce dependence in the aux vars, causing problems with the JAX LP solver
-N = 6
-aux_vars = jnp.array(
-    [
-        [jnp.cos(n * jnp.pi / (N + 1)), jnp.sin(n * jnp.pi / (N + 1))]
-        for n in range(1, N + 1)
-    ]
-)
-
+# Certain values of N are not good choices, as they will generate angle theta=pi/2, which is redundant with the actual state vars
+N = 10
+aux_vars = angular_sweep(N)
 plt.figure()
 
 
@@ -77,6 +69,7 @@ plt.gcf().suptitle(f"{sys.name} with Uncertainty (No Refinement)")
 
 
 def plot_refined_traj(mode: Literal["sample", "linprog"]):
+    # fig = plt.figure()
     fig, axs = plt.subplots(int(jnp.ceil(N / 3)), 3, figsize=(5, 5))
     fig.suptitle(f"{sys.name} with Uncertainty ({mode} Refinement)")
     axs = axs.reshape(-1)
@@ -88,10 +81,11 @@ def plot_refined_traj(mode: Literal["sample", "linprog"]):
         H = jnp.append(H, jnp.array([aux_vars[i]]), axis=0)
         lifted_x0_int = interval(H) @ x0_int
 
+        # if i < N - 1:
+        #     continue
+
         # Compute sample refined trajectory
-        auxsys = AuxVarEmbedding(
-            sys, H, mode=mode, num_samples=10 ** (i + 1), if_transform=mjacif
-        )
+        auxsys = AuxVarEmbedding(sys, H, mode=mode, if_transform=mjacif)
         traj, time = run_times(
             1,
             auxsys.compute_trajectory,
@@ -109,6 +103,7 @@ def plot_refined_traj(mode: Literal["sample", "linprog"]):
         # Clean up and display results
         plt.sca(axs[i])
         axs[i].set_title(rf"$\theta = {i+1} \frac{{\pi}}{{{N+1}}}$")
+        # plt.gca().set_title(rf"$\theta = {i+1} \frac{{\pi}}{{{N+1}}}$")
         for bound in ys_int:
             cons = onp.hstack(
                 (
