@@ -311,3 +311,22 @@ def null_space(A, rcond=None):
     num = jnp.sum(s > tol, dtype=int)
     Q = vh[num:, :].T.conj()
     return Q
+
+
+def angular_sweep(N: int):
+    """
+    Returns an array of points on the unit circle, evenly spaced in angle, which is in [0, pi]
+    Both 0 and pi are excluded.
+
+    Args:
+        N: The number of points to generate
+
+    Returns:
+        jnp.array of points
+    """
+    return jnp.array(
+        [
+            [jnp.cos(n * jnp.pi / (N + 1)), jnp.sin(n * jnp.pi / (N + 1))]
+            for n in range(1, N + 1)
+        ]
+    )
