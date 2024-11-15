@@ -8,21 +8,10 @@ from jax._src.util import wraps
 import jax.numpy as jnp
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import numpy as onp
-import scipy.optimize as opt
 import shapely.geometry as sg
 import shapely.ops as so
 
-from immrax.inclusion import (
-    Corner,
-    Interval,
-    all_corners,
-    i2lu,
-    i2ut,
-    icopy,
-    interval,
-    ut2i,
-)
-from immrax.optim import linprog, compare
+from immrax.inclusion import Corner, Interval, all_corners, i2lu, i2ut, ut2i
 
 
 def timed(f: Callable):
