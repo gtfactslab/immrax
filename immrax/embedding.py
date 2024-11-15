@@ -1,14 +1,12 @@
 import abc
-from itertools import permutations
 from functools import partial
-from typing import Any, Callable, List, Literal, Union
+from typing import Any, Callable, Literal, Union
 
 import jax
 import jax.numpy as jnp
 from jaxtyping import Float, Integer
 
-from immrax.utils import angular_sweep, linprog_refine, null_space, sample_refine
-
+from .refinement import SampleRefinement, LinProgRefinement
 from .inclusion import Interval, i2ut, interval, jacif, mjacif, natif, ut2i
 from .system import LiftedSystem, System
 
@@ -102,13 +100,13 @@ class InclusionEmbedding(EmbeddingSystem):
 
     sys: System
     F: Callable[..., Interval]
-    Fi: List[Callable[..., Interval]]
+    Fi: Callable[..., Interval]
 
     def __init__(
         self,
         sys: System,
         F: Callable[..., Interval],
-        Fi: Callable[..., Interval] = None,
+        Fi: Callable[..., Interval] | None = None,
     ) -> None:
         """Initialize an EmbeddingSystem using a System and an inclusion function for f.
 
@@ -125,28 +123,6 @@ class InclusionEmbedding(EmbeddingSystem):
         )
         self.evolution = sys.evolution
         self.xlen = sys.xlen * 2
-
-    # def E(self, t: Any, x: jax.Array, *args,
-    #         refine:Callable[[Interval], Interval]|None=None, **kwargs) -> jax.Array:
-    #     if refine is None :
-    #         refine = lambda x : x
-
-    #     if self.evolution == 'continuous' :
-    #         n = self.sys.xlen
-    #         ret = jnp.empty(self.xlen)
-    #         for i in range(n) :
-    #             _xi = refine(ut2i(jnp.copy(x).at[i+n].set(x[i])))
-    #             ret = ret.at[i].set(self.Fi(i, interval(t), _xi, *args, **kwargs).lower)
-    #             # ret = ret.at[i].set(self.F(interval(t), ut2i(_xi), *args, **kwargs).lower[i])
-    #             x_i = refine(ut2i(jnp.copy(x).at[i].set(x[i+n])))
-    #             ret = ret.at[i+n].set(self.Fi(i, interval(t), x_i, *args, **kwargs).upper)
-    #             # ret = ret.at[i+n].set(self.F(interval(t), ut2i(x_i), *args, **kwargs).upper[i])
-    #         return ret
-    #     elif self.evolution == 'discrete' :
-    #         # Convert x from ut to i, compute through F, convert back to ut.
-    #         return i2ut(self.F(interval(t), refine(ut2i(x)), *args, **kwargs))
-    #     else :
-    #         raise Exception("evolution needs to be 'continuous' or 'discrete'")
 
     def E(
         self,
@@ -186,27 +162,15 @@ class InclusionEmbedding(EmbeddingSystem):
             return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
 
         elif self.evolution == "discrete":
+            if refine is not None:
+                convert = lambda x: refine(ut2i(x))
+            else:
+                convert = ut2i
+
             # Convert x from ut to i, compute through F, convert back to ut.
-            return i2ut(self.F(interval(t), refine(ut2i(x)), *args, **kwargs))
+            return i2ut(self.F(interval(t), convert(x), *args, **kwargs))
         else:
             raise Exception("evolution needs to be 'continuous' or 'discrete'")
-
-    # def Ei(self, i: int, t: Any, x: jax.Array, *args, **kwargs) -> jax.Array:
-    #     if self.evolution == 'continuous':
-    #         n = self.sys.xlen
-    #         if i < n :
-    #             _xi = jnp.copy(x).at[i+n].set(x[i])
-    #             return self.Fi(i, interval(t), ut2i(_xi), *args, **kwargs).lower
-    #         else :
-    #             x_i = jnp.copy(x).at[i].set(x[i+n])
-    #             return self.Fi(i, interval(t), ut2i(x_i), *args, **kwargs).upper
-    #     elif self.evolution == 'discrete' :
-    #         if i < self.sys.xlen :
-    #             return self.Fi(i, interval(t), ut2i(x), *args, **kwargs).lower
-    #         else :
-    #             return self.Fi(i, interval(t), ut2i(x), *args, **kwargs).upper
-    #     else :
-    #         raise Exception("evolution needs to be 'continuous' or 'discrete'")
 
 
 def ifemb(sys: System, F: Callable[..., Interval]):
@@ -299,15 +263,48 @@ def mjacemb(sys: System):
     return TransformEmbedding(sys, if_transform=mjacif)
 
 
-class AuxVarEmbedding(TransformEmbedding):
+class AuxVarEmbedding(InclusionEmbedding):
+    """
+    Embedding system defined by auxiliary variables.n
+
+    Attributes:
+        H: Matrix of auxiliary variables to add
+        Hp: psuedo-inverse of H
+    """
+
     def __init__(
         self,
         sys: System,
         H: jax.Array,
         mode: Literal["sample", "linprog"] = "sample",
-        if_transform=natif,
+        if_transform: Callable[[Callable[..., jnp.ndarray]], Callable[..., Interval]]
+        | None = None,
+        F: Callable[..., Interval] | None = None,
         num_samples=10,
     ) -> None:
+        """
+        Embedding system defined by auxiliary variables. Given a base system with dimension n
+        and matrix H m by n, the base system is first lifted to dimension m by adding m-n
+        auxiliary variables. Each aux var is a linear combination of some of the real state
+        variables, defined by the coefficients of the rows of H. Because of this, the subspace
+        defined by y = Hx is invariant in the lifted state under the base system dynamics.
+
+        The lifted system is then embedded onto the upper triangle with either the inclusion
+        function F or if_transform given.
+
+        The intervals of the embedded system can then be refined by the subspace invariance of
+        the lifted system. There are two methods to do this, "sample" and "linprog", and the
+        method is chosen by the mode argument.
+
+        Args:
+            sys: Base system to embed
+            H: Matrix of auxiliary variables to add
+            mode: Whether to refine by sampling or solving a LP. Defaults to sample
+            if_transform: How to construct the inclusion function for the embedding system
+            F: For greater control, allows you to pass an inclusion function directly. NOTE:
+            is required to be an inclusion function for the *lifted* system, not the bases system
+            num_samples (): How many samples to take for sampling refinement. Defaults to 10
+        """
         self.H = H
         # self.Hp = jnp.linalg.pinv(H)
         self.Hp = jnp.hstack(
@@ -317,46 +314,26 @@ class AuxVarEmbedding(TransformEmbedding):
         liftsys = LiftedSystem(sys, self.H, self.Hp)
 
         if mode == "sample":
-            self.N = jnp.array(
-                [
-                    jnp.squeeze(null_space(jnp.vstack([jnp.eye(sys.xlen), aug_var]).T))
-                    for aug_var in H[sys.xlen :]
-                ]
-            ).T
-            self.N = jnp.vstack([self.N[: sys.xlen], jnp.diag(self.N[-1])])
-            # Sample aux vars independently
-            self.A_lib = self.N.T
-
-            # Sample aux vars pairwise
-            if self.N.shape[1] > 1:
-                points = angular_sweep(num_samples)
-                extended_points = jnp.hstack(
-                    [
-                        points,
-                        jnp.zeros((num_samples, self.N.shape[1] - points.shape[1])),
-                    ]
-                )
-                non_zero_indices = jnp.array([0, 1])
-                for perm in permutations(range(self.N.shape[1]), len(non_zero_indices)):
-                    permuted_matrix = jnp.zeros_like(extended_points)
-                    for i, p in enumerate(perm):
-                        permuted_matrix = permuted_matrix.at[:, p].set(
-                            extended_points[:, non_zero_indices[i]]
-                        )
-                    permuted_matrix = permuted_matrix @ self.N.T
-                    self.A_lib = jnp.vstack([self.A_lib, permuted_matrix])
-                    assert jnp.allclose(self.A_lib @ self.H, 0, atol=1e-6)
-
-            # Create refinement
-            self.IH = jax.jit(sample_refine(self.A_lib))
+            self.IH = SampleRefinement(H, num_samples).get_refine_func()
         elif mode == "linprog":
-            self.IH = jax.jit(linprog_refine(self.H))
+            self.IH = LinProgRefinement(H).get_refine_func()
         else:
             raise ValueError(
                 "Invalid mode argument. Mode must be either 'sample' or 'linprog'."
             )
 
-        super().__init__(liftsys, if_transform)
+        if F is None and if_transform is None:
+            F = natif(liftsys.f)  # default to natif
+        elif if_transform is not None and F is None:
+            F = if_transform(liftsys.f)
+        elif F is not None and if_transform is None:
+            pass  # do nothing, take F as given
+        else:
+            raise ValueError(
+                "Cannot specify both an inclusion function F and if_transform"
+            )
+
+        super().__init__(liftsys, F)
 
     def E(
         self,
@@ -403,15 +380,8 @@ class AuxVarEmbedding(TransformEmbedding):
 
         elif self.evolution == "discrete":
             # Convert x from ut to i, compute through F, convert back to ut.
-            return i2ut(self.F(interval(t), self.IH(ut2i(x)), *args, **kwargs))
+            return i2ut(
+                self.F(interval(t), self.IH(ut2i(x), jnp.array([0])), *args, **kwargs)
+            )
         else:
             raise ValueError("evolution needs to be 'continuous' or 'discrete'")
-
-
-# class InterconnectedEmbedding (EmbeddingSystem) :
-#     def __init__(self, sys:System, if_transform:IFTransform = natif) -> None:
-#         self.sys = sys
-#         self.F = if_transform(sys.f)
-#         self.Fi = [if_transform(partial(sys.fi, i)) for i in range(sys.xlen)]
-#         self.evolution = sys.evolution
-#         self.xlen = sys.xlen * 2
