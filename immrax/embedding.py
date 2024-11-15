@@ -354,8 +354,9 @@ class AuxVarEmbedding(InclusionEmbedding):
 
         if self.evolution == "continuous":
             n = self.sys.xlen
-            _x = x[:n]
-            x_ = x[n:]
+            x = self.IH(ut2i(x), jnp.array([])) # TODO: this might be weird with linprog refinement 
+            _x = x.lower
+            x_ = x.upper
 
             Fkwargs = lambda t, x, collapsed_row, *args: self.F(
                 t, self.IH(x, collapsed_row), *args, **kwargs
