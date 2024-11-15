@@ -100,13 +100,13 @@ class InclusionEmbedding(EmbeddingSystem):
 
     sys: System
     F: Callable[..., Interval]
-    Fi: List[Callable[..., Interval]]
+    Fi: Callable[..., Interval]
 
     def __init__(
         self,
         sys: System,
         F: Callable[..., Interval],
-        Fi: Callable[..., Interval] = None,
+        Fi: Callable[..., Interval] | None = None,
     ) -> None:
         """Initialize an EmbeddingSystem using a System and an inclusion function for f.
 
@@ -184,8 +184,13 @@ class InclusionEmbedding(EmbeddingSystem):
             return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
 
         elif self.evolution == "discrete":
+            if refine is not None:
+                convert = lambda x: refine(ut2i(x))
+            else:
+                convert = ut2i
+
             # Convert x from ut to i, compute through F, convert back to ut.
-            return i2ut(self.F(interval(t), refine(ut2i(x)), *args, **kwargs))
+            return i2ut(self.F(interval(t), convert(x), *args, **kwargs))
         else:
             raise Exception("evolution needs to be 'continuous' or 'discrete'")
 
@@ -370,7 +375,9 @@ class AuxVarEmbedding(TransformEmbedding):
 
         elif self.evolution == "discrete":
             # Convert x from ut to i, compute through F, convert back to ut.
-            return i2ut(self.F(interval(t), self.IH(ut2i(x)), *args, **kwargs))
+            return i2ut(
+                self.F(interval(t), self.IH(ut2i(x), jnp.array([0])), *args, **kwargs)
+            )
         else:
             raise ValueError("evolution needs to be 'continuous' or 'discrete'")
 

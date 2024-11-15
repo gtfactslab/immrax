@@ -214,6 +214,10 @@ class System(abc.ABC):
             times = jnp.arange(t0, tf + 1)
             _, traj = jax.lax.scan(step, x0, times)
             return Trajectory(times, jnp.vstack((x0, traj)))
+        else:
+            raise Exception(
+                f"Evolution needs to be 'continuous' or 'discrete', got {self.evolution=}"
+            )
 
 
 class ReversedSystem(System):

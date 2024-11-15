@@ -32,10 +32,11 @@ class LinProgRefinement(Refinement):
             n = len(ret)
             H_ind = jnp.delete(
                 self.H, collapsed_row, axis=0, assume_unique_indices=True
-            )
+            )  # PERF: I can cache H_ind for each collapsed row (and therefore A_eq and A_ub)
             A_eq = self.H[collapsed_row].reshape(1, -1)
             A_ub = jnp.vstack((H_ind, -H_ind))
 
+            # PERF: make this a vmap? Maybe reduce to preserve benefit of updating b?
             for i in range(n):
                 # I update b_eq and b_ub here because ret is shrinking
                 ret_ind_u = jnp.delete(
