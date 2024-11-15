@@ -30,32 +30,16 @@ class CVDP(irx.System):
 x0 = irx.interval(
     jnp.array([1.25, 2.35, 1.25, 2.35, 1]), jnp.array([1.55, 2.45, 1.55, 2.45, 3])
 )
-N = 10
+N = 10 # WARN: don't choose odd numbers here, makes redundant aux vars
 sweep = angular_sweep(N)
-couplings = [(0, 1), (2, 3)]
+couplings = [(0, 1), (2, 3), (1, 2), (0, 4)]
 H = jnp.eye(5)
 for coupling in couplings:
     permuted_sweep = jnp.zeros([N, len(x0)])
     for var, idx in enumerate(coupling):
         permuted_sweep = permuted_sweep.at[:, idx].set(sweep[:, var])
     H = jnp.vstack([H, permuted_sweep])
-# H = jnp.vstack(
-#     [
-#         H,
-#         jnp.array(
-#             [
-#                 [1, 1, 0, 0, 0],
-#                 [1, -1, 0, 0, 0],
-#                 [0, 0, 1, 1, 0],
-#                 [0, 0, 1, -1, 0],
-#                 [1, 1, 1, 0, 1],
-#                 [1, 1, -1, 0, 1],
-#                 [1, 0, 1, 1, -1],
-#                 [1, 0, 1, -1, -1],
-#             ]
-#         ),
-#     ]
-# )
+
 
 x0_lifted = irx.interval(H) @ x0
 t0 = 0.0
