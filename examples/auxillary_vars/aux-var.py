@@ -91,8 +91,8 @@ def show_refinements(mode: Literal["sample", "linprog"]):
             irx.i2ut(lifted_x0_int),
         )
         ys_int = [irx.ut2i(y) for y in traj.ys]
-        print(f"Computing trajectory with \t{mode} refinement for {i+1} aux vars took: {time}")
-        print(f"\tFinal bound: \n{ys_int[-1][:2]}")
+        print(f"Computing trajectory with {mode} refinement for {i+1} aux vars took: {time}")
+        print(f"Final bound: \n{ys_int[-1][:2]}")
         pickle.dump(ys_int, open(f"{mode}_traj_{i}.pkl", "wb"))
 
         # Display results
