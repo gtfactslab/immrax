@@ -27,6 +27,9 @@ class LinProgRefinement(Refinement):
         super().__init__()
 
     def get_refine_func(self) -> Callable[[Interval, jnp.ndarray], Interval]:
+        # HACK: I really don't want to have to pass in collapsed_row here.
+        # It makes me change the interface of every refine_func, which is preventing me
+        # from greatly simplifying the definition of E in AuxVarEmbedding.
         def I_r(y: Interval, collapsed_row: jax.Array) -> Interval:
             ret = icopy(y)
             n = len(ret)
