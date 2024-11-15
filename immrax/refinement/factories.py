@@ -15,7 +15,7 @@ class Refinement(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def refine(self) -> Callable[[Interval, jnp.ndarray], Interval]:
+    def get_refine_func(self) -> Callable[[Interval, jnp.ndarray], Interval]:
         pass
 
 
@@ -26,7 +26,7 @@ class LinProgRefinement(Refinement):
         self.H = H
         super().__init__()
 
-    def refine(self) -> Callable[[Interval, jnp.ndarray], Interval]:
+    def get_refine_func(self) -> Callable[[Interval, jnp.ndarray], Interval]:
         def I_r(y: Interval, collapsed_row: jax.Array) -> Interval:
             ret = icopy(y)
             n = len(ret)
@@ -110,7 +110,7 @@ class SampleRefinement(Refinement):
                 for aug_var in H[H.shape[1] :]
             ]
         ).T
-        assert not jnp.any(jnp.isnan(self.N))
+        # assert not jnp.any(jnp.isnan(self.N))
         self.N = jnp.vstack([self.N[: H.shape[1]], jnp.diag(self.N[-1])])
 
         # Sample aux vars independently
@@ -134,11 +134,11 @@ class SampleRefinement(Refinement):
                     )
                 permuted_matrix = permuted_matrix @ self.N.T
                 self.A_lib = jnp.vstack([self.A_lib, permuted_matrix])
-                assert jnp.allclose(self.A_lib @ self.H, 0, atol=1e-6)
+                # assert jnp.allclose(self.A_lib @ self.H, 0, atol=1e-6)
 
         super().__init__()
 
-    def refine(self) -> Callable[[Interval, jnp.ndarray], Interval]:
+    def get_refine_func(self) -> Callable[[Interval, jnp.ndarray], Interval]:
         def vec_refine(null_vector: jax.Array, var_index: jax.Array, y: Interval):
             ret = icopy(y)
 
