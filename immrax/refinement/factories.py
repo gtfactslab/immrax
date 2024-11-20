@@ -1,6 +1,6 @@
 import abc
 from itertools import permutations
-from typing import Callable
+from typing import Callable, Tuple, Iterable
 
 import jax
 import jax.numpy as jnp
@@ -125,19 +125,26 @@ class SampleRefinement(Refinement):
             extended_points = jnp.hstack(
                 [
                     points,
-                    jnp.zeros((num_samples, self.N.shape[1] - points.shape[1])),
+                    jnp.zeros((points.shape[0], self.N.shape[1] - points.shape[1])),
                 ]
             )
-            non_zero_indices = jnp.array([0, 1])
-            for perm in permutations(range(self.N.shape[1]), len(non_zero_indices)):
-                permuted_matrix = jnp.zeros_like(extended_points)
+
+            def permutation(mat: jnp.ndarray, perm):
+                permuted_matrix = jnp.zeros_like(mat)
                 for i, p in enumerate(perm):
-                    permuted_matrix = permuted_matrix.at[:, p].set(
-                        extended_points[:, non_zero_indices[i]]
-                    )
-                permuted_matrix = permuted_matrix @ self.N.T
-                self.A_lib = jnp.vstack([self.A_lib, permuted_matrix])
-                # assert jnp.allclose(self.A_lib @ self.H, 0, atol=1e-6)
+                    permuted_matrix = permuted_matrix.at[:, p].set(mat[:, i])
+                return permuted_matrix
+
+            points_permutations = jax.vmap(permutation, in_axes=(None, 0))(
+                extended_points,
+                jnp.array(list(permutations(range(self.N.shape[1]), 2))),
+            )
+            points_permutations = points_permutations.reshape(
+                -1, points_permutations.shape[-1]
+            )
+            points_permutations = points_permutations @ self.N.T
+            self.A_lib = jnp.vstack([self.A_lib, points_permutations])
+            # assert jnp.allclose(self.A_lib @ self.H, 0, atol=1e-6)
 
         super().__init__()
 
