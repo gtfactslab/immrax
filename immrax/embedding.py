@@ -134,15 +134,19 @@ class InclusionEmbedding(EmbeddingSystem):
     ) -> jax.Array:
         t = interval(t)
 
+        if refine is not None:
+            convert = lambda x: refine(ut2i(x))
+            Fkwargs = lambda t, x, *args: self.F(t, refine(x), *args, **kwargs)
+        else:
+            convert = ut2i
+            Fkwargs = partial(self.F, **kwargs)
+
+        x_int = convert(x)
+
         if self.evolution == "continuous":
             n = self.sys.xlen
-            _x = x[:n]
-            x_ = x[n:]
-
-            if refine is not None:
-                Fkwargs = lambda t, x, *args: self.F(t, refine(x), *args, **kwargs)
-            else:
-                Fkwargs = partial(self.F, **kwargs)
+            _x = x_int.lower
+            x_ = x_int.upper
 
             # Computing F on the faces of the hyperrectangle
 
@@ -162,13 +166,8 @@ class InclusionEmbedding(EmbeddingSystem):
             return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
 
         elif self.evolution == "discrete":
-            if refine is not None:
-                convert = lambda x: refine(ut2i(x))
-            else:
-                convert = ut2i
-
             # Convert x from ut to i, compute through F, convert back to ut.
-            return i2ut(self.F(interval(t), convert(x), *args, **kwargs))
+            return i2ut(self.F(interval(t), x_int, *args, **kwargs))
         else:
             raise Exception("evolution needs to be 'continuous' or 'discrete'")
 
@@ -350,39 +349,4 @@ class AuxVarEmbedding(InclusionEmbedding):
                 )
             )
 
-        t = interval(t)
-
-        if self.evolution == "continuous":
-            n = self.sys.xlen
-            x = self.IH(ut2i(x), jnp.array([])) # TODO: this might be weird with linprog refinement 
-            _x = x.lower
-            x_ = x.upper
-
-            Fkwargs = lambda t, x, collapsed_row, *args: self.F(
-                t, self.IH(x, collapsed_row), *args, **kwargs
-            )
-
-            # Computing F on the faces of the hyperrectangle
-            _X = interval(
-                jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
-            )
-            _E = jax.vmap(Fkwargs, in_axes=(None, 0, 0) + (None,) * len(args))(
-                t, _X, jnp.arange(len(_X)), *args
-            )
-
-            X_ = interval(
-                jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
-            )
-            E_ = jax.vmap(Fkwargs, in_axes=(None, 0, 0) + (None,) * len(args))(
-                t, X_, jnp.arange(len(X_)), *args
-            )
-
-            return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
-
-        elif self.evolution == "discrete":
-            # Convert x from ut to i, compute through F, convert back to ut.
-            return i2ut(
-                self.F(interval(t), self.IH(ut2i(x), jnp.array([0])), *args, **kwargs)
-            )
-        else:
-            raise ValueError("evolution needs to be 'continuous' or 'discrete'")
+        return super().E(t, x, *args, refine=self.IH, **kwargs)

@@ -1,6 +1,6 @@
 import abc
 from itertools import permutations
-from typing import Callable, Tuple, Iterable
+from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -15,7 +15,7 @@ class Refinement(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_refine_func(self) -> Callable[[Interval, jnp.ndarray], Interval]:
+    def get_refine_func(self) -> Callable[[Interval], Interval]:
         pass
 
 
@@ -26,38 +26,27 @@ class LinProgRefinement(Refinement):
         self.H = H
         super().__init__()
 
-    def get_refine_func(self) -> Callable[[Interval, jnp.ndarray], Interval]:
+    def get_refine_func(self) -> Callable[[Interval], Interval]:
         # HACK: I really don't want to have to pass in collapsed_row here.
         # It makes me change the interface of every refine_func, which is preventing me
         # from greatly simplifying the definition of E in AuxVarEmbedding.
-        def I_r(y: Interval, collapsed_row: jax.Array) -> Interval:
+        def I_r(y: Interval) -> Interval:
             ret = icopy(y)
             n = len(ret)
-            H_ind = jnp.delete(
-                self.H, collapsed_row, axis=0, assume_unique_indices=True
-            )  # PERF: I can cache H_ind for each collapsed row (and therefore A_eq and A_ub)
-            A_eq = self.H[collapsed_row].reshape(1, -1)
-            A_ub = jnp.vstack((H_ind, -H_ind))
+            A_ub = jnp.vstack((self.H, -self.H))
 
             # PERF: make this a vmap? Maybe reduce to preserve benefit of updating b?
             for i in range(n):
                 # I update b_eq and b_ub here because ret is shrinking
-                ret_ind_u = jnp.delete(
-                    ret.upper, collapsed_row, assume_unique_indices=True
-                )
-                ret_ind_l = jnp.delete(
-                    ret.lower, collapsed_row, assume_unique_indices=True
-                )
                 b_ub = jnp.concatenate(
-                    (ret_ind_u, -ret_ind_l)
+                    (ret.upper, -ret.lower)
                 )  # TODO: try adding buffer region *inside* the bounds to collapsed face
-                b_eq = ret.lower[collapsed_row].reshape(-1)
                 obj_vec_i = self.H[i]
 
                 sol_min = linprog(
                     obj=obj_vec_i,
-                    A_eq=A_eq,
-                    b_eq=b_eq,
+                    # A_eq=A_eq,
+                    # b_eq=b_eq,
                     A_ub=A_ub,
                     b_ub=b_ub,
                     unbounded=True,
@@ -65,8 +54,8 @@ class LinProgRefinement(Refinement):
 
                 sol_max = linprog(
                     obj=-obj_vec_i,
-                    A_eq=A_eq,
-                    b_eq=b_eq,
+                    # A_eq=A_eq,
+                    # b_eq=b_eq,
                     A_ub=A_ub,
                     b_ub=b_ub,
                     unbounded=True,
@@ -148,7 +137,7 @@ class SampleRefinement(Refinement):
 
         super().__init__()
 
-    def get_refine_func(self) -> Callable[[Interval, jnp.ndarray], Interval]:
+    def get_refine_func(self) -> Callable[[Interval], Interval]:
         def vec_refine(null_vector: jax.Array, var_index: jax.Array, y: Interval):
             ret = icopy(y)
 
@@ -175,4 +164,4 @@ class SampleRefinement(Refinement):
                 jnp.max(refinements.lower, axis=0), jnp.min(refinements.upper, axis=0)
             )
 
-        return lambda y, _: best_refinement(y)
+        return best_refinement
