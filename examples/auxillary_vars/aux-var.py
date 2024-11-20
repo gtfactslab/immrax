@@ -80,11 +80,8 @@ def show_refinements(mode: Literal["sample", "linprog"]):
             continue
 
         # Compute sample refined trajectory
-        print("Computing null lib...")
-        t0 = time.time()
         auxsys = AuxVarEmbedding(sys, H, mode=mode, if_transform=mjacif)
-        tf = time.time()
-        print(f"Computed null lib in {tf - t0}s.\nCompiling...")
+        print("Compiling...")
         auxsys.compute_trajectory(0.0, 0.01, irx.i2ut(lifted_x0_int))
         print("Compiled.\nComputing trajectory...")
         traj, comp_time = run_times(
@@ -112,7 +109,7 @@ x0_int = irx.icentpert(jnp.array([1.0, 0.0]), jnp.array([0.1, 0.1]))
 sim_len = 6.28
 
 # Certain values of N are not good choices, as they will generate angle theta=pi/2, which is redundant with the actual state vars
-N = 4
+N = 6
 aux_vars = angular_sweep(N)
 
 plt.rcParams.update({"text.usetex": True, "font.family": "CMU Serif", "font.size": 14})

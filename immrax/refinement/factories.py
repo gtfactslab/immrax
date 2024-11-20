@@ -27,56 +27,50 @@ class LinProgRefinement(Refinement):
         super().__init__()
 
     def get_refine_func(self) -> Callable[[Interval], Interval]:
-        # HACK: I really don't want to have to pass in collapsed_row here.
-        # It makes me change the interface of every refine_func, which is preventing me
-        # from greatly simplifying the definition of E in AuxVarEmbedding.
+        A_ub = jnp.vstack((self.H, -self.H))
+
+        def var_refine(idx: int, ret: Interval) -> Interval:
+            # I update b_eq and b_ub here because ret is shrinking
+            b_ub = jnp.concatenate(
+                (ret.upper, -ret.lower)
+            )  # TODO: try adding buffer region *inside* the bounds to collapsed face
+            obj_vec_i = self.H[idx]
+
+            sol_min = linprog(
+                obj=obj_vec_i,
+                A_ub=A_ub,
+                b_ub=b_ub,
+                unbounded=True,
+            )
+
+            sol_max = linprog(
+                obj=-obj_vec_i,
+                A_ub=A_ub,
+                b_ub=b_ub,
+                unbounded=True,
+            )
+
+            # If a vector that gives extra info on this var is found, refine bounds
+            new_lower_i = jnp.where(
+                sol_min.success,
+                jnp.maximum(sol_min.fun, ret.lower[idx]),
+                ret.lower[idx],
+            )[0]
+            retl = ret.lower.at[idx].set(new_lower_i)
+            new_upper_i = jnp.where(
+                sol_max.success,
+                jnp.minimum(-sol_max.fun, ret.upper[idx]),
+                ret.upper[idx],
+            )[0]
+            retu = ret.upper.at[idx].set(new_upper_i)
+
+            return interval(retl, retu)
+
         def I_r(y: Interval) -> Interval:
-            ret = icopy(y)
-            n = len(ret)
-            A_ub = jnp.vstack((self.H, -self.H))
+            # for i in range(n):
+            #     ret = var_refine(ret, i)
 
-            # PERF: make this a vmap? Maybe reduce to preserve benefit of updating b?
-            for i in range(n):
-                # I update b_eq and b_ub here because ret is shrinking
-                b_ub = jnp.concatenate(
-                    (ret.upper, -ret.lower)
-                )  # TODO: try adding buffer region *inside* the bounds to collapsed face
-                obj_vec_i = self.H[i]
-
-                sol_min = linprog(
-                    obj=obj_vec_i,
-                    # A_eq=A_eq,
-                    # b_eq=b_eq,
-                    A_ub=A_ub,
-                    b_ub=b_ub,
-                    unbounded=True,
-                )
-
-                sol_max = linprog(
-                    obj=-obj_vec_i,
-                    # A_eq=A_eq,
-                    # b_eq=b_eq,
-                    A_ub=A_ub,
-                    b_ub=b_ub,
-                    unbounded=True,
-                )
-
-                # If a vector that gives extra info on this var is found, refine bounds
-                new_lower_i = jnp.where(
-                    sol_min.success,
-                    jnp.maximum(sol_min.fun, ret.lower[i]),
-                    ret.lower[i],
-                )[0]
-                retl = ret.lower.at[i].set(new_lower_i)
-                new_upper_i = jnp.where(
-                    sol_max.success,
-                    jnp.minimum(-sol_max.fun, ret.upper[i]),
-                    ret.upper[i],
-                )[0]
-                retu = ret.upper.at[i].set(new_upper_i)
-                ret = interval(retl, retu)
-
-            return ret
+            return jax.lax.fori_loop(0, y.shape[0], var_refine, icopy(y))
 
         return I_r
 
