@@ -5,11 +5,13 @@ from jax import lax
 from jax.core import Primitive
 from jax import jit, vmap
 from jax._src.util import safe_map
-from typing import Callable, Any
+from typing import Callable, Any, Sequence
 from jax._src import ad_util, source_info_util, config
 from jax._src.core import Jaxpr, Literal, Var, Atom, typecheck, last_used, clean_up_dead_vars
 from immrax.inclusion.interval import *
 import equinox as eqx
+import itertools
+from jax._src import dtypes
 
 """
 This file implements the Natural Inclusion Function as an interpreter of Jaxprs.
@@ -18,15 +20,18 @@ This file implements the Natural Inclusion Function as an interpreter of Jaxprs.
 inclusion_registry = {} 
 
 
-def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
+def natif (f:Callable[..., jax.Array], *,
+           fixed_argnums:int|Sequence[int]=None) -> Callable[..., Interval] :
     """Creates a Natural Inclusion Function of f.
     
-    All positional arguments are assumed to be replaced with interval arguments for the inclusion function.
+    All (non-fixed) positional arguments are assumed to be replaced with interval arguments for the inclusion function.
 
     Parameters
     ----------
     f : Callable[..., jax.Array]
         Function to construct Natural Inclusion Function from
+    fixed_argnums : int|Sequence[int]
+        Positional arguments to be treated as jax.Array instead of Interval
 
     Returns
     -------
@@ -34,19 +39,22 @@ def natif (f:Callable[..., jax.Array]) -> Callable[..., Interval] :
         Natural Inclusion Function of f
 
     """
+    @jit
     @wraps(f)
     def wrapped (*args, **kwargs) :
         f"""Natural inclusion function.
         """
         # Traverse the args and kwargs, replacing intervals with lower bounds.
-        getlower = lambda x : x.lower if isinstance(x, Interval) else x
+        # Convert args to at least jax.Array when they are not interval
+        getlower = lambda x : x.lower if isinstance(x, Interval) else jnp.asarray(x)
         isinterval = lambda x : isinstance(x, Interval)
         buildargs = jax.tree_util.tree_map(getlower, args, is_leaf=isinterval)
+        # kwargs stay not jax.Array
+        getlower = lambda x : x.lower if isinstance(x, Interval) else x
         buildkwargs = jax.tree_util.tree_map(getlower, kwargs, is_leaf=isinterval)
         # Build a jaxpr via evaluation on the lower bounds only. TODO: Do we need eqx.filter_make_jaxpr?
         # closed_jaxpr = jax.make_jaxpr(f)(*buildargs, **buildkwargs)
         closed_jaxpr = eqx.filter_make_jaxpr(f)(*buildargs, **buildkwargs)[0]
-        # print(closed_jaxpr)
         # Evaluate the jaxpr on the interval arguments using natif_jaxpr.
         out = natif_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.literals, *args)
         if len(out) == 1 :
@@ -73,10 +81,14 @@ def natif_jaxpr (jaxpr: Jaxpr, consts, *args, propagate_source_info=True) -> lis
         name_stack = source_info_util.current_name_stack() + eqn.source_info.name_stack
         traceback = eqn.source_info.traceback if propagate_source_info else None
         with source_info_util.user_context(traceback, name_stack=name_stack):
-            try :
-                ans = inclusion_registry[eqn.primitive](*subfuns, *safe_map(read, eqn.invars), **bind_params)
-            except KeyError :
-                raise NotImplementedError(f'{eqn.primitive} not in inclusion_registry')
+            invars = safe_map(read, eqn.invars)
+            if any([isinstance(read(iv), Interval) for iv in eqn.invars]) :
+                try :
+                    ans = inclusion_registry[eqn.primitive](*subfuns, *invars, **bind_params)
+                except KeyError :
+                    raise NotImplementedError(f'{eqn.primitive} not in inclusion_registry')
+            else :
+                ans = eqn.primitive.bind(*subfuns, *invars, **bind_params)
         if eqn.primitive.multiple_results:
             safe_map(write, eqn.outvars, ans)
         else:
@@ -296,74 +308,59 @@ inclusion_registry[lax.integer_pow_p] = _inclusion_integer_pow_p
 Interval.__pow__ = _inclusion_integer_pow_p
 
 def _inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
-    # Current implementation only works for 2D matrix multiplication.
-    # TODO: Generalize to work for any call to dot_general.
-
-    _Ash = A.shape; _Bsh = B.shape
-        
-    if A.ndim > 2 or B.ndim > 2 :
-        raise NotImplementedError("dot_general inclusion function currently only supported for vectors and matrices.")
-
-    retdim = 2
-
-    if A.ndim == 1 :
-        A = A.reshape(1, -1)
-        retdim = retdim - 1
-    if B.ndim == 1 :
-        B = B.reshape(-1, 1)
-        retdim = retdim - 1    
+    # All checks of batch/contracting dims are done in first pass on lower bounds
 
     A = interval(A)
     B = interval(B)
 
-    # if retdim == 2 :
-    #     print(f'{retdim} - {_Ash} @ {_Bsh}')
-    #     print(f'-> {(A.lower @ B.lower).shape}')
-    # if retdim == 1 :
-    #     print(f'{retdim} - {_Ash} @ {_Bsh}')
-    #     print(f'-> {(A.lower @ B.lower).reshape(-1).shape}')
-    # if retdim == 0 :
-    #     print(f'{retdim} - {_Ash} @ {_Bsh}')
-    #     print(f'-> {(A.lower @ B.lower).reshape(()).shape}')
-        
+    # Extract the contracting and batch dimensions
+    (lhs_contracting, rhs_contracting), (lhs_batch, rhs_batch) = kwargs['dimension_numbers']
 
-    # Extract the contraction and batch dimensions
-    # ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = kwargs['dimension_numbers']
+    # Permute the batch then contracting dimensions to the front
+    imoveaxis = lambda x, *args : Interval(jnp.moveaxis(x.lower, *args), jnp.moveaxis(x.upper, *args))
+    A = imoveaxis(A, lhs_batch+lhs_contracting, range(len(lhs_batch)+len(lhs_contracting)))
+    B = imoveaxis(B, rhs_batch+rhs_contracting, range(len(rhs_batch)+len(rhs_contracting)))
 
-    # Move the batch dimensions to the front and the contraction dimensions to the back
-    # A = Interval(jnp.moveaxis(A.lower, lhs_contract, 0), jnp.moveaxis(A.upper, lhs_contract, 0))
-    # B = Interval(jnp.moveaxis(B.lower, rhs_contract, 0), jnp.moveaxis(B.upper, rhs_contract, 0))
+    def _contract (A, B) :
+        # Multiplying two scalar intervals
+        def _mul (a, b) :
+            _1 = a.lower*b.lower
+            _2 = a.lower*b.upper
+            _3 = a.upper*b.lower
+            _4 = a.upper*b.upper
+            return Interval(jnp.minimum(jnp.minimum(_1,_2),jnp.minimum(_3,_4)),
+                            jnp.maximum(jnp.maximum(_1,_2),jnp.maximum(_3,_4)))
 
-    def _mul (a, b) :
-        _1 = a.lower*b.lower
-        _2 = a.lower*b.upper
-        _3 = a.upper*b.lower
-        _4 = a.upper*b.upper
-        return Interval(jnp.minimum(jnp.minimum(_1,_2),jnp.minimum(_3,_4)),
-                        jnp.maximum(jnp.maximum(_1,_2),jnp.maximum(_3,_4)))
+        isum = lambda x : Interval(jnp.sum(x.lower), jnp.sum(x.upper))
 
-    def _dot (a, b) :
-        _mulres = vmap(_mul)(a, b)
-        return Interval(jnp.sum(_mulres.lower, axis=0), jnp.sum(_mulres.upper, axis=0))
+        # Two vectors -> scalar
+        def f (a, b) :
+            # _mulres = jax.vmap(_mul)(a, b)
+            # return Interval(jnp.sum(_mulres.lower), jnp.sum(_mulres.upper))
+            _r = jax.vmap(_mul)
+            return isum(_r(a, b))
 
-    def _arow (a) :
-        return vmap(_dot, (None, -1))(a, B)
+        # Repeat over each contracting dimension
+        for i in range(1, len(lhs_contracting)) :
+            _r = jax.vmap(f)
+            f = lambda a, b : isum(_r(a, b))
 
-    res = vmap(_arow)(A)
-   
-    if retdim == 1 : res = res.reshape(-1)
-    if retdim == 0 : res = res.reshape(())
-    return res
+        # vmap over non-contracting dimensions
+        for i in range(len(lhs_contracting), len(A.shape)) :
+            f = jax.vmap(f, in_axes=(i, None), out_axes=-1)
+        for j in range(len(rhs_contracting), len(B.shape)) :
+            f = jax.vmap(f, in_axes=(None, j), out_axes=-1)
 
-def _fake_inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
-    # Current implementation only works for 2D matrix multiplication.
-    A = interval(A); B = interval(B)
-    return interval(A.lower@B.lower)
+        return f(A, B)
+    
+    # vmap over batch dimensions
+    f = _contract
+    for i in range(len(lhs_batch)) :
+        f = vmap(f, in_axes=(0, 0), out_axes=0)
+    
+    return f(A, B)
 
 inclusion_registry[lax.dot_general_p] = _inclusion_dot_general_p
-# inclusion_registry[lax.dot_general_p] = _fake_inclusion_dot_general_p
-
-
 
 def _inclusion_sin_p (x:Interval) -> Interval :
     if not isinstance (x, Interval) :
