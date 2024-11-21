@@ -690,12 +690,10 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                         else :
                             Jt, Jx, Ju, Jw = Mpre[j]
 
-                        # _Jx, J_x = i2lu(Jx)
-                        # _Ju, J_u = i2lu(Ju)
-                        # _Jw, J_w = i2lu(Jw)
-                        _Jx, J_x = set_columns_from_corner(c[1:n+1], Jx)
-                        _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], Ju)
-                        _Jw, J_w = set_columns_from_corner(c[n+1+p:], Jw)
+ 
+                        _Jx, J_x = set_columns_from_corner(c[1:n+1], interval(Jx))
+                        _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], interval(Ju))
+                        _Jw, J_w = set_columns_from_corner(c[n+1+p:], interval(Jw))
 
                         fc = self.sys.olsystem.f(tc, _xc, _uc, wc)
 
@@ -746,9 +744,9 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
                         # _Ju, J_u = i2lu(Ju)
                         # _Jw, J_w = i2lu(Jw)
 
-                        _Jx, J_x = set_columns_from_corner(c[1:n+1], Jx)
-                        _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], Ju)
-                        _Jw, J_w = set_columns_from_corner(c[n+1+p:], Jw)
+                        _Jx, J_x = set_columns_from_corner(c[1:n+1], interval(Jx))
+                        _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], interval(Ju))
+                        _Jw, J_w = set_columns_from_corner(c[n+1+p:], interval(Jw))
 
                         fc = self.sys.olsystem.f(tc, x_c, u_c, wc)
 
