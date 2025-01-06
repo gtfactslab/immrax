@@ -60,17 +60,17 @@ class SimplexStep:
 @register_pytree_node_class
 class SimplexSolutionType:
     feasible: jax.Array
-    unbounded: jax.Array
+    bounded: jax.Array
 
-    def __init__(self, feasible, unbounded):
+    def __init__(self, feasible: jax.Array, bounded: jax.Array):
         self.feasible = feasible
-        self.unbounded = unbounded
+        self.bounded = bounded
 
     def tree_flatten(self):
         return (
             (
                 self.feasible,
-                self.unbounded,
+                self.bounded,
             ),
             "SimplexSolutionType",
         )
@@ -81,7 +81,10 @@ class SimplexSolutionType:
 
     @property
     def success(self) -> jax.Array:
-        return jnp.logical_and(self.feasible, jnp.logical_not(self.unbounded))
+        return jnp.logical_and(self.feasible, self.bounded)
+
+    def __repr__(self) -> str:
+        return f"SimplexSolutionType(feasible={self.feasible}, bounded={self.bounded})"
 
 
 def fuzzy_argmin(arr: jax.Array, tolerance: float = 1e-5) -> jax.Array:
@@ -146,7 +149,7 @@ def _iteration_needed(
         _iteration_needed, sol_type.feasible
     )  # Stop if infeasible
     _iteration_needed = jnp.logical_and(
-        _iteration_needed, jnp.logical_not(sol_type.unbounded)
+        _iteration_needed, sol_type.bounded
     )  # Stop if unbounded
     return _iteration_needed[0]
 
@@ -175,7 +178,7 @@ def _simplex(
             jnp.greater(exiting_rates, 1e-5), div, jnp.inf * jnp.ones_like(div)
         )  # Don't worry about constraints that entering var improves / doesn't affect
         exiting_row = fuzzy_argmin(ratios)
-        sol_type.unbounded = jnp.all(exiting_rates < -1e-5).reshape(1)
+        sol_type.bounded = jnp.any(exiting_rates > -1e-5).reshape(1)
 
         # Pivot
         pivot_val = tableau[exiting_row, entering_col]
@@ -214,10 +217,10 @@ def _simplex(
 @partial(jax.jit, static_argnames=["unbounded"])
 def linprog(
     obj: jax.Array,
-    A_eq: jax.Array = jnp.empty((0, 0)),
-    b_eq: jax.Array = jnp.empty((0,)),
     A_ub: jax.Array = jnp.empty((0, 0)),
     b_ub: jax.Array = jnp.empty((0,)),
+    A_eq: jax.Array = jnp.empty((0, 0)),
+    b_eq: jax.Array = jnp.empty((0,)),
     unbounded: bool = False,
 ) -> Tuple[SimplexStep, SimplexSolutionType]:
     """
@@ -251,7 +254,7 @@ def linprog(
     basis = jnp.arange(A.shape[1], A.shape[1] + A.shape[0])
     x = jnp.concatenate((jnp.zeros_like(c), b))
     aux_start = SimplexStep(tableau, basis, x)
-    aux_sol_type = SimplexSolutionType(jnp.array([True]), jnp.array([False]))
+    aux_sol_type = SimplexSolutionType(jnp.array([True]), jnp.array([True]))
     aux_sol, aux_sol_type = _simplex(aux_start, aux_sol_type, num_cost_rows=2)
     x = aux_sol.x[: c.size]
 
@@ -297,7 +300,7 @@ def linprog(
         aux_sol.basis,
         aux_sol.x[: c.size],
     )
-    real_sol_type = SimplexSolutionType(feasible, jnp.array([False]))
+    real_sol_type = SimplexSolutionType(feasible, jnp.array([True]))
     sol, sol_type = _simplex(real_start, real_sol_type, num_cost_rows=1)
 
     # Remove synthetic variables from returned result
@@ -320,7 +323,7 @@ def compare(
         else:
             return False, "FAILURE: we did not detect problem as infeasible"
     elif sp_ans.status == 3:
-        if my_sol_type.unbounded:
+        if not my_sol_type.bounded:
             return True, "SUCCESS: problem is unbounded"
         else:
             return False, "FAILURE: we did not detect problem as unbounded"
@@ -335,7 +338,7 @@ def compare(
         else:
             if not my_sol_type.feasible:
                 return False, "FAILURE: we incorrectly identified problem as infeasible"
-            elif my_sol_type.unbounded:
+            elif not my_sol_type.bounded:
                 return False, "FAILURE: we incorrectly identified problem as unbounded"
 
     return False, "FAILURE: unknown status"
@@ -346,13 +349,13 @@ if __name__ == "__main__":
 
     def verify(
         c: jax.Array,
-        A_eq: jax.Array = jnp.empty((0, 0)),
-        b_eq: jax.Array = jnp.empty((0,)),
         A_ub: jax.Array = jnp.empty((0, 0)),
         b_ub: jax.Array = jnp.empty((0,)),
+        A_eq: jax.Array = jnp.empty((0, 0)),
+        b_eq: jax.Array = jnp.empty((0,)),
         unbounded: bool = False,
     ):
-        my_sol = linprog(c, A_eq, b_eq, A_ub, b_ub, unbounded)
+        my_sol = linprog(c, A_ub, b_ub, A_eq, b_eq, unbounded)
 
         bounds = (None, None) if unbounded else (0, None)
         sp_A_eq = A_eq if A_eq.size > 0 else None
@@ -363,120 +366,114 @@ if __name__ == "__main__":
 
         print(compare(my_sol, sp_sol))
 
-    A = jnp.array(
-        [
-            [1, -1],
-            [3, 2],
-            [1, 0],
-            [-2, 3],
-        ]
-    )
-    b = jnp.array([1, 12, 2, 9])
-    c = jnp.array([-4, -2])
-
-    verify(c, A_ub=A, b_ub=b)
-
-    A = jnp.array(
-        [
-            [1],
-        ]
-    )
-    b = jnp.array([10])
-    c = jnp.array([1])
-
-    verify(c, A_ub=A, b_ub=b, unbounded=True)
-
-    A = jnp.array(
-        [
-            [-1],
-        ]
-    )
-    b = jnp.array([-10])
-    c = jnp.array([-1])
-
-    verify(c, A_ub=A, b_ub=b)
-
-    A = jnp.array(
-        [
-            [1, -1],
-            [-1, 1],
-        ]
-    )
-    b = jnp.array([1, -2])
-    c = jnp.array([-4, -2])
-
-    verify(c, A_ub=A, b_ub=b)
-
-    A = jnp.array(
-        [
-            [1.0, 1, -1, -1, 0, 0, 0, 0],
-            [1, 0, -1, 0, 1, 0, 0, 0],
-            [0, 1, 0, -1, 0, 1, 0, 0],
-            [1, 0, -1, 0, 0, 0, -1, 0],
-            [0, -1, 0, 1, 0, 0, 0, 1],
-        ]
-    )
-    b = jnp.array([1.2, 1.1, 0.1, 0.9, 0.1])
-    c = jnp.array([1.0, 0, -1, 0, 0, 0, 0, 0])
-
-    verify(c, A_eq=A, b_eq=b)
-
-    # Programs with dependent constraints
-
-    A = jnp.array([[1.0, 0], [1, 0]])
-    b = jnp.array([3.0, 3])
-    c = jnp.array([-1.0, 0])
-
-    verify(c, A_ub=A, b_ub=b)
-
-    A_eq = jnp.array([[1.0, 2]])
-    b_eq = jnp.array([1.0])
-    A_ub = jnp.array([[1.0, 0], [0, 1], [-1, 0], [0, -1]])
-    b_ub = jnp.array([0.9, 0.1, -0.9, 0.1])
-    c = jnp.array([0.0, 1])
-
-    verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
-
-    A_eq = jnp.array([[0.5, 0.5]])
-    b_eq = jnp.array([0.4])
-    A_ub = jnp.array([[1.0, 0.0], [0.0, 1.0], [-1.0, -0.0], [-0.0, -1.0]])
-    b_ub = jnp.array([0.9, 0.1, -0.9, 0.1])
-    c = -jnp.array([0.0, 1.0])
-
-    verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
-
-    # Programs based on aux var refinement
-    N = 6
-    aux_vars = jnp.array(
-        [
-            [jnp.cos(n * jnp.pi / (N + 1)), jnp.sin(n * jnp.pi / (N + 1))]
-            for n in range(1, N + 1)
-        ]
-    )
-    H = jnp.array([[1.0, 0.0], [0.0, 1.0]])
-    Hs = [jnp.vstack((H, aux_vars[: i + 1])) for i in range(N)]
-
-    A_eq = jnp.array([aux_vars[0]])
-    b_eq = jnp.dot(aux_vars[0], jnp.array([1.1, 0.1])).reshape(-1)
-    A_ub = jnp.array([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])
-    b_ub = jnp.array([1.1, 0.1, -1.1, -0.1])
-    c = aux_vars[0]
-
-    verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
-
-    # Testing autodiff
     # A = jnp.array(
     #     [
-    #         [1.0, -1],
+    #         [1, -1],
     #         [3, 2],
     #         [1, 0],
     #         [-2, 3],
     #     ]
     # )
-    # b = jnp.array([1.0, 12, 2, 9])
-    # c = jnp.array([-4.0, -2])
+    # b = jnp.array([1, 12, 2, 9])
+    # c = jnp.array([-4, -2])
     #
     # verify(c, A_ub=A, b_ub=b)
     #
-    # dlp = jax.jacfwd(linprog)
-    # dlp(c, A_ub=A, b_ub=b)
+    # A = jnp.array(
+    #     [
+    #         [1],
+    #     ]
+    # )
+    # b = jnp.array([10])
+    # c = jnp.array([1])
+    #
+    # verify(c, A_ub=A, b_ub=b, unbounded=True)
+    #
+    # A = jnp.array(
+    #     [
+    #         [-1],
+    #     ]
+    # )
+    # b = jnp.array([-10])
+    # c = jnp.array([-1])
+    #
+    # verify(c, A_ub=A, b_ub=b)
+    #
+    # A = jnp.array(
+    #     [
+    #         [1, -1],
+    #         [-1, 1],
+    #     ]
+    # )
+    # b = jnp.array([1, -2])
+    # c = jnp.array([-4, -2])
+    #
+    # verify(c, A_ub=A, b_ub=b)
+    #
+    # A = jnp.array(
+    #     [
+    #         [1.0, 1, -1, -1, 0, 0, 0, 0],
+    #         [1, 0, -1, 0, 1, 0, 0, 0],
+    #         [0, 1, 0, -1, 0, 1, 0, 0],
+    #         [1, 0, -1, 0, 0, 0, -1, 0],
+    #         [0, -1, 0, 1, 0, 0, 0, 1],
+    #     ]
+    # )
+    # b = jnp.array([1.2, 1.1, 0.1, 0.9, 0.1])
+    # c = jnp.array([1.0, 0, -1, 0, 0, 0, 0, 0])
+    #
+    # verify(c, A_eq=A, b_eq=b)
+    #
+    # # Programs with dependent constraints
+    #
+    # A = jnp.array([[1.0, 0], [1, 0]])
+    # b = jnp.array([3.0, 3])
+    # c = jnp.array([-1.0, 0])
+    #
+    # verify(c, A_ub=A, b_ub=b)
+    #
+    # A_eq = jnp.array([[1.0, 2]])
+    # b_eq = jnp.array([1.0])
+    # A_ub = jnp.array([[1.0, 0], [0, 1], [-1, 0], [0, -1]])
+    # b_ub = jnp.array([0.9, 0.1, -0.9, 0.1])
+    # c = jnp.array([0.0, 1])
+    #
+    # verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
+    #
+    # A_eq = jnp.array([[0.5, 0.5]])
+    # b_eq = jnp.array([0.4])
+    # A_ub = jnp.array([[1.0, 0.0], [0.0, 1.0], [-1.0, -0.0], [-0.0, -1.0]])
+    # b_ub = jnp.array([0.9, 0.1, -0.9, 0.1])
+    # c = -jnp.array([0.0, 1.0])
+    #
+    # verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
+    #
+    # # Programs based on aux var refinement
+    # N = 6
+    # aux_vars = jnp.array(
+    #     [
+    #         [jnp.cos(n * jnp.pi / (N + 1)), jnp.sin(n * jnp.pi / (N + 1))]
+    #         for n in range(1, N + 1)
+    #     ]
+    # )
+    # H = jnp.array([[1.0, 0.0], [0.0, 1.0]])
+    # Hs = [jnp.vstack((H, aux_vars[: i + 1])) for i in range(N)]
+    #
+    # A_eq = jnp.array([aux_vars[0]])
+    # b_eq = jnp.dot(aux_vars[0], jnp.array([1.1, 0.1])).reshape(-1)
+    # A_ub = jnp.array([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])
+    # b_ub = jnp.array([1.1, 0.1, -1.1, -0.1])
+    # c = aux_vars[0]
+    #
+    # verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
+
+    # Testing autodiff
+    A = jnp.array([[1.0, 1.0], [1.0, -1.0]])
+    b = jnp.array([3.0, 5.0])
+    c = jnp.array([-2.0, -1.0])
+
+    sol = linprog(c, A_ub=A, b_ub=b, unbounded=True)
+    print(sol)
+
+    g = jax.jacfwd(linprog, has_aux=True, argnums=0)
+    print(g(c, A_ub=A, b_ub=b, unbounded=True))
