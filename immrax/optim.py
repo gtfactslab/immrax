@@ -11,21 +11,17 @@ from functools import partial
 class SimplexStep:
     tableau: jax.Array
     basis: jax.Array
-    n_basis: jax.Array
+    x: jax.Array
 
     def __init__(
         self,
         tableau,
         basis,
         x,
-        feasible,
-        unbounded,
     ):
         self.tableau = tableau
         self.basis = basis
         self.x = x
-        self.feasible = feasible
-        self.unbounded = unbounded
 
     def tree_flatten(self):
         return (
@@ -33,10 +29,50 @@ class SimplexStep:
                 self.tableau,
                 self.basis,
                 self.x,
+            ),
+            "SimplexStep",
+        )
+
+    @classmethod
+    def tree_unflatten(cls, _, children):
+        return cls(*children)
+
+    @property
+    def fun(self) -> jax.Array:
+        return -self.tableau[-1, -1]
+
+    def __repr__(self) -> str:
+        return f"SimplexStep(tableau={self.tableau}, basis={self.basis}, x={self.x})"
+
+    def __str__(self) -> str:
+        def shapes(tup):
+            if hasattr(tup, "shape"):
+                return str(tup.shape)
+            return (
+                "("
+                + ", ".join([f"{i}: {item.shape}" for i, item in enumerate(tup)])
+                + ")"
+            )
+
+        return f"SimplexStep(tableau={shapes(self.tableau)}, basis={shapes(self.basis)}, x={shapes(self.x)})"
+
+
+@register_pytree_node_class
+class SimplexSolutionType:
+    feasible: jax.Array
+    unbounded: jax.Array
+
+    def __init__(self, feasible, unbounded):
+        self.feasible = feasible
+        self.unbounded = unbounded
+
+    def tree_flatten(self):
+        return (
+            (
                 self.feasible,
                 self.unbounded,
             ),
-            "SimplexStep",
+            "SimplexSolutionType",
         )
 
     @classmethod
@@ -47,12 +83,8 @@ class SimplexStep:
     def success(self) -> jax.Array:
         return jnp.logical_and(self.feasible, jnp.logical_not(self.unbounded))
 
-    @property
-    def fun(self) -> jax.Array:
-        return -self.tableau[-1, -1]
 
-
-def fuzzy_argmin(arr: jnp.ndarray, tolerance: float = 1e-5) -> jax.Array:
+def fuzzy_argmin(arr: jax.Array, tolerance: float = 1e-5) -> jax.Array:
     min_val = jnp.min(arr)
     within_tolerance = jnp.abs(arr - min_val) <= tolerance
     indices = jnp.arange(arr.shape[0])
@@ -102,21 +134,30 @@ def _standard_form(
     return (A, b, obj)
 
 
-def _iteration_needed(step: SimplexStep) -> jax.Array:
+def _iteration_needed(
+    simplex_data: Tuple[SimplexStep, SimplexSolutionType],
+) -> jax.Array:
+    step, sol_type = simplex_data
+
     _iteration_needed = jnp.less(
         step.tableau[-1, :-1], -1e-5
     ).any()  # Stop when optimal solution found
     _iteration_needed = jnp.logical_and(
-        _iteration_needed, step.feasible
+        _iteration_needed, sol_type.feasible
     )  # Stop if infeasible
     _iteration_needed = jnp.logical_and(
-        _iteration_needed, jnp.logical_not(step.unbounded)
+        _iteration_needed, jnp.logical_not(sol_type.unbounded)
     )  # Stop if unbounded
     return _iteration_needed[0]
 
 
-def _simplex(step: SimplexStep, num_cost_rows: int) -> SimplexStep:
-    def pivot(step: SimplexStep) -> SimplexStep:
+def _simplex(
+    step: SimplexStep, sol_type: SimplexSolutionType, num_cost_rows: int
+) -> Tuple[SimplexStep, SimplexSolutionType]:
+    def pivot(
+        simplex_data: Tuple[SimplexStep, SimplexSolutionType],
+    ) -> Tuple[SimplexStep, SimplexSolutionType]:
+        step, sol_type = simplex_data
         tableau = step.tableau
 
         # Find entering variable (with Bland's rule)
@@ -134,7 +175,7 @@ def _simplex(step: SimplexStep, num_cost_rows: int) -> SimplexStep:
             jnp.greater(exiting_rates, 1e-5), div, jnp.inf * jnp.ones_like(div)
         )  # Don't worry about constraints that entering var improves / doesn't affect
         exiting_row = fuzzy_argmin(ratios)
-        unbounded = jnp.all(exiting_rates < -1e-5).reshape(1)
+        sol_type.unbounded = jnp.all(exiting_rates < -1e-5).reshape(1)
 
         # Pivot
         pivot_val = tableau[exiting_row, entering_col]
@@ -157,17 +198,17 @@ def _simplex(step: SimplexStep, num_cost_rows: int) -> SimplexStep:
         x = jnp.zeros_like(step.x)
         x = x.at[basis].set(tableau[:-num_cost_rows, -1])
 
-        return SimplexStep(tableau, basis, x, step.feasible, unbounded)
+        return SimplexStep(tableau, basis, x), sol_type
 
     # NOTE: this looses reverse mode autodiff. We can accomplish all the same calculations
     # with forward mode, which this does not lose, but they might be slightly less efficient.
-    step = jax.lax.while_loop(_iteration_needed, pivot, step)
+    step, sol_type = jax.lax.while_loop(_iteration_needed, pivot, (step, sol_type))
 
     # Uncomment to debug
-    # while _iteration_needed(step):
-    #     step = pivot(step)
+    # while _iteration_needed((step, sol_type)):
+    #     step, sol_type = pivot((step, sol_type))
 
-    return step
+    return step, sol_type
 
 
 @partial(jax.jit, static_argnames=["unbounded"])
@@ -178,7 +219,7 @@ def linprog(
     A_ub: jax.Array = jnp.empty((0, 0)),
     b_ub: jax.Array = jnp.empty((0,)),
     unbounded: bool = False,
-) -> SimplexStep:
+) -> Tuple[SimplexStep, SimplexSolutionType]:
     """
     Solves a linear program of the form: min c @ x s.t. A_eq @ x = b_eq, A_ub @ x <= b_ub
 
@@ -209,8 +250,9 @@ def linprog(
 
     basis = jnp.arange(A.shape[1], A.shape[1] + A.shape[0])
     x = jnp.concatenate((jnp.zeros_like(c), b))
-    aux_start = SimplexStep(tableau, basis, x, jnp.array([True]), jnp.array([False]))
-    aux_sol = _simplex(aux_start, num_cost_rows=2)
+    aux_start = SimplexStep(tableau, basis, x)
+    aux_sol_type = SimplexSolutionType(jnp.array([True]), jnp.array([False]))
+    aux_sol, aux_sol_type = _simplex(aux_start, aux_sol_type, num_cost_rows=2)
     x = aux_sol.x[: c.size]
 
     # Remove auxiliary variables from tableau for real problem
@@ -254,10 +296,9 @@ def linprog(
         tableau,
         aux_sol.basis,
         aux_sol.x[: c.size],
-        feasible,
-        jnp.array([False]),
     )
-    sol = _simplex(real_start, num_cost_rows=1)
+    real_sol_type = SimplexSolutionType(feasible, jnp.array([False]))
+    sol, sol_type = _simplex(real_start, real_sol_type, num_cost_rows=1)
 
     # Remove synthetic variables from returned result
     if unbounded:
@@ -266,32 +307,35 @@ def linprog(
     else:
         sol.x, _ = jnp.split(sol.x, (len(obj),))
 
-    return sol
+    return sol, sol_type
 
 
-def compare(my_sol: SimplexStep, sp_sol: opt.OptimizeResult) -> Tuple[bool, str]:
-    if sp_sol.status == 2:
-        if not my_sol.feasible:
+def compare(
+    my_ans: Tuple[SimplexStep, SimplexSolutionType], sp_ans: opt.OptimizeResult
+) -> Tuple[bool, str]:
+    my_sol, my_sol_type = my_ans
+    if sp_ans.status == 2:
+        if not my_sol_type.feasible:
             return True, "SUCCESS: problem is infeasible"
         else:
             return False, "FAILURE: we did not detect problem as infeasible"
-    elif sp_sol.status == 3:
-        if my_sol.unbounded:
+    elif sp_ans.status == 3:
+        if my_sol_type.unbounded:
             return True, "SUCCESS: problem is unbounded"
         else:
             return False, "FAILURE: we did not detect problem as unbounded"
-    elif sp_sol.status == 0:
-        if my_sol.success:
-            correct = jnp.allclose(my_sol.fun, sp_sol.fun, atol=1e-7)
+    elif sp_ans.status == 0:
+        if my_sol_type.success:
+            correct = jnp.allclose(my_sol.fun, sp_ans.fun, atol=1e-7)
 
             if correct:
                 return True, f"SUCCESS: x={my_sol.x}"
             else:
                 return False, "FAILURE: objective value does not match"
         else:
-            if not my_sol.feasible:
+            if not my_sol_type.feasible:
                 return False, "FAILURE: we incorrectly identified problem as infeasible"
-            elif my_sol.unbounded:
+            elif my_sol_type.unbounded:
                 return False, "FAILURE: we incorrectly identified problem as unbounded"
 
     return False, "FAILURE: unknown status"
@@ -419,3 +463,20 @@ if __name__ == "__main__":
     c = aux_vars[0]
 
     verify(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, unbounded=True)
+
+    # Testing autodiff
+    # A = jnp.array(
+    #     [
+    #         [1.0, -1],
+    #         [3, 2],
+    #         [1, 0],
+    #         [-2, 3],
+    #     ]
+    # )
+    # b = jnp.array([1.0, 12, 2, 9])
+    # c = jnp.array([-4.0, -2])
+    #
+    # verify(c, A_ub=A, b_ub=b)
+    #
+    # dlp = jax.jacfwd(linprog)
+    # dlp(c, A_ub=A, b_ub=b)
