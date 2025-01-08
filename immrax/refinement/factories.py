@@ -36,14 +36,14 @@ class LinProgRefinement(Refinement):
             )  # TODO: try adding buffer region *inside* the bounds to collapsed face
             obj_vec_i = self.H[idx]
 
-            sol_min = linprog(
+            sol_min, sol_type_min = linprog(
                 obj=obj_vec_i,
                 A_ub=A_ub,
                 b_ub=b_ub,
                 unbounded=True,
             )
 
-            sol_max = linprog(
+            sol_max, sol_type_max = linprog(
                 obj=-obj_vec_i,
                 A_ub=A_ub,
                 b_ub=b_ub,
@@ -52,13 +52,13 @@ class LinProgRefinement(Refinement):
 
             # If a vector that gives extra info on this var is found, refine bounds
             new_lower_i = jnp.where(
-                sol_min.success,
+                sol_type_min.success,
                 jnp.maximum(sol_min.fun, ret.lower[idx]),
                 ret.lower[idx],
             )[0]
             retl = ret.lower.at[idx].set(new_lower_i)
             new_upper_i = jnp.where(
-                sol_max.success,
+                sol_type_max.success,
                 jnp.minimum(-sol_max.fun, ret.upper[idx]),
                 ret.upper[idx],
             )[0]
