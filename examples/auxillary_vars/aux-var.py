@@ -3,17 +3,16 @@ from typing import Literal
 
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-import numpy as onp
-from pypoman import (
-    plot_polygon,
-)  # TODO: Add pypoman to requirements. Need pycddlib==2.1.8.post1 for some reason
-from scipy.spatial import HalfspaceIntersection
 
 import immrax as irx
-from immrax.system import Trajectory
 from immrax.embedding import AuxVarEmbedding
 from immrax.inclusion import interval, mjacif
-from immrax.utils import angular_sweep, draw_iarray, run_times
+from immrax.utils import (
+    angular_sweep,
+    run_times,
+    draw_trajectory_2d,
+    draw_refined_trajectory_2d,
+)
 
 # Read papers about contraction and stability
 
@@ -39,27 +38,6 @@ class VanDerPolOsc(irx.System):
     def f(self, t, x: jnp.ndarray) -> jnp.ndarray:
         x1, x2 = x.ravel()
         return jnp.array([self.mu * (x1 - 1 / 3 * x1**3 - x2), x1 / self.mu])
-
-
-def draw_trajectory_2d(traj: Trajectory):
-    y_int = [irx.ut2i(y) for y in traj.ys]
-    for bound in y_int:
-        draw_iarray(plt.gca(), bound, alpha=0.4)
-
-
-def draw_refined_trajectory_2d(traj: Trajectory, H: jnp.ndarray):
-    ys_int = [irx.ut2i(y) for y in traj.ys]
-    for bound in ys_int:
-        cons = onp.hstack(
-            (
-                onp.vstack((-H, H)),
-                onp.concatenate((bound.lower, -bound.upper)).reshape(-1, 1),
-            )
-        )
-        hs = HalfspaceIntersection(cons, bound.center[0:2])
-        vertices = hs.intersections
-
-        plot_polygon(vertices, fill=False, resize=True, color="tab:blue")
 
 
 def show_refinements(mode: Literal["sample", "linprog"]):
@@ -92,7 +70,7 @@ def show_refinements(mode: Literal["sample", "linprog"]):
         )
         ys_int = [irx.ut2i(y) for y in traj.ys]
         print(
-            f"Computing trajectory with {mode} refinement for {i+1} aux vars took: {comp_time}s"
+            f"Computing trajectory with {mode} refinement for {i + 1} aux vars took: {comp_time}s"
         )
         print(f"Final bound: \n{ys_int[-1][:2]}")
         pickle.dump(ys_int, open(f"{mode}_traj_{i}.pkl", "wb"))
@@ -100,7 +78,7 @@ def show_refinements(mode: Literal["sample", "linprog"]):
         # Display results
         # plt.sca(axs[i])
         # axs[i].set_title(rf"$\theta = {i+1} \frac{{\pi}}{{{N+1}}}$")
-        plt.gca().set_title(rf"$\theta = {i+1} \frac{{\pi}}{{{N+1}}}$")
+        plt.gca().set_title(rf"$\theta = {i + 1} \frac{{\pi}}{{{N + 1}}}$")
         draw_refined_trajectory_2d(traj, H)
 
 

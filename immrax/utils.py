@@ -6,12 +6,21 @@ import jax
 from jax._src.traceback_util import api_boundary
 from jax._src.util import wraps
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import numpy as onp
+from pypoman import plot_polygon
+from scipy.spatial import HalfspaceIntersection
 import shapely.geometry as sg
 import shapely.ops as so
 
+import immrax as irx
 from immrax.inclusion import Corner, Interval, all_corners, i2lu, i2ut, ut2i
+from immrax.system import Trajectory
+
+# ================================================================================
+# Function wrappers
+# ================================================================================
 
 
 def timed(f: Callable):
@@ -35,15 +44,9 @@ def run_times(N: int, f: Callable, *args, **kwargs):
     return ret, jnp.array(times)
 
 
-def d_metzler(A):
-    diag = jnp.diag_indices_from(A)
-    Am = jnp.clip(A, 0, jnp.inf).at[diag].set(A[diag])
-    return Am, A - Am
-
-
-def d_positive(B):
-    return jnp.clip(B, 0, jnp.inf), jnp.clip(B, -jnp.inf, 0)
-
+# ================================================================================
+# Plotting
+# ================================================================================
 
 sg_box = lambda x, xi=0, yi=1: sg.box(
     x[xi].lower, x[yi].lower, x[xi].upper, x[yi].upper
@@ -115,6 +118,35 @@ def plot_interval_t(ax, tt, x, **kwargs):
     ax.plot(tt, xu, **kwargs)
 
 
+def draw_trajectory_2d(traj: Trajectory):
+    y_int = [irx.ut2i(y) for y in traj.ys]
+    for bound in y_int:
+        draw_iarray(plt.gca(), bound, alpha=0.4)
+
+
+def draw_refined_trajectory_2d(traj: Trajectory, H: jnp.ndarray):
+    ys_int = [irx.ut2i(y) for y in traj.ys]
+    for bound in ys_int:
+        dx = 1e-3 * jnp.ones_like(bound.lower)
+        cons = onp.hstack(
+            (
+                onp.vstack((-H, H)),
+                onp.concatenate((bound.lower - dx, -bound.upper - dx)).reshape(-1, 1),
+            )
+        )
+        hs = HalfspaceIntersection(cons, bound.center[0 : H.shape[1]])
+        # try:
+        #     hs = HalfspaceIntersection(cons, bound.center[0 : H.shape[1]])
+        # except Exception:
+        #     x = bound.center[0 : H.shape[1]]
+        #     print(bound.lower[0 : H.shape[1]], H @ x, bound.upper[0 : H.shape[1]])
+
+        vertices = hs.intersections[:, 0:2]
+        # vertices = np.vstack((hs.intersections[:, 0], hs.intersections[:, 2])).T
+
+        plot_polygon(vertices, fill=False, resize=True, color="tab:blue")
+
+
 def get_half_intervals(x: Interval, N=1, ut=False):
     _xx_0 = i2ut(x) if ut is False else x
     n = len(_xx_0) // 2
@@ -133,6 +165,11 @@ def get_half_intervals(x: Interval, N=1, ut=False):
         return ret
     else:
         return [ut2i(part) for part in ret]
+
+
+# ================================================================================
+# Math
+# ================================================================================
 
 
 # @partial(jax.jit,static_argnums=(1,))
@@ -215,3 +252,13 @@ def angular_sweep(N: int):
             for n in range(1, N + 1)
         ]
     )
+
+
+def d_metzler(A):
+    diag = jnp.diag_indices_from(A)
+    Am = jnp.clip(A, 0, jnp.inf).at[diag].set(A[diag])
+    return Am, A - Am
+
+
+def d_positive(B):
+    return jnp.clip(B, 0, jnp.inf), jnp.clip(B, -jnp.inf, 0)
