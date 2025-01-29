@@ -1,6 +1,8 @@
 import pickle
 from typing import Literal
+import time 
 
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
@@ -43,7 +45,9 @@ class VanDerPolOsc(irx.System):
 def show_refinements(mode: Literal["sample", "linprog"]):
     fig = plt.figure()
     # fig, axs = plt.subplots(int(jnp.ceil(N / 3)), 3, figsize=(5, 5))
-    fig.suptitle(f"{sys.name} with Uncertainty ({mode} Refinement)")
+    fig.suptitle(f"Reachable Sets of the {sys.name}")
+    plt.gca().set_xlabel(r"$x_1$")
+    plt.gca().set_ylabel(r"$x_2$")
     # axs = axs.reshape(-1)
 
     H = jnp.array([[1.0, 0.0], [0.0, 1.0]])
@@ -56,21 +60,24 @@ def show_refinements(mode: Literal["sample", "linprog"]):
         if i < N - 1:
             continue
 
-        # Compute sample refined trajectory
+        # Compute refined trajectory
         auxsys = AuxVarEmbedding(sys, H, mode=mode, if_transform=mjacif)
         print("Compiling...")
-        auxsys.compute_trajectory(0.0, 0.01, irx.i2ut(lifted_x0_int))
+        start = time.time()
+        get_traj = jax.jit(lambda t0, tf, x0: auxsys.compute_trajectory(t0, tf, x0), backend="cpu")
+        get_traj(0.0, 0.01, irx.i2ut(lifted_x0_int))
+        print(f"Compilation took: {time.time() - start}s")
         print("Compiled.\nComputing trajectory...")
         traj, comp_time = run_times(
             1,
-            auxsys.compute_trajectory,
+            get_traj,
             0.0,
             sim_len,
             irx.i2ut(lifted_x0_int),
         )
         ys_int = [irx.ut2i(y) for y in traj.ys]
         print(
-            f"Computing trajectory with {mode} refinement for {i + 1} aux vars took: {comp_time}s"
+            f"Computing trajectory with {mode} refinement for {i + 1} aux vars took: {comp_time.mean()} ± {comp_time.std()}s"
         )
         print(f"Final bound: \n{ys_int[-1][:2]}")
         pickle.dump(ys_int, open(f"{mode}_traj_{i}.pkl", "wb"))
@@ -78,12 +85,12 @@ def show_refinements(mode: Literal["sample", "linprog"]):
         # Display results
         # plt.sca(axs[i])
         # axs[i].set_title(rf"$\theta = {i+1} \frac{{\pi}}{{{N+1}}}$")
-        plt.gca().set_title(rf"$\theta = {i + 1} \frac{{\pi}}{{{N + 1}}}$")
+        # plt.gca().set_title(rf"$\theta = {i + 1} \frac{{\pi}}{{{N + 1}}}$")
         draw_refined_trajectory_2d(traj, H)
 
 
 x0_int = irx.icentpert(jnp.array([1.0, 0.0]), jnp.array([0.1, 0.1]))
-sim_len = 6.28
+sim_len = 0.628
 
 # Certain values of N are not good choices, as they will generate angle theta=pi/2, which is redundant with the actual state vars
 N = 6
@@ -105,8 +112,8 @@ plt.gcf().suptitle(f"{sys.name} with Uncertainty (No Refinement)")
 draw_trajectory_2d(traj)
 
 
-show_refinements("sample")
-# show_refinements("linprog")
+# show_refinements("sample")
+show_refinements("linprog")
 
 print("Plotting finished")
 plt.show()
