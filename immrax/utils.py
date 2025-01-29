@@ -64,12 +64,12 @@ def draw_sg_union(ax, boxes, **kwargs):
     ax.fill(xs, ys, **kwargs)
 
 
-draw_iarray = lambda ax, x, xi=0, yi=1, **kwargs: draw_sg_union(
-    ax, [sg_box(x, xi, yi)], **kwargs
-)
-draw_iarrays = lambda ax, xx, xi=0, yi=1, **kwargs: draw_sg_union(
-    ax, sg_boxes(xx, xi, yi), **kwargs
-)
+def draw_iarray(ax, x, xi=0, yi=1, **kwargs):
+    return draw_sg_union(ax, [sg_box(x, xi, yi)], **kwargs)
+
+
+def draw_iarrays(ax, xx, xi=0, yi=1, **kwargs):
+    return draw_sg_union(ax, sg_boxes(xx, xi, yi), **kwargs)
 
 
 def draw_iarray_3d(ax, x, xi=0, yi=1, zi=2, **kwargs):
@@ -118,14 +118,18 @@ def plot_interval_t(ax, tt, x, **kwargs):
     ax.plot(tt, xu, **kwargs)
 
 
-def draw_trajectory_2d(traj: Trajectory):
+def draw_trajectory_2d(traj: Trajectory, **kwargs):
     y_int = [irx.ut2i(y) for y in traj.ys]
+    alpha = kwargs.pop("alpha", 0.4)
+    label = kwargs.pop("label", None)
     for bound in y_int:
-        draw_iarray(plt.gca(), bound, alpha=0.4)
+        draw_iarray(plt.gca(), bound, alpha=alpha, label=label, **kwargs)
+        label = "_nolegend_"  # Only label the first plot
 
 
-def draw_refined_trajectory_2d(traj: Trajectory, H: jnp.ndarray):
+def draw_refined_trajectory_2d(traj: Trajectory, H: jnp.ndarray, **kwargs):
     ys_int = [irx.ut2i(y) for y in traj.ys]
+    color = kwargs.pop("color", "tab:blue")
     for bound in ys_int:
         dx = 1e-3 * jnp.ones_like(bound.lower)
         cons = onp.hstack(
@@ -144,7 +148,9 @@ def draw_refined_trajectory_2d(traj: Trajectory, H: jnp.ndarray):
         vertices = hs.intersections[:, 0:2]
         # vertices = np.vstack((hs.intersections[:, 0], hs.intersections[:, 2])).T
 
-        plot_polygon(vertices, fill=False, resize=True, color="tab:blue")
+        plot_polygon(
+            vertices, fill=False, resize=True, color=color, **kwargs
+        )
 
 
 def get_half_intervals(x: Interval, N=1, ut=False):
