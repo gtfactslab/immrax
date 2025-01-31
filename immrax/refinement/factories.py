@@ -5,7 +5,7 @@ from typing import Callable
 import jax
 import jax.numpy as jnp
 
-from immrax.optim import linprog
+from linrax import linprog
 from immrax.inclusion import Interval, icopy, interval
 from immrax.utils import angular_sweep, null_space
 

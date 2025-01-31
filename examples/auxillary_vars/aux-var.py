@@ -1,6 +1,6 @@
 import pickle
 from typing import Literal
-import time 
+import time
 
 import jax
 import jax.numpy as jnp
@@ -64,7 +64,9 @@ def show_refinements(mode: Literal["sample", "linprog"]):
         auxsys = AuxVarEmbedding(sys, H, mode=mode, if_transform=mjacif)
         print("Compiling...")
         start = time.time()
-        get_traj = jax.jit(lambda t0, tf, x0: auxsys.compute_trajectory(t0, tf, x0), backend="cpu")
+        get_traj = jax.jit(
+            lambda t0, tf, x0: auxsys.compute_trajectory(t0, tf, x0), backend="cpu"
+        )
         get_traj(0.0, 0.01, irx.i2ut(lifted_x0_int))
         print(f"Compilation took: {time.time() - start}s")
         print("Compiled.\nComputing trajectory...")

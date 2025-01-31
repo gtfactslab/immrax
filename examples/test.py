@@ -6,7 +6,7 @@ import jax
 from jaxopt import OSQP
 
 from immrax.utils import run_times
-from immrax.optim import linprog
+from linrax import linprog
 
 # Generate a random non-trivial linear program.
 m = 200
