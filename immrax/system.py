@@ -27,35 +27,51 @@ class Trajectory:
     _ys: jnp.ndarray
     tfinite: jnp.ndarray
 
-    def __init__(self, ts: jax.Array, ys: jax.Array) -> None:
+    def __init__(self, ts: jax.Array, ys: jax.Array, tfinite: jax.Array) -> None:
         self._ts = ts
         self._ys = ys
-        self.tfinite = jnp.where(
-            jnp.isfinite(ts),
-            jnp.ones_like(ts, dtype=bool),
-            jnp.zeros_like(ts, dtype=bool),
-        )
+        self.tfinite = tfinite
 
     @staticmethod
     def from_diffrax(sol: Solution) -> "Trajectory":
         ts = sol.ts if sol.ts is not None else jnp.empty(0)
         ys = sol.ys if sol.ys is not None else jnp.empty(0)
-        return Trajectory(ts, ys)
+        tfinite = jnp.isfinite(ts)
+        return Trajectory(ts, ys, tfinite)
 
     def tree_flatten(self):
-        return ((self._ts, self._ys), "Trajectory")
+        return ((self._ts, self._ys, self.tfinite), "Trajectory")
 
     @classmethod
     def tree_unflatten(cls, _, children):
         return cls(*children)
 
+    # NOTE: Currently, Trajectory objects that were produced by vmapping over time will 
+    # behave badly. Because this class is a pytree, a "list" of Trajectory objects is 
+    # automatically flattened into just one object, and the dimensions of the children 
+    # arrays are adjusted to accomodate this. If the indices of every trajectory do not 
+    # correspond to the same time point, this will result in a Trajectory object where
+    # some sub-trajectories might have different indices that are finite, making the 
+    # below boolean index give a ragged result. 
+    # 
+    # This is difficult to deal with, and we don't currently have a good solution.
+    #
+    # Also note that if the trajectory was produced with an adaptive step size controller, 
+    # then different trajectories might also have indices that map to different times, 
+    # causing the same issue. (Though, in this case the offset is likely to be smaller.)
     @property
     def ts(self):
-        return self._ts[self.tfinite]
+        filtered = self._ts[self.tfinite]
+        shape = list(self._ts.shape)
+        shape[-1] = jnp.sum(self.tfinite[(0,) * (self.tfinite.ndim - 1)]).item()
+        return filtered.reshape(shape)
 
     @property
     def ys(self):
-        return self._ys[self.tfinite]
+        filtered = self._ys[self.tfinite]
+        shape = list(self._ys.shape)
+        shape[-2] = jnp.sum(self.tfinite[(0,) * (self.tfinite.ndim - 1)]).item()
+        return filtered.reshape(shape)
 
 
 class EvolutionError(Exception):
@@ -196,10 +212,10 @@ class System(abc.ABC):
                 raise Exception(f"{solver=} is not a valid solver")
 
             saveat = SaveAt(t0=True, t1=True, steps=True)
-            return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
-            # return Trajectory.from_diffrax(
-            #     diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
-            # )
+            # return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+            return Trajectory.from_diffrax(
+                diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+            )
 
         elif self.evolution == "discrete":
             if not isinstance(t0, int) or not isinstance(tf, int):
@@ -214,7 +230,7 @@ class System(abc.ABC):
 
             times = jnp.arange(t0, tf + 1)
             _, traj = jax.lax.scan(step, x0, times)
-            return Trajectory(times, jnp.vstack((x0, traj)))
+            return Trajectory(times, jnp.vstack((x0, traj)), jnp.ones_like(times, dtype=bool))
         else:
             raise Exception(
                 f"Evolution needs to be 'continuous' or 'discrete', got {self.evolution=}"
