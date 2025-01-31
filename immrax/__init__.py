@@ -41,6 +41,7 @@ from .embedding import (
     natemb,
     jacemb,
     mjacemb,
+    embed,
 )
 
 from . import refinement as refinement

@@ -162,6 +162,38 @@ def ifemb(sys: System, F: Callable[..., Interval]):
     """
     return InclusionEmbedding(sys, F)
 
+def embed (F: Callable[..., Interval]) :
+    def E (
+        t: Any,
+        x: jax.Array,
+        *args,
+        refine: Callable[[Interval], Interval] | None = None,
+        **kwargs,
+    ) :
+        n = len(x) // 2
+        _x = x[:n]
+        x_ = x[n:]
+
+        if refine is not None:
+            Fkwargs = lambda t, x, *args: F(t, refine(x), *args, **kwargs)
+        else:
+            Fkwargs = partial(F, **kwargs)
+
+        # Computing F on the faces of the hyperrectangle
+
+        _X = interval(
+            jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
+        )
+        _E = interval(jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, _X, *args))
+
+        X_ = interval(
+            jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
+        )
+        E_ = interval(jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, X_, *args))
+
+        return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
+    return E
+
 
 class TransformEmbedding(InclusionEmbedding):
     def __init__(self, sys: System, if_transform=natif) -> None:
