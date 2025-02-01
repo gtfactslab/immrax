@@ -28,7 +28,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cuda = ["jax[cuda12_pip] == 0.4.35"]
+cuda = [
+	"jax[cuda12_pip] == 0.4.35",
+	"linrax[cuda]",
+]
 
 examples = [
 	"casadi ~= 3.6.7",
