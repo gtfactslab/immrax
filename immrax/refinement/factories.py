@@ -37,14 +37,14 @@ class LinProgRefinement(Refinement):
             obj_vec_i = self.H[idx]
 
             sol_min, sol_type_min = linprog(
-                obj=obj_vec_i,
+                c=obj_vec_i,
                 A_ub=A_ub,
                 b_ub=b_ub,
                 unbounded=True,
             )
 
             sol_max, sol_type_max = linprog(
-                obj=-obj_vec_i,
+                c=-obj_vec_i,
                 A_ub=A_ub,
                 b_ub=b_ub,
                 unbounded=True,

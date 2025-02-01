@@ -148,9 +148,7 @@ def draw_refined_trajectory_2d(traj: Trajectory, H: jnp.ndarray, **kwargs):
         vertices = hs.intersections[:, 0:2]
         # vertices = np.vstack((hs.intersections[:, 0], hs.intersections[:, 2])).T
 
-        plot_polygon(
-            vertices, fill=False, resize=True, color=color, **kwargs
-        )
+        plot_polygon(vertices, fill=False, resize=True, color=color, **kwargs)
 
 
 def get_half_intervals(x: Interval, N=1, ut=False):
