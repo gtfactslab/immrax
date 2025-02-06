@@ -65,7 +65,8 @@ def show_refinements(mode: Literal["sample", "linprog"]):
         print("Compiling...")
         start = time.time()
         get_traj = jax.jit(
-            lambda t0, tf, x0: auxsys.compute_trajectory(t0, tf, x0), backend="cpu"
+            lambda t0, tf, x0: auxsys.compute_trajectory(t0, tf, x0, solver="euler"),
+            backend="cpu",
         )
         get_traj(0.0, 0.01, irx.i2ut(lifted_x0_int))
         print(f"Compilation took: {time.time() - start}s")
