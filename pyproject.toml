@@ -7,7 +7,7 @@ allow-direct-references = true
 
 [project]
 name = "immrax"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
     "numpy < 2",
     "scipy ~= 1.14.1",
@@ -18,13 +18,13 @@ dependencies = [
     "tabulate ~= 0.9.0",
     "sympy ~= 1.13.2",
     "sympy2jax ~= 0.0.5",
-	"jax == 0.4.35",
+    "jax == 0.4.35",
     "jaxtyping ~= 0.2.33",
     "diffrax == 0.5.0",
     "equinox ~= 0.11.5",
     "immutabledict ~= 4.2.0",
     "jax_verify@git+https://github.com/Akash-Harapanahalli/jax_verify.git",
-	"linrax"
+    "linrax"
 ]
 
 [project.optional-dependencies]
