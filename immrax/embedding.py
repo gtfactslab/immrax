@@ -10,6 +10,16 @@ from .refinement import SampleRefinement, LinProgRefinement
 from .inclusion import Interval, i2ut, interval, jacif, mjacif, natif, ut2i
 from .system import LiftedSystem, System
 
+__all__ = [
+    "EmbeddingSystem",
+    "InclusionEmbedding",
+    "TransformEmbedding",
+    "ifemb",
+    "natemb",
+    "jacemb",
+    "mjacemb",
+    "embed",
+]
 
 class EmbeddingSystem(System, abc.ABC):
     """EmbeddingSystem

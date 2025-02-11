@@ -18,6 +18,16 @@ from jax._src.api import api_boundary
 
 from immrax.system import OpenLoopSystem
 
+__all__ = [
+    "NeuralNetwork",
+    "CROWNResult",
+    "FastlinResult",
+    "crown",
+    "fastlin",
+    "NNCSystem",
+    "NNCEmbeddingSystem",
+]
+
 class NeuralNetwork (Control, eqx.Module) :
     """NeuralNetwork
     
