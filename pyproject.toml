@@ -36,5 +36,6 @@ cuda = [
 examples = [
 	"casadi ~= 3.6.7",
 	"control ~= 0.10.1",
-	"cyipopt ~= 1.5.0"
+    "ipykernel ~= 6.29.5",
+	# "cyipopt ~= 1.5.0"
 ]
