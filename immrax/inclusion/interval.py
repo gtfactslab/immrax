@@ -1,3 +1,4 @@
+from typing import List
 import jax
 from jax.tree_util import register_pytree_node_class
 import jax.numpy as jnp
@@ -62,6 +63,9 @@ class Interval:
         return interval(
             self.lower.reshape(*args, **kwargs), self.upper.reshape(*args, **kwargs)
         )
+
+    def ravel(self) -> List["Interval"]:
+        return [interval(l, u) for l, u in zip(self.lower.ravel(), self.upper.ravel())]
 
     def atleast_1d(self) -> "Interval":
         return interval(jnp.atleast_1d(self.lower), jnp.atleast_1d(self.upper))
