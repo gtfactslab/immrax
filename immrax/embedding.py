@@ -4,9 +4,9 @@ from typing import Any, Callable, Literal, Union
 
 import jax
 import jax.numpy as jnp
-from jaxtyping import Float, Integer
+from jaxtyping import Float, Integer, Bool, Array
 
-from .refinement import SampleRefinement, LinProgRefinement
+from .refinement import SampleRefinement, LinProgRefinement, NullVecRefinement
 from .inclusion import Interval, i2ut, interval, jacif, mjacif, natif, ut2i
 from .system import LiftedSystem, System
 
@@ -280,12 +280,14 @@ class AuxVarEmbedding(InclusionEmbedding):
     def __init__(
         self,
         sys: System,
-        H: jax.Array,
-        mode: Literal["sample", "linprog"] = "sample",
+        H: Float[Array, "lstates bstates"],
+        *,
+        base_invariants: Bool[Array, "lstates"] | None = None,
         if_transform: Callable[[Callable[..., jnp.ndarray]], Callable[..., Interval]]
         | None = None,
         F: Callable[..., Interval] | None = None,
-        num_samples=10,
+        mode: Literal["sample", "linprog"] = "sample",
+        num_samples: int =10,
     ) -> None:
         """
         Embedding system defined by auxiliary variables. Given a base system with dimension n
@@ -312,9 +314,8 @@ class AuxVarEmbedding(InclusionEmbedding):
         """
         self.H = H
         # self.Hp = jnp.linalg.pinv(H)
-        self.Hp = jnp.hstack(
-            (jnp.eye(H.shape[1]), jnp.zeros((H.shape[1], H.shape[0] - H.shape[1])))
-        )
+        H_inv = jnp.linalg.inv(H[: H.shape[1]])
+        self.Hp = jnp.hstack([H_inv, jnp.zeros((H.shape[1], H.shape[0] - H.shape[1]))])
 
         liftsys = LiftedSystem(sys, self.H, self.Hp)
 
@@ -327,10 +328,16 @@ class AuxVarEmbedding(InclusionEmbedding):
                 "Invalid mode argument. Mode must be either 'sample' or 'linprog'."
             )
 
+        def liftf(t, x, *args, **kwargs):
+            dx = liftsys.f(t, x, *args, **kwargs)
+            if base_invariants is not None:
+                dx = dx.at[base_invariants].set(0)
+            return dx
+
         if F is None and if_transform is None:
-            F = natif(liftsys.f)  # default to natif
+            F = natif(liftf)  # default to natif
         elif if_transform is not None and F is None:
-            F = if_transform(liftsys.f)
+            F = if_transform(liftf)
         elif F is not None and if_transform is None:
             pass  # do nothing, take F as given
         else:
