@@ -118,8 +118,12 @@ def plot_interval_t(ax, tt, x, **kwargs):
     ax.plot(tt, xu, **kwargs)
 
 
-def draw_trajectory_2d(traj: Trajectory, **kwargs):
-    y_int = [irx.ut2i(y) for y in traj.ys]
+def draw_trajectory_2d(traj: Trajectory, vars=(0, 1), **kwargs):
+    n = traj.ys[0].shape[0] // 2
+    y_int = [
+        irx.ut2i(jnp.array([y[vars[0]], y[vars[1]], y[vars[0] + n], y[vars[1] + n]]))
+        for y in traj.ys
+    ]  # TODO: fix indexing
     alpha = kwargs.pop("alpha", 0.4)
     label = kwargs.pop("label", None)
     for bound in y_int:
@@ -127,7 +131,7 @@ def draw_trajectory_2d(traj: Trajectory, **kwargs):
         label = "_nolegend_"  # Only label the first plot
 
 
-def draw_refined_trajectory_2d(traj: Trajectory, H: jnp.ndarray, **kwargs):
+def draw_refined_trajectory_2d(traj: Trajectory, H: jnp.ndarray, vars=(0, 1), **kwargs):
     ys_int = [irx.ut2i(y) for y in traj.ys]
     color = kwargs.pop("color", "tab:blue")
     for bound in ys_int:
@@ -146,7 +150,7 @@ def draw_refined_trajectory_2d(traj: Trajectory, H: jnp.ndarray, **kwargs):
         #     print(bound.lower[0 : H.shape[1]], H @ x, bound.upper[0 : H.shape[1]])
 
         vertices = hs.intersections[:, 0:2]
-        # vertices = np.vstack((hs.intersections[:, 0], hs.intersections[:, 2])).T
+        vertices = onp.vstack((hs.intersections[:, vars[0]], hs.intersections[:, vars[1]])).T
 
         plot_polygon(vertices, fill=False, resize=True, color=color, **kwargs)
 

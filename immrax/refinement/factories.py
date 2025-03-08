@@ -75,6 +75,16 @@ class LinProgRefinement(Refinement):
         return I_r
 
 
+def callback(y, lower, upper):
+    if (
+        jnp.logical_not(jnp.isnan(y.lower).any())
+        or jnp.logical_not(jnp.isnan(y.upper).any())
+    ) and (jnp.isnan(lower).any() or jnp.isnan(upper).any()):
+        jax.debug.print("First nan caused by refine!")
+    elif (jnp.isnan(y.lower).any() or jnp.isnan(y.upper).any()): 
+        jax.debug.print("First nan caused outside refine!")
+
+
 class SampleRefinement(Refinement):
     H: jnp.ndarray
     Hp: jnp.ndarray
@@ -154,8 +164,17 @@ class SampleRefinement(Refinement):
 
         def best_refinement(y: Interval):
             refinements = mat_refine_all(self.A_lib, jnp.arange(len(y)), y)
+            lower = jnp.fmax(
+                y.lower, refinements.lower
+            )  # Some refinements don't work, we need to ignore nans
+            upper = jnp.fmin(y.upper, refinements.upper)
+            # jax.debug.print("lower: {0}, upper: {1}", jnp.isnan(y.lower).any(), jnp.isnan(y.upper).any())
+            # jax.debug.print("og bound?: {0}", jnp.all(refinements.lower < y.upper))
+            jax.debug.callback(callback, y, lower, upper)
+
             return interval(
-                jnp.max(refinements.lower, axis=0), jnp.min(refinements.upper, axis=0)
+                jnp.max(lower, axis=0),  # TODO: I need to cap this at upper boun
+                jnp.min(upper, axis=0),
             )
 
         return best_refinement

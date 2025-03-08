@@ -133,15 +133,23 @@ class InclusionEmbedding(EmbeddingSystem):
         **kwargs,
     ) -> jax.Array:
         t = interval(t)
+        # jax.debug.print("isnan: {0}", jnp.isnan(x).any())
 
         if refine is not None:
             convert = lambda x: refine(ut2i(x))
             Fkwargs = lambda t, x, *args: self.F(t, refine(x), *args, **kwargs)
+            # convert = ut2i
+            Fkwargs = partial(self.F, **kwargs)
         else:
             convert = ut2i
             Fkwargs = partial(self.F, **kwargs)
 
         x_int = convert(x)
+        # jax.debug.print(
+        #     "lower: {0}, upper: {1}",
+        #     jnp.isnan(x_int.lower).any(),
+        #     jnp.isnan(x_int.upper).any(),
+        # )
 
         if self.evolution == "continuous":
             n = self.sys.xlen
@@ -154,15 +162,15 @@ class InclusionEmbedding(EmbeddingSystem):
                 jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
             )
             _E = jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, _X, *args)
-            # _E = jnp.array([self.Fi[i](t, _X[i], *args, **kwargs).lower for i in range(n)])
 
             X_ = interval(
                 jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
             )
             E_ = jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, X_, *args)
-            # E_ = jnp.array([self.Fi[i](t, X_[i], *args, **kwargs).upper for i in range(n)])
 
             # return jnp.concatenate((_E, E_))
+            output = jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
+            # jax.debug.print("output isnan: {0}", jnp.isnan(output).any())
             return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
 
         elif self.evolution == "discrete":
