@@ -138,8 +138,6 @@ class InclusionEmbedding(EmbeddingSystem):
         if refine is not None:
             convert = lambda x: refine(ut2i(x))
             Fkwargs = lambda t, x, *args: self.F(t, refine(x), *args, **kwargs)
-            # convert = ut2i
-            Fkwargs = partial(self.F, **kwargs)
         else:
             convert = ut2i
             Fkwargs = partial(self.F, **kwargs)
