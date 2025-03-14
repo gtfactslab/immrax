@@ -75,16 +75,6 @@ class LinProgRefinement(Refinement):
         return I_r
 
 
-def callback(y, lower, upper):
-    if (
-        jnp.logical_not(jnp.isnan(y.lower).any())
-        or jnp.logical_not(jnp.isnan(y.upper).any())
-    ) and (jnp.isnan(lower).any() or jnp.isnan(upper).any()):
-        jax.debug.print("First nan caused by refine!")
-    elif (jnp.isnan(y.lower).any() or jnp.isnan(y.upper).any()): 
-        jax.debug.print("First nan caused outside refine!")
-
-
 class SampleRefinement(Refinement):
     H: jax.Array
     Hp: jax.Array
@@ -168,9 +158,6 @@ class SampleRefinement(Refinement):
                 y.lower, refinements.lower
             )  # Some refinements don't work, we need to ignore nans
             upper = jnp.fmin(y.upper, refinements.upper)
-            # jax.debug.print("lower: {0}, upper: {1}", jnp.isnan(y.lower).any(), jnp.isnan(y.upper).any())
-            # jax.debug.print("og bound?: {0}", jnp.all(refinements.lower < y.upper))
-            jax.debug.callback(callback, y, lower, upper)
 
             return interval(
                 jnp.max(lower, axis=0),  # TODO: I need to cap this at upper boun
@@ -179,8 +166,8 @@ class SampleRefinement(Refinement):
 
         return best_refinement
 
-class NullVecRefinement(Refinement):
 
+class NullVecRefinement(Refinement):
     null_vec: jax.Array
 
     def __init__(self, null_vec: jax.Array) -> None:
