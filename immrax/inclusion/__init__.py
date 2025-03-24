@@ -10,6 +10,8 @@ from .interval import (
     ut2i,
     iconcatenate,
     izeros,
+    interval_intersect,
+    interval_union
 )
 
 from . import nif as nif

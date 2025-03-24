@@ -9,18 +9,48 @@ import numpy as onp
 from matplotlib.path import Path
 # import transforms from matplotlib
 from matplotlib import transforms
+from jax.tree_util import register_pytree_node_class
+from ...inclusion import Interval, interval, icentpert
 
-
+@register_pytree_node_class
 class Ellipsoid (DualStar) :
-    def __init__ (self, ox, H, uy) :
-        super().__init__(ox, [lambda x: x.T @ x], [H], [0.], [uy])
+    def __init__ (self, ox, H, ly, uy) :
+        # ly = jnp.zeros_like(uy) if uy is not None else None
+        super().__init__(ox, [H], [ly], [uy])
+
+    @classmethod
+    def from_ds (cls, ds:DualStar) :
+        return Ellipsoid(ds.ox, ds.H[0], ds.ly[0], ds.uy[0])
+
+    def g (self, i:int, a:ArrayLike) :
+        if i != 0 : 
+            raise Exception(f"Ellipsoid has only one constraint, got {i=}")
+        return a.T @ a
+
+    def ginv (self, i:int, iy:Interval) :
+        # Returns a box containing the preimage of the constraint over iy
+
+        if i != 0 : 
+            raise Exception(f"Ellipsoid has only one constraint, got {i=}")
+        
+        n = len(self.ox)
+
+        # |x|_inf \leq |x|_2 \leq \sqrt{n} |x|_inf
+        return icentpert(jnp.zeros(n), jnp.sqrt(iy.upper)*jnp.ones(n))
+
+    def iover (self) :
+        return self.ginv(self.H@interval(self.ly, self.uy))
+
+    @property
+    def P (self) :
+        return self.H[0].T @ self.H[0]
 
     def V (self, x:ArrayLike) :
-        P = self.H[0].T @ self.H[0]
-        return (x - self.ox).T @ P @ (x - self.ox)
+        Hx = self.H[0] @ (x - self.ox)
+        return Hx.T @ Hx
     
     def plot_projection (self, ax, xi=0, yi=1, rescale=False, **kwargs) :
-        P = self.H[0].T @ self.H[0] / self.uy[0]
+        P = self.P / self.uy[0]
         n = P.shape[0]
         if n == 2 :
             _plot_ellipse (P, self.ox, ax, rescale, **kwargs)
@@ -34,10 +64,10 @@ class Ellipsoid (DualStar) :
         _plot_ellipse(Q, self.ox[(xi,yi),], ax, rescale, **kwargs)
 
     def __repr__(self) :
-        return f'Ellipsoid(P={self.P}, xc={self.xc})'
+        return f'Ellipsoid(ox={self.ox}, H={self.H}, uy={self.uy})'
     
     def __str__(self) :
-        return f'Ellipsoid(P={self.P}, xc={self.xc})'
+        return f'Ellipsoid(ox={self.ox}, H={self.H}, uy={self.uy})'
 
 # def iover (e:Ellipsoid) -> irx.Interval :
 #     """Interval over-approximation of an Ellipsoid"""
@@ -51,19 +81,17 @@ class Ellipsoid (DualStar) :
 #     m = jnp.max(jnp.array([norm_P(c, P) for c in corns]))
 #     return Ellipsoid(P/m, xc)
 
-class EllipsoidAnnulus (DualStar) :
+@register_pytree_node_class
+class EllipsoidAnnulus (Ellipsoid) :
     def __init__ (self, ox, H, ly, uy) :
-        super().__init__(ox, [lambda x: x.T @ x], [H], [ly], [uy])
-
-    def V (self, x:ArrayLike) :
-        P = self.H[0].T @ self.H[0]
-        return (x - self.ox).T @ P @ (x - self.ox)
+        super().__init__(ox, H, ly, uy)
     
     def plot_projection (self, ax, xi=0, yi=1, rescale=False, **kwargs) :
         P = self.H[0].T @ self.H[0] / self.uy[0]
         n = P.shape[0]
         if n == 2 :
-            _plot_annulus (P, self.ox, self.ly[0]/self.uy[0], ax, rescale, **kwargs)
+            print(jnp.sqrt(self.ly[0])/jnp.sqrt(self.uy[0]))
+            _plot_annulus (P, self.ox, jnp.sqrt(self.ly[0])/jnp.sqrt(self.uy[0]), ax, rescale, **kwargs)
             return
         ind = [k for k in range(n) if k not in [xi,yi]]
         Phat = P[ind,:]
@@ -71,13 +99,48 @@ class EllipsoidAnnulus (DualStar) :
         M = N[(xi,yi),:] # Since M is guaranteed 2x2,
         Minv = (1/(M[0,0]*M[1,1] - M[0,1]*M[1,0]))*jnp.array([[M[1,1], -M[0,1]], [-M[1,0], M[0,0]]])
         Q = Minv.T@N.T@P@N@Minv
-        _plot_annulus(Q, self.ox[(xi,yi),], self.ly[0]/self.uy[0], ax, rescale, **kwargs)
+        _plot_annulus(Q, self.ox[(xi,yi),], (self.ly[0]/self.uy[0]), ax, rescale, **kwargs)
 
-    def __repr__(self) :
-        return f'EllipsoidAnnulus(P={self.P}, xc={self.xc})'
+    @classmethod
+    def from_ds (cls, ds:DualStar) :
+        return EllipsoidAnnulus(ds.ox, ds.H[0], ds.ly[0], ds.uy[0])
+
+# class EllipsoidAnnulus (DualStar) :
+#     def __init__ (self, ox, H, ly, uy) :
+#         super().__init__(ox, [H], [ly], [uy])
+
+#     def g (self, i:int, a:ArrayLike) :
+#         if i > 0 : 
+#             raise Exception("Something has gone horribly wrong---Ellipsoid has only one constraint")
+#         return a.T @ a
+
+#     @classmethod
+#     def from_ds (cls, ds:DualStar) :
+#         return Ellipsoid(ds.ox, ds.H[0], ds.ly[0], ds.uy[0])
+
+#     def V (self, x:ArrayLike) :
+#         P = self.H[0].T @ self.H[0]
+#         return (x - self.ox).T @ P @ (x - self.ox)
     
-    def __str__(self) :
-        return f'EllipsoidAnnulus(P={self.P}, xc={self.xc})'
+#     def plot_projection (self, ax, xi=0, yi=1, rescale=False, **kwargs) :
+#         P = self.H[0].T @ self.H[0] / self.uy[0]
+#         n = P.shape[0]
+#         if n == 2 :
+#             _plot_annulus (P, self.ox, self.ly[0]/self.uy[0], ax, rescale, **kwargs)
+#             return
+#         ind = [k for k in range(n) if k not in [xi,yi]]
+#         Phat = P[ind,:]
+#         N = null_space(Phat)
+#         M = N[(xi,yi),:] # Since M is guaranteed 2x2,
+#         Minv = (1/(M[0,0]*M[1,1] - M[0,1]*M[1,0]))*jnp.array([[M[1,1], -M[0,1]], [-M[1,0], M[0,0]]])
+#         Q = Minv.T@N.T@P@N@Minv
+#         _plot_annulus(Q, self.ox[(xi,yi),], self.ly[0]/self.uy[0], ax, rescale, **kwargs)
+
+#     def __repr__(self) :
+#         return f'EllipsoidAnnulus(ox={self.ox}, H={self.H}, ly={self.ly}, uy={self.uy})'
+    
+#     def __str__(self) :
+#         return f'EllipsoidAnnulus(ox={self.ox}, H={self.H}, ly={self.ly}, uy={self.uy})'
 
 def _plot_ellipse (Q:ArrayLike, xc:ArrayLike=jnp.zeros(2), ax:Axes|None=None, rescale:bool=False, **kwargs) :
     """

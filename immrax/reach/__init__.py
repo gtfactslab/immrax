@@ -1,9 +1,13 @@
 from .dual_star import (
     DualStar,
+    HODualStar,
 )
 from .dual_reach import (
     DualStarEmbeddingSystem,
     DualStarMJacMEmbeddingSystem,
+    BaseHODualStarEmbeddingSystem,
+    HODualStarEmbeddingSystem,
+    ds_mjacemb,
 )
 # from .sets import (
 #     Ellipsoid,
@@ -16,12 +20,25 @@ from .sets.ellipsoid import (
 )
 from .sets.polytope import (
     Polytope,
+    IntervalDualStar,
+    ds_add_interval,
+)
+from .sets.annulus import (
+    LpAnnulus,
 )
 
 __all__ = [
     "DualStar",
+    "HODualStar",
     "DualStarEmbeddingSystem",
     "DualStarMJacMEmbeddingSystem",
+    "BaseHODualStarEmbeddingSystem",
+    "HODualStarEmbeddingSystem",
+    "ds_mjacemb",
     "Ellipsoid",
     "EllipsoidAnnulus",
+    "Polytope",
+    "IntervalDualStar",
+    "ds_add_interval",
+    "LpAnnulus"
 ]

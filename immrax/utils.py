@@ -186,15 +186,18 @@ def get_corners(x: Interval, corners: Tuple[Corner] | None = None):
     )
 
 
-def null_space(A, rcond=None):
+def null_space(A, rcond=None, dim_null:int|None=None):
     """Taken from scipy, with some modifications to use jax.numpy"""
     u, s, vh = jnp.linalg.svd(A, full_matrices=True)
     M, N = u.shape[0], vh.shape[1]
     if rcond is None:
         rcond = jnp.finfo(s.dtype).eps * max(M, N)
     tol = jnp.amax(s) * rcond
-    num = jnp.sum(s > tol, dtype=int)
+    num = jnp.sum(s > tol, dtype=int) if dim_null is None else len(s)-dim_null+1
+    # num = jnp.sum(s > tol, dtype=int) 
+    # print(num)
     Q = vh[num:, :].T.conj()
+
     return Q
 
 

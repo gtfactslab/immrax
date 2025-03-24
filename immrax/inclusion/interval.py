@@ -94,18 +94,18 @@ class Interval:
         )
 
     def __str__(self) -> str:
-        return (
-            onp.array(
-                [
-                    [(l, u)]
-                    for (l, u) in zip(self.lower.reshape(-1), self.upper.reshape(-1))
-                ],
-                dtype=onp.dtype([("f1", float), ("f2", float)]),
-            )
-            .reshape(self.shape + (1,))
-            .__str__()
-        )
-        # return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
+        # return (
+        #     onp.array(
+        #         [
+        #             [(l, u)]
+        #             for (l, u) in zip(self.lower.reshape(-1), self.upper.reshape(-1))
+        #         ],
+        #         dtype=onp.dtype([("f1", float), ("f2", float)]),
+        #     )
+        #     .reshape(self.shape + (1,))
+        #     .__str__()
+        # )
+        return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
 
     def __repr__(self) -> str:
         # return onp.array([[(l,u)] for (l,u) in
@@ -216,6 +216,43 @@ def i2centpert(i: Interval) -> Tuple[jax.Array, jax.Array]:
 
     """
     return (i.lower + i.upper) / 2, (i.upper - i.lower) / 2
+
+
+def interval_intersect (Is:Iterable[Interval]) -> Interval :
+    """interval_intersect: Helper to get the intersection of a list of intervals.
+
+    Parameters
+    ----------
+    Is : Iterable[Interval]
+        list of intervals
+
+    Returns
+    -------
+    Interval
+        intersection of the intervals
+
+    """
+    l = jnp.max(jnp.array([i.lower for i in Is]), axis=0)
+    u = jnp.min(jnp.array([i.upper for i in Is]), axis=0)
+    return interval(l, u)
+
+def interval_union (Is:Iterable[Interval]) -> Interval :
+    """interval_union: Helper to get the union of a list of intervals.
+
+    Parameters
+    ----------
+    Is : Iterable[Interval]
+        list of intervals
+
+    Returns
+    -------
+    Interval
+        union of the intervals
+
+    """
+    l = jnp.min(jnp.array([i.lower for i in Is]), axis=0)
+    u = jnp.max(jnp.array([i.upper for i in Is]), axis=0)
+    return interval(l, u)
 
 
 def i2lu(i: Interval) -> Tuple[jax.Array, jax.Array]:

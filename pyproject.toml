@@ -9,7 +9,7 @@ allow-direct-references = true
 name = "immrax"
 version = "0.1.0"
 dependencies = [
-    "numpy<2",
+    # "numpy<2",
     "scipy",
     "tqdm",
     "shapely",
@@ -22,5 +22,5 @@ dependencies = [
     "diffrax",
     "equinox",
     "immutabledict",
-    "jax_verify@git+https://github.com/Akash-Harapanahalli/jax_verify.git",
+    # "jax_verify@git+https://github.com/Akash-Harapanahalli/jax_verify.git",
 ]
