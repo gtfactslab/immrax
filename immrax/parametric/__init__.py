@@ -7,10 +7,10 @@ from .param_reach import (
     AdjointEmbedding,
 )
 
-# from .sets.ellipsoid import (
-#     Ellipsoid,
-#     EllipsoidAnnulus,
-# )
+from .sets.ellipsoid import (
+    Ellipsoid,
+    # EllipsoidAnnulus,
+)
 from .sets.polytope import (
     Polytope,
 )
@@ -23,5 +23,6 @@ __all__ = [
     'hParametope',
     'ParametopeEmbedding',
     'AdjointEmbedding',
+    'Ellipsoid',
     'Polytope',
 ]

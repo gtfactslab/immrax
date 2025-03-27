@@ -84,7 +84,7 @@ class Polytope (hParametope) :
     @classmethod
     def from_interval (cls, *args) :
         cent, pert = i2centpert(interval(*args))
-        return Polytope(cent, jnp.eye(len(cent)), -pert, pert)
+        return Polytope(cent, jnp.eye(len(cent)), jnp.concatenate((pert, pert)))
 
     # Override in subclasses to unpack the flattened data
     @classmethod

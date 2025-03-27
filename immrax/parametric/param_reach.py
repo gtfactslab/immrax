@@ -7,9 +7,10 @@ from immutabledict import immutabledict
 from jaxtyping import Integer, Float, ArrayLike
 from typing import Tuple, Union, List, Callable, Literal, Mapping
 from diffrax import AbstractSolver, ODETerm, Euler, Dopri5, Tsit5, SaveAt, diffeqsolve
-from ..inclusion import Permutation, standard_permutation, mjacM, interval, ut2i, i2ut, natif, jacM, icentpert, i2lu, lu2i
+from ..inclusion import Interval, Permutation, standard_permutation, mjacM, interval, ut2i, i2ut, natif, jacM, icentpert, i2lu, lu2i, icopy
 from ..embedding import embed
 from ..refinement import SampleRefinement
+from ..utils import null_space
 from functools import partial
 import equinox as eqx
 from jax.experimental.jet import jet
@@ -82,15 +83,16 @@ class ParametopeEmbedding (ABC) :
         return diffeqsolve(term, solver, t0, tf, dt, (pt0, aux0), saveat=saveat, **kwargs)
 
 class AdjointEmbedding (ParametopeEmbedding) :
-    def __init__(self, sys, kap:float=0.1, 
-                 refine_factory:Callable[[ArrayLike], Callable]=partial(SampleRefinement, num_samples=10)):
+    def __init__(self, sys, alpha_p0, N0, kap:float=0.1) :
+                #  refine_factory:Callable[[ArrayLike], Callable]=partial(SampleRefinement, num_samples=10)):
         super().__init__(sys)
         # self.perm = perm if perm is not None else standard_permutation(sys.n)
         self.Jf_x = jax.jacfwd(sys.f, 1)
         self.Mf = mjacM(sys.f)
         self.Jf = jacM(sys.f)
         self.kap = kap
-        self.refine_factory = refine_factory
+        self.alpha_p0 = alpha_p0
+        self.N0 = N0
 
     def _initialize (self, pt0:hParametope) -> ArrayLike :
         if not isinstance(pt0, hParametope):
@@ -98,21 +100,25 @@ class AdjointEmbedding (ParametopeEmbedding) :
 
         # Setup refinement 
         alpha = pt0.alpha
-        _id = lambda x : x
-        self.refine = self.refine_factory(alpha).get_refine_func() if alpha.shape[0] > alpha.shape[1] else _id 
-        return jnp.linalg.pinv(alpha)
-
+        # _id = lambda x : x
+        # self.refine = self.refine_factory(alpha).get_refine_func() if alpha.shape[0] > alpha.shape[1] else _id 
+        # alpha_p = jnp.linalg.pinv(alpha)
+        # N = null_space(alpha.T)
+        # print(N@alpha)
+        # return (alpha_p, N)
+        return (self.alpha_p0, self.N0)
 
     def _dynamics (self, t, state:Tuple[hParametope, ArrayLike], *args) :
         pt, aux = state
         ox = pt.ox
 
         K = len(pt.y) // 2
-        ly = -pt.y[:K] # negative for lower bound
-        uy = pt.y[K:]
-        iy = lu2i(ly, uy)
+        # ly = -pt.y[:K] # negative for lower bound
+        # uy = pt.y[K:]
+        # iy = lu2i(ly, uy)
+        y = pt.y
         alpha = pt.alpha
-        alpha_p = aux
+        alpha_p, N = aux
 
         ## Adjoint dynamics + LICQ CBF
 
@@ -122,50 +128,111 @@ class AdjointEmbedding (ParametopeEmbedding) :
         u0flat = u0.reshape(-1)
 
         # CBF: Enforce pairwise independence on the rows of alpha
+
+        def soft_overmax (x, eps=1e-5) :
+            return jnp.max(jnp.exp(x) / jnp.sum(jnp.exp(x)))
+
         def barrier_LICQ (alpha) :
             # Normalize rows of alpha
             alpha = alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True)
             # offdiagonal inner products of rows of alpha
             aaT = alpha @ alpha.T - jnp.eye(alpha.shape[0])
             # safe set defined by non unit offdiagonal inner products
-            return 1. - jnp.max(aaT) - 1e-5
+            return 1. - soft_overmax(aaT) - 0.01
+            # return 1. - jnp.max(aaT) - 0.01
+            # return jnp.sum(aaT)
 
         balpha = barrier_LICQ(alpha)
+        k = self.kap*balpha**3
 
         pLfh, Lfh = jax.jvp(barrier_LICQ, (alpha,), (u0,))
         unroll = lambda v : jax.jvp(barrier_LICQ, (alpha,), (v.reshape(alpha.shape),))
         pLgh, Lgh = jax.vmap(unroll)(jnp.eye(alpha.size))
 
         # Solution to QP
-        ustar = jnp.where(Lfh + Lgh@u0flat + self.kap*balpha >= 0.,
+        ustar = jnp.where(Lfh + Lgh@u0flat + k*balpha >= 0.,
                           jnp.zeros_like(u0flat), # constraint inactive
-                          - (Lfh + Lgh@u0flat + self.kap*balpha)*Lgh.T/(Lgh@Lgh.T)).reshape(alpha.shape)
+                          - (Lfh + Lgh@u0flat + k*balpha)*Lgh.T/(Lgh@Lgh.T)).reshape(alpha.shape)
         # ustar = jnp.zeros_like(u0)
 
         ## Offset Dynamics given ustar
         
+        # For properly handling signs in lower offsets
+        K_2 = len(y) // 2
+        mul = jnp.concatenate((-jnp.ones(K_2), jnp.ones(K_2)))
         big_iz = pt.hinv(pt.y)
         Jh = natif(jax.jacfwd(lambda z : jnp.asarray(pt.h(z))))
+
+        def F (t, iy, *args) :
+            iz = pt.hinv(i2ut(iy)*mul)
+
+            # _, iJx = self.Jf(interval(t), interval(Hp)@iz + ox, *args)
+            MM = self.Mf(interval(t), interval(alpha_p)@iz + ox, *args, 
+                        centers=((jnp.zeros(1), ox),), permutations=standard_permutation(1 + len(ox)))[0]
+            Mx = MM[1]
+            
+            # Post first order cancellation
+            return interval(Jh(iz))@(interval(alpha)@(Mx - J) + ustar)@(interval(alpha_p)@iz)
+                   
         def F_second (t, iy, *args) :
-            iz = pt.hinv(i2ut(iy))
+            iz = pt.hinv(i2ut(iy)*mul)
             def _get_second (oz, z) :
                 primals = (t, alpha_p@oz + ox)
                 series = ((0., 0.), (alpha_p@z, jnp.zeros_like(alpha_p@z)))
                 _, coeffs = jet(self.sys.f, primals, series)
                 return coeffs[1]
-            res = natif(_get_second)(big_iz, iz)/2
+            res = natif(_get_second)(big_iz, iz)
 
             # Post first order cancellation
             return interval(Jh(iz))@(interval(ustar)@alpha_p@iz + interval(alpha)@res)
+        
+        # E = embed(F)
         E = embed(F_second)
-        E_res = E(t, i2ut(iy), *args, refine=self.refine) 
-        mul = jnp.concatenate((-jnp.ones_like(ly), jnp.ones_like(uy)))
+
+        def refine (y: Interval):
+            if len(N) > 0 :
+                refinements = _mat_refine_all(N, jnp.arange(len(y)), y)
+                return interval(
+                    jnp.max(refinements.lower, axis=0), jnp.min(refinements.upper, axis=0)
+                )
+            else :
+                return y
+
+        E_res = E(t, y*mul, *args, refine=refine) * mul
+        # E_res = jnp.zeros_like(mul)
 
         # hParametope dynamics in same pytree structure as pt
-        pt_dot = pt.from_parametope(hParametope(self.sys.f(t, ox), u0 + ustar, E_res*mul))
+        pt_dot = pt.from_parametope(hParametope(self.sys.f(t, ox), u0 + ustar, E_res))
+                                                # jnp.where(jnp.logical_and(y <= 1e-2, E_res <= 0), jnp.zeros_like(y), E_res)))
+                                                # jnp.where(E_res <= 0, jnp.zeros_like(y), E_res)))
+
         # sets d/dt [alpha_p @ alpha] = 0, so alpha_p @ alpha = I
-        alpha_p_dot = alpha_p@(u0 + ustar)@alpha_p
+        alpha_p_dot = -alpha_p@(u0 + ustar)@alpha_p
         # alpha_p_dot = J@alpha_p
 
+        # sets d/dt [N @ alpha] = 0, so N @ alpha = 0
+        N_dot = -N@(u0 + ustar)@alpha_p
+        # N_dot = jnp.zeros_like(N)
 
-        return (pt_dot, alpha_p_dot)
+
+        return (pt_dot, (alpha_p_dot, N_dot))
+
+def _vec_refine(null_vector: jax.Array, var_index: jax.Array, y: Interval):
+    ret = icopy(y)
+
+    # Set up linear algebra computations for the refinement
+    bounding_vars = interval(null_vector.at[var_index].set(0))
+    ref_var = interval(null_vector[var_index])
+    b1 = lambda: ((-bounding_vars @ ret) / ref_var) & ret[var_index]
+    b2 = lambda: ret[var_index]
+
+    # Compute refinement based on null vector, if possible
+    ndb0 = jnp.abs(null_vector[var_index]) > 1e-10
+    ret = jax.lax.cond(ndb0, b1, b2)
+
+    # fix fpe problem with upper < lower
+    retu = jnp.where(ret.upper >= ret.lower, ret.upper, ret.lower)
+    return interval(ret.lower, retu)
+
+_mat_refine = jax.vmap(_vec_refine, in_axes=(0, None, None), out_axes=0)
+_mat_refine_all = jax.vmap(_mat_refine, in_axes=(None, 0, None), out_axes=1)
