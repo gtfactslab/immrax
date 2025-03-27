@@ -17,8 +17,8 @@ except ImportError:
 from . import embedding as embedding
 from .embedding import *
 
-from . import reach as reach
-from .reach import *
+from . import parametric as parametric
+from .parametric import *
 
 from . import refinement as refinement
 from . import utils as utils
