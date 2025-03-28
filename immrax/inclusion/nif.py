@@ -19,7 +19,6 @@ This file implements the Natural Inclusion Function as an interpreter of Jaxprs.
 
 inclusion_registry = {} 
 
-
 def natif (f:Callable[..., jax.Array], *,
            fixed_argnums:int|Sequence[int]=None) -> Callable[..., Interval] :
     """Creates a Natural Inclusion Function of f.
@@ -141,7 +140,9 @@ _add_passthrough_to_registry(lax.min_p)
 _add_passthrough_to_registry(lax.exp_p)
 _add_passthrough_to_registry(lax.reduce_sum_p)
 _add_passthrough_to_registry(lax.pad_p)
-
+_add_passthrough_to_registry(lax.ne_p)
+_add_passthrough_to_registry(lax.lt_p)
+_add_passthrough_to_registry(lax.lt_to_p)
 
 """
 TODO: Handle higher order primitives

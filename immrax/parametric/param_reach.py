@@ -83,7 +83,7 @@ class ParametopeEmbedding (ABC) :
         return diffeqsolve(term, solver, t0, tf, dt, (pt0, aux0), saveat=saveat, **kwargs)
 
 class AdjointEmbedding (ParametopeEmbedding) :
-    def __init__(self, sys, alpha_p0, N0, kap:float=0.1) :
+    def __init__(self, sys, alpha_p0, N0, kap:float=0.1, permutation=None) :
                 #  refine_factory:Callable[[ArrayLike], Callable]=partial(SampleRefinement, num_samples=10)):
         super().__init__(sys)
         # self.perm = perm if perm is not None else standard_permutation(sys.n)
@@ -93,6 +93,7 @@ class AdjointEmbedding (ParametopeEmbedding) :
         self.kap = kap
         self.alpha_p0 = alpha_p0
         self.N0 = N0
+        self.permutation = permutation
 
     def _initialize (self, pt0:hParametope) -> ArrayLike :
         if not isinstance(pt0, hParametope):
@@ -108,7 +109,7 @@ class AdjointEmbedding (ParametopeEmbedding) :
         # return (alpha_p, N)
         return (self.alpha_p0, self.N0)
 
-    def _dynamics (self, t, state:Tuple[hParametope, ArrayLike], *args) :
+    def _dynamics (self, t, state:Tuple[hParametope, ArrayLike], *args, **kwargs) :
         pt, aux = state
         ox = pt.ox
 
@@ -122,40 +123,55 @@ class AdjointEmbedding (ParametopeEmbedding) :
 
         ## Adjoint dynamics + LICQ CBF
 
+        args_centers = (arg.center for arg in args) 
+        centers = (jnp.array([t]), ox) + tuple(args_centers)
 
-        J = self.Jf_x(t, ox)
+        J = self.Jf_x(*centers)
         u0 = -alpha@J
         u0flat = u0.reshape(-1)
 
         # CBF: Enforce pairwise independence on the rows of alpha
 
-        def soft_overmax (x, eps=1e-5) :
-            return jnp.max(jnp.exp(x) / jnp.sum(jnp.exp(x)))
+        PENALTY = 2
 
-        def barrier_LICQ (alpha) :
-            # Normalize rows of alpha
-            alpha = alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True)
-            # offdiagonal inner products of rows of alpha
-            aaT = alpha @ alpha.T - jnp.eye(alpha.shape[0])
-            # safe set defined by non unit offdiagonal inner products
-            return 1. - soft_overmax(aaT) - 0.01
-            # return 1. - jnp.max(aaT) - 0.01
-            # return jnp.sum(aaT)
+        if PENALTY == 0 :
+            ustar = jnp.zeros_like(u0)
+        elif PENALTY == 1 :
+            def soft_overmax (x, eps=1e-5) :
+                return jnp.max(jnp.exp(x) / jnp.sum(jnp.exp(x)))
 
-        balpha = barrier_LICQ(alpha)
-        k = self.kap*balpha**3
+            def barrier_LICQ (alpha) :
+                # Normalize rows of alpha
+                alpha = alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True)
+                # offdiagonal inner products of rows of alpha
+                aaT = alpha @ alpha.T - jnp.eye(alpha.shape[0])
+                # safe set defined by non unit offdiagonal inner products
+                # return 1. - soft_overmax(aaT) - 0.01
+                return 1. - jnp.max(aaT) - 0.01
+                # return jnp.sum(aaT)
 
-        pLfh, Lfh = jax.jvp(barrier_LICQ, (alpha,), (u0,))
-        unroll = lambda v : jax.jvp(barrier_LICQ, (alpha,), (v.reshape(alpha.shape),))
-        pLgh, Lgh = jax.vmap(unroll)(jnp.eye(alpha.size))
+            balpha = barrier_LICQ(alpha)
+            k = self.kap*balpha**3
 
-        # Solution to QP
-        ustar = jnp.where(Lfh + Lgh@u0flat + k*balpha >= 0.,
-                          jnp.zeros_like(u0flat), # constraint inactive
-                          - (Lfh + Lgh@u0flat + k*balpha)*Lgh.T/(Lgh@Lgh.T)).reshape(alpha.shape)
-        # ustar = jnp.zeros_like(u0)
+            pLfh, Lfh = jax.jvp(barrier_LICQ, (alpha,), (u0,))
+            unroll = lambda v : jax.jvp(barrier_LICQ, (alpha,), (v.reshape(alpha.shape),))
+            pLgh, Lgh = jax.vmap(unroll)(jnp.eye(alpha.size))
+
+            # Solution to QP
+            ustar = jnp.where(Lfh + Lgh@u0flat + k*balpha >= 0.,
+                            jnp.zeros_like(u0flat), # constraint inactive
+                            - (Lfh + Lgh@u0flat + k*balpha)*Lgh.T/(Lgh@Lgh.T)).reshape(alpha.shape)
+        elif PENALTY == 2 :
+            ustar = jnp.zeros_like(u0)
+            def soft (H) :
+                HHT = H @ H.T 
+                return jnp.sum((HHT - jnp.eye(H.shape[0]))**2)
+            ustar = -self.kap*jax.grad(soft)(alpha)
+
 
         ## Offset Dynamics given ustar
+
+        MJACM = True
         
         # For properly handling signs in lower offsets
         K_2 = len(y) // 2
@@ -163,31 +179,44 @@ class AdjointEmbedding (ParametopeEmbedding) :
         big_iz = pt.hinv(pt.y)
         Jh = natif(jax.jacfwd(lambda z : jnp.asarray(pt.h(z))))
 
-        def F (t, iy, *args) :
-            iz = pt.hinv(i2ut(iy)*mul)
+        if MJACM :
+            if self.permutation is None :
+                lenperm = sum([len(arg) for arg in centers])
+                self.permutation = standard_permutation(lenperm)
 
-            # _, iJx = self.Jf(interval(t), interval(Hp)@iz + ox, *args)
-            MM = self.Mf(interval(t), interval(alpha_p)@iz + ox, *args, 
-                        centers=((jnp.zeros(1), ox),), permutations=standard_permutation(1 + len(ox)))[0]
-            Mx = MM[1]
+            MM = self.Mf(t, interval(alpha_p)@big_iz + ox, *args, \
+                        centers=(centers,), permutations=self.permutation)[0]
+            ls = []; us = []
+            for M, arg in zip(MM[2:], args) :
+                term = interval(M)@arg 
+                ls.append(term.lower); us.append(term.upper)
+            dist = interval(jnp.sum(jnp.asarray(ls)), jnp.sum(jnp.asarray(us)))
+
+            def F (t, iy, *args) :
+                iz = pt.hinv(i2ut(iy)*mul)
+
+                # _, iJx = self.Jf(interval(t), interval(Hp)@iz + ox, *args)
+                # MM = self.Mf(t, interval(alpha_p)@big_iz + ox, *args, \
+                #             centers=(centers,), permutations=self.permutation)[0]
+                Mx = MM[1]
+                
+                # Post first order cancellation
+                return interval(Jh(iz))@( (interval(alpha)@(Mx - J) + ustar)@(interval(alpha_p)@iz) + dist)
+            E = embed(F)
+        else :
+            def F_second (t, iy, *args) :
+                iz = pt.hinv(i2ut(iy)*mul)
+                def _get_second (oz, z) :
+                    primals = (t, alpha_p@oz + ox)
+                    series = ((0., 0.), (alpha_p@z, jnp.zeros_like(alpha_p@z)))
+                    _, coeffs = jet(self.sys.f, primals, series)
+                    return coeffs[1]
+                res = natif(_get_second)(big_iz, iz)
+
+                # Post first order cancellation
+                return interval(Jh(iz))@(interval(ustar)@alpha_p@iz + interval(alpha)@res)
             
-            # Post first order cancellation
-            return interval(Jh(iz))@(interval(alpha)@(Mx - J) + ustar)@(interval(alpha_p)@iz)
-                   
-        def F_second (t, iy, *args) :
-            iz = pt.hinv(i2ut(iy)*mul)
-            def _get_second (oz, z) :
-                primals = (t, alpha_p@oz + ox)
-                series = ((0., 0.), (alpha_p@z, jnp.zeros_like(alpha_p@z)))
-                _, coeffs = jet(self.sys.f, primals, series)
-                return coeffs[1]
-            res = natif(_get_second)(big_iz, iz)
-
-            # Post first order cancellation
-            return interval(Jh(iz))@(interval(ustar)@alpha_p@iz + interval(alpha)@res)
-        
-        # E = embed(F)
-        E = embed(F_second)
+            E = embed(F_second)
 
         def refine (y: Interval):
             if len(N) > 0 :
@@ -202,7 +231,7 @@ class AdjointEmbedding (ParametopeEmbedding) :
         # E_res = jnp.zeros_like(mul)
 
         # hParametope dynamics in same pytree structure as pt
-        pt_dot = pt.from_parametope(hParametope(self.sys.f(t, ox), u0 + ustar, E_res))
+        pt_dot = pt.from_parametope(hParametope(self.sys.f(*centers), u0 + ustar, E_res))
                                                 # jnp.where(jnp.logical_and(y <= 1e-2, E_res <= 0), jnp.zeros_like(y), E_res)))
                                                 # jnp.where(E_res <= 0, jnp.zeros_like(y), E_res)))
 
@@ -211,8 +240,8 @@ class AdjointEmbedding (ParametopeEmbedding) :
         # alpha_p_dot = J@alpha_p
 
         # sets d/dt [N @ alpha] = 0, so N @ alpha = 0
-        N_dot = -N@(u0 + ustar)@alpha_p
-        # N_dot = jnp.zeros_like(N)
+        # N_dot = -N@(u0 + ustar)@alpha_p
+        N_dot = jnp.zeros_like(N)
 
 
         return (pt_dot, (alpha_p_dot, N_dot))
