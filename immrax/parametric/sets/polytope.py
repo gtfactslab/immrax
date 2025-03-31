@@ -50,6 +50,11 @@ class Polytope (hParametope) :
     @property
     def uy (self) :
         return self.y[len(self.y)//2:]
+
+    def get_vertices (self) :
+        Hi = jnp.vstack((-self.H, self.H))
+        bi = jnp.hstack((-self.ly, self.uy))
+        return jnp.asarray(compute_polytope_vertices(Hi, bi)) + self.ox
     
     def plot_projection (self, ax, xi=0, yi=1, rescale=False, **kwargs) :
         Hi = onp.vstack((-self.H, self.H))

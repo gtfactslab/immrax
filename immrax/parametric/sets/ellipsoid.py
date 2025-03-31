@@ -23,7 +23,7 @@ class Ellipsoid (hParametope) :
         return Ellipsoid(pt.ox, pt.alpha, pt.y)
 
     def h (self, a:ArrayLike) :
-        return a.T @ a
+        return jnp.array([-a.T @ a, a.T @ a])
 
     def hinv (self, y) :
         # Returns a box containing the preimage of the constraint over iy

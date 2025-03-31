@@ -132,7 +132,7 @@ class AdjointEmbedding (ParametopeEmbedding) :
 
         # CBF: Enforce pairwise independence on the rows of alpha
 
-        PENALTY = 2
+        PENALTY = 0
 
         if PENALTY == 0 :
             ustar = jnp.zeros_like(u0)
@@ -151,7 +151,7 @@ class AdjointEmbedding (ParametopeEmbedding) :
                 # return jnp.sum(aaT)
 
             balpha = barrier_LICQ(alpha)
-            k = self.kap*balpha**3
+            k = self.kap*balpha
 
             pLfh, Lfh = jax.jvp(barrier_LICQ, (alpha,), (u0,))
             unroll = lambda v : jax.jvp(barrier_LICQ, (alpha,), (v.reshape(alpha.shape),))
@@ -171,13 +171,22 @@ class AdjointEmbedding (ParametopeEmbedding) :
 
         ## Offset Dynamics given ustar
 
-        MJACM = True
+        MJACM = False
         
         # For properly handling signs in lower offsets
         K_2 = len(y) // 2
         mul = jnp.concatenate((-jnp.ones(K_2), jnp.ones(K_2)))
         big_iz = pt.hinv(pt.y)
         Jh = natif(jax.jacfwd(lambda z : jnp.asarray(pt.h(z))))
+
+        def refine (y: Interval):
+            if len(N) > 0 :
+                refinements = _mat_refine_all(N, jnp.arange(len(y)), y)
+                return interval(
+                    jnp.max(refinements.lower, axis=0), jnp.min(refinements.upper, axis=0)
+                )
+            else :
+                return y
 
         if MJACM :
             if self.permutation is None :
@@ -193,41 +202,52 @@ class AdjointEmbedding (ParametopeEmbedding) :
             dist = interval(jnp.sum(jnp.asarray(ls)), jnp.sum(jnp.asarray(us)))
 
             def F (t, iy, *args) :
+                iy = refine(iy)
                 iz = pt.hinv(i2ut(iy)*mul)
 
                 # _, iJx = self.Jf(interval(t), interval(Hp)@iz + ox, *args)
                 # MM = self.Mf(t, interval(alpha_p)@big_iz + ox, *args, \
                 #             centers=(centers,), permutations=self.permutation)[0]
                 Mx = MM[1]
+
+                empty = jnp.any(iy.lower > iy.upper)
+                def _zero () :
+                    return interval(jnp.zeros_like(iz.lower))
+                def _ret () :
+                    # Post first order cancellation
+                    PH = Jh(iz)
+                    return interval(PH[len(PH)//2:,:])@( (interval(alpha)@(Mx - J) + ustar)@(interval(alpha_p)@iz) + dist)
+
+                return jax.lax.cond(empty, _zero, _ret)
                 
-                # Post first order cancellation
-                return interval(Jh(iz))@( (interval(alpha)@(Mx - J) + ustar)@(interval(alpha_p)@iz) + dist)
             E = embed(F)
         else :
             def F_second (t, iy, *args) :
+                iy = refine(iy)
                 iz = pt.hinv(i2ut(iy)*mul)
-                def _get_second (oz, z) :
-                    primals = (t, alpha_p@oz + ox)
-                    series = ((0., 0.), (alpha_p@z, jnp.zeros_like(alpha_p@z)))
-                    _, coeffs = jet(self.sys.f, primals, series)
-                    return coeffs[1]
-                res = natif(_get_second)(big_iz, iz)
 
-                # Post first order cancellation
-                return interval(Jh(iz))@(interval(ustar)@alpha_p@iz + interval(alpha)@res)
+                empty = jnp.any(iy.lower > iy.upper)
+                def _zero () :
+                    return interval(jnp.zeros_like(iz.lower))
+
+                def _ret () :
+                    def _get_second (oz, z) :
+                        primals = (t, alpha_p@oz + ox)
+                        series = ((0., 0.), (alpha_p@z, jnp.zeros_like(alpha_p@z)))
+                        _, coeffs = jet(self.sys.f, primals, series)
+                        return coeffs[1]
+                    res = natif(_get_second)(big_iz, iz)
+
+                    # Post first order cancellation
+                    PH = Jh(iz)
+                    return interval(PH[len(PH)//2:,:])@(interval(ustar)@alpha_p@iz + interval(alpha)@res)
+
+                return jax.lax.cond(empty, _zero, _ret)
             
             E = embed(F_second)
 
-        def refine (y: Interval):
-            if len(N) > 0 :
-                refinements = _mat_refine_all(N, jnp.arange(len(y)), y)
-                return interval(
-                    jnp.max(refinements.lower, axis=0), jnp.min(refinements.upper, axis=0)
-                )
-            else :
-                return y
 
-        E_res = E(t, y*mul, *args, refine=refine) * mul
+        E_res = E(t, y*mul, *args) * mul
         # E_res = jnp.zeros_like(mul)
 
         # hParametope dynamics in same pytree structure as pt
@@ -240,8 +260,8 @@ class AdjointEmbedding (ParametopeEmbedding) :
         # alpha_p_dot = J@alpha_p
 
         # sets d/dt [N @ alpha] = 0, so N @ alpha = 0
-        # N_dot = -N@(u0 + ustar)@alpha_p
-        N_dot = jnp.zeros_like(N)
+        N_dot = -N@(u0 + ustar)@alpha_p
+        # N_dot = jnp.zeros_like(N)
 
 
         return (pt_dot, (alpha_p_dot, N_dot))
