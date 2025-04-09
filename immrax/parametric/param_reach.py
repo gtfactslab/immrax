@@ -86,7 +86,6 @@ class AdjointEmbedding (ParametopeEmbedding) :
     def __init__(self, sys, alpha_p0, N0, kap:float=0.1, permutation=None) :
                 #  refine_factory:Callable[[ArrayLike], Callable]=partial(SampleRefinement, num_samples=10)):
         super().__init__(sys)
-        # self.perm = perm if perm is not None else standard_permutation(sys.n)
         self.Jf_x = jax.jacfwd(sys.f, 1)
         self.Mf = mjacM(sys.f)
         self.Jf = jacM(sys.f)
@@ -136,6 +135,7 @@ class AdjointEmbedding (ParametopeEmbedding) :
 
         if PENALTY == 0 :
             ustar = jnp.zeros_like(u0)
+
         elif PENALTY == 1 :
             def soft_overmax (x, eps=1e-5) :
                 return jnp.max(jnp.exp(x) / jnp.sum(jnp.exp(x)))
