@@ -29,9 +29,6 @@ class LpAnnulus (DualStar) :
     def g (self, i:int, a:ArrayLike) :
         if i != 0 : 
             raise Exception(f"Ellipsoid has only one constraint, got {i=}")
-        # return jnp.linalg.norm(a, ord=self.p)
-        def pow_p (x) :
-            return x**self.p
         return jnp.sum(jnp.abs(a)**self.p)**(1/self.p)
 
     def ginv (self, i:int, iy:Interval) :

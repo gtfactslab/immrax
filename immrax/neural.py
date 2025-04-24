@@ -436,6 +436,10 @@ class FastlinResult (namedtuple('FastlinResult', ['C', 'ld', 'ud'])) :
         elif isinstance(x, jax.Array) :
             c = self.C@x
             return interval(c + self.ld, c + self.ud)
+    
+    @property
+    def lud (self) :
+        return interval(self.ld, self.ud)
 
 def fastlin (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., FastlinResult] :
     if out_len is None :

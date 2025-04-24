@@ -5,6 +5,7 @@ from .parametope import (
 from .param_reach import (
     ParametopeEmbedding,
     AdjointEmbedding,
+    FastlinAdjointEmbedding,
 )
 
 from .sets.ellipsoid import (
@@ -23,6 +24,7 @@ __all__ = [
     'hParametope',
     'ParametopeEmbedding',
     'AdjointEmbedding',
+    'FastlinAdjointEmbedding',
     'Ellipsoid',
     'Polytope',
 ]

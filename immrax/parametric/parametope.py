@@ -54,12 +54,10 @@ class Parametope :
 class hParametope (Parametope) :
     """Defines a parametope with a particular structured nonlinearity
     
-    g(alpha, x - ox) = h(alpha @ (x - ox))
-
-    and y split into lower and upper bounds y = (ly, uy)
-
+    g(alpha, x - ox) = (-h(alpha @ (x - ox)), h(alpha @ (x - ox)))
+    
+    and y split into lower and upper bounds y = (ly, uy).
     """
-
 
     def h(self, z:ArrayLike) :
         """Evaluates the nonlinearity h at z
@@ -79,7 +77,7 @@ class hParametope (Parametope) :
         z : ArrayLike
             Input to the nonlinearity
         """
-        return self.h(jnp.dot(alpha, x - self.ox))
+        return (-self.h(jnp.dot(alpha, x - self.ox)), self.h(jnp.dot(alpha, x - self.ox)))
 
     def hinv (self, iy:Interval) :
         """Overapproximating inverse image of the nonlinearity h
@@ -93,6 +91,7 @@ class hParametope (Parametope) :
     
     def k_face (self, k:int) -> Interval :
         """Overapproximate the k-face of the hParametope"""
+
 
     # Override in subclasses to unpack the flattened data
     @classmethod
