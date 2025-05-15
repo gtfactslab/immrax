@@ -69,6 +69,7 @@ class ParametopeEmbedding (ABC) :
         term = ODETerm(func)
         if solver == "euler":
             solver = Euler()
+
         elif solver == "rk45":
             solver = Dopri5()
         elif solver == "tsit5":
@@ -132,36 +133,42 @@ class AdjointEmbedding (ParametopeEmbedding) :
 
         # CBF: Enforce pairwise independence on the rows of alpha
 
-        PENALTY = 0
+        PENALTY = 1
 
         if PENALTY == 0 :
             ustar = jnp.zeros_like(u0)
+
+            """
+            determinant instead of cosine sim
+            """
 
         elif PENALTY == 1 :
             def soft_overmax (x, eps=1e-5) :
                 return jnp.max(jnp.exp(x) / jnp.sum(jnp.exp(x)))
 
             def barrier_LICQ (alpha) :
-                # Normalize rows of alpha
-                alpha = alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True)
-                # offdiagonal inner products of rows of alpha
-                aaT = alpha @ alpha.T - jnp.eye(alpha.shape[0])
-                # safe set defined by non unit offdiagonal inner products
-                # return 1. - soft_overmax(aaT) - 0.01
-                return 1. - jnp.max(aaT) - 0.01
-                # return jnp.sum(aaT)
+                # # Normalize rows of alpha
+                # alpha = alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True)
+                # # offdiagonal inner products of rows of alpha
+                # aaT = alpha @ alpha.T - jnp.eye(alpha.shape[0])
+                # # safe set defined by non unit offdiagonal inner products
+                # # return 1. - soft_overmax(aaT) - 0.01
+                # return 1. - jnp.max(aaT) - 0.01
+                # # return jnp.sum(aaT)
+                return jnp.linalg.det(alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True))
+                # return jnp.linalg.slogdet(alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True))[1]
 
             balpha = barrier_LICQ(alpha)
-            k = self.kap*balpha
+            k = self.kap*balpha**3
 
             pLfh, Lfh = jax.jvp(barrier_LICQ, (alpha,), (u0,))
             unroll = lambda v : jax.jvp(barrier_LICQ, (alpha,), (v.reshape(alpha.shape),))
             pLgh, Lgh = jax.vmap(unroll)(jnp.eye(alpha.size))
 
             # Solution to QP
-            ustar = jnp.where(Lfh + Lgh@u0flat + k*balpha >= 0.,
+            ustar = jnp.where(Lfh + Lgh@u0flat + k >= 0.,
                             jnp.zeros_like(u0flat), # constraint inactive
-                            - (Lfh + Lgh@u0flat + k*balpha)*Lgh.T/(Lgh@Lgh.T)).reshape(alpha.shape)
+                            - (Lfh + Lgh@u0flat + k)*Lgh.T/(Lgh@Lgh.T)).reshape(alpha.shape)
         elif PENALTY == 2 :
             ustar = jnp.zeros_like(u0)
             def soft (H) :
@@ -172,7 +179,7 @@ class AdjointEmbedding (ParametopeEmbedding) :
 
         ## Offset Dynamics given ustar
 
-        MJACM = False
+        MJACM = True
         
         # For properly handling signs in lower offsets
         K_2 = len(y) // 2
@@ -269,24 +276,26 @@ class AdjointEmbedding (ParametopeEmbedding) :
 
 
 class FastlinAdjointEmbedding (ParametopeEmbedding) :
-    def __init__(self, sys, alpha_p0, N0, kap:float=0.1, permutation=None) :
+    def __init__(self, sys, alpha_p0, N0, permutation=None, ustars=None, tt=None, kap=0.1) :
                 #  refine_factory:Callable[[ArrayLike], Callable]=partial(SampleRefinement, num_samples=10)):
         super().__init__(sys)
         self.Jf_x = jax.jacfwd(sys.olsystem.f, 1)
         self.Jf_u = jax.jacfwd(sys.olsystem.f, 2)
         self.Mf = mjacM(sys.olsystem.f)
         self.Jf = jacM(sys.olsystem.f)
-        self.kap = kap
         self.alpha_p0 = alpha_p0
         self.N0 = N0
         self.permutation = permutation
+        self.ustars = ustars
+        self.tt = tt
+        self.kap = kap
 
     def _initialize (self, pt0:hParametope) -> ArrayLike :
         if not isinstance(pt0, hParametope):
             raise ValueError(f"{pt0=} is not a hParametope needed for AdjointEmbedding")
 
         # Setup refinement 
-        alpha = pt0.alpha
+        # alpha = pt0.alpha
         # _id = lambda x : x
         # self.refine = self.refine_factory(alpha).get_refine_func() if alpha.shape[0] > alpha.shape[1] else _id 
         # alpha_p = jnp.linalg.pinv(alpha)
@@ -317,8 +326,11 @@ class FastlinAdjointEmbedding (ParametopeEmbedding) :
         lifted_net.out_len = self.sys.control.out_len
         lifted_net.u = lambda t, y : lifted_net(y)
 
+        # fastlin_res = fastlin(self.sys.control)(interval(alpha_p)@(big_iz + alpha@ox))
         fastlin_res = fastlin(lifted_net)(big_iz + alpha@ox)
         C = fastlin_res.C
+        # C = jax.jacfwd(lifted_net)(alpha@ox)
+
         big_iu = fastlin_res(big_iz + alpha@ox)
         CHox = C@alpha@ox
         ou = self.sys.control(ox)
@@ -332,8 +344,35 @@ class FastlinAdjointEmbedding (ParametopeEmbedding) :
         J_u = self.Jf_u(*centers)
         # u0 = -alpha@(J_x@alpha_p + J_u@C)
         u0 = -alpha@(J_x + J_u@C@alpha)
+        u0flat = u0.reshape(-1)
 
-        ustar = jnp.zeros_like(u0)
+        PENALTY = 1
+
+        if PENALTY == 0 :
+            ustar = jnp.zeros_like(u0)
+
+        elif PENALTY == 1 :
+            def barrier_LICQ (alpha) :
+                return jnp.linalg.det(alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True))
+                # return jnp.linalg.slogdet(alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True))[1]
+
+            balpha = barrier_LICQ(alpha)
+            k = self.kap*balpha
+
+            pLfh, Lfh = jax.jvp(barrier_LICQ, (alpha,), (u0,))
+            unroll = lambda v : jax.jvp(barrier_LICQ, (alpha,), (v.reshape(alpha.shape),))
+            pLgh, Lgh = jax.vmap(unroll)(jnp.eye(alpha.size))
+
+            # Solution to QP
+            ustar = jnp.where(Lfh + Lgh@u0flat + k >= 0.,
+                            jnp.zeros_like(u0flat), # constraint inactive
+                            - (Lfh + Lgh@u0flat + k)*Lgh.T/(Lgh@Lgh.T)).reshape(alpha.shape)
+        elif PENALTY == 2 :
+            if self.ustars is not None :
+                # ustar = self.ustar_net(jnp.atleast_1d(t)).reshape(alpha.shape)
+                ustar = jax.vmap(jnp.interp, in_axes=(None,None,1))(t, self.tt, self.ustars.reshape(self.ustars.shape[0], -1)).reshape(alpha.shape)
+            else :
+                ustar = jnp.zeros_like(u0)
 
         ## Offset Dynamics given ustar
 
@@ -379,11 +418,22 @@ class FastlinAdjointEmbedding (ParametopeEmbedding) :
             def _ret () :
                 # Post first order cancellation
                 PH = Jh(iz)
-                return interval(PH[len(PH)//2:,:])@(interval(alpha)@ 
-                    ((Mx - J_x) + (Mu - J_u)@C)@(interval(alpha_p)@iz)
+                # TODO: ustar
+                return interval(PH[len(PH)//2:,:])@(
+                    interval(alpha)@(
+                    ((Mx - J_x) + (Mu - J_u)@C@alpha)@alpha_p@iz
                     + interval(Mu)@(fastlin_res.lud + CHox - ou)
-                    # + dist
+                    ) + interval(ustar)@alpha_p@iz
                 )
+                # print(alpha.shape)
+                # print(Mx.shape, J_x.shape)
+                # print(Mu.shape, J_u.shape, C.shape)
+                # print(ustar.shape)
+                # return interval(PH[len(PH)//2:,:])@((interval(alpha)@ 
+                #     ((Mx - J_x) + (Mu - J_u)@C) + ustar)@(interval(alpha_p)@iz)
+                #     + interval(Mu)@(fastlin_res.lud + CHox - ou)
+                #     # + dist
+                # )
 
             return jax.lax.cond(empty, _zero, _ret)
             

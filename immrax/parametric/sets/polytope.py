@@ -62,10 +62,11 @@ class Polytope (hParametope) :
         if Hi.shape[1] == 2 :
             V = compute_polytope_vertices(Hi, bi)
         elif Hi.shape[1] > 2 :
-            E = onp.zeros((2, len(self.H)))
+            E = onp.zeros((2, self.H.shape[1]))
             E[0, xi] = 1; E[1, yi] = 1
             Hi = onp.vstack((-self.H, self.H))
             bi = onp.hstack((-self.ly, self.uy))
+            # print(Hi.shape, bi.shape)
             V = project_polytope((E, jnp.zeros(2)), (Hi, bi))
         plt.sca(ax)
         kwargs.setdefault('alpha', 1.)
@@ -90,6 +91,12 @@ class Polytope (hParametope) :
     def from_interval (cls, *args) :
         cent, pert = i2centpert(interval(*args))
         return Polytope(cent, jnp.eye(len(cent)), jnp.concatenate((pert, pert)))
+
+    def add_rows (self, Haug, Hp) :
+        yaug = interval(Haug@Hp)@self.hinv(self.y)
+        return Polytope(self.ox, jnp.vstack((self.H, Haug)), _lu2y(
+                        jnp.concatenate((self.ly, yaug.lower)),
+                        jnp.concatenate((self.uy, yaug.upper))))
 
     # Override in subclasses to unpack the flattened data
     @classmethod

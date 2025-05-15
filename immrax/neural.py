@@ -125,6 +125,19 @@ class NeuralNetwork (Control, eqx.Module) :
         print(f'Saving model to {savepath}')
         eqx.tree_serialise_leaves(savepath, seq)
 
+    def loadzeros (self) :
+        """Initialize the weights and biases to zero."""
+        seq = self.seq
+        for i, layer in enumerate(self.seq) :
+            if isinstance(layer, nn.Linear) :
+                seq = eqx.tree_at(lambda seq: seq[i].weight, seq, jnp.zeros_like(seq[i].weight))
+                seq = eqx.tree_at(lambda seq: seq[i].bias, seq, jnp.zeros_like(seq[i].bias))
+        savepath = self.dir.joinpath('model.eqx')
+        eqx.tree_serialise_leaves(savepath, seq)
+        # self.seq = eqx.tree_deserialise_leaves(savepath, self.seq)
+        # self = NeuralNetwork(self.dir, load=True)
+        # print(f'Successfully zero initialized model and saved to {savepath}')
+
     def __call__ (self, x:jax.Array) -> jax.Array :
         return self.seq(x)
 
