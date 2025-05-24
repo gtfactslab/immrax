@@ -78,7 +78,11 @@ class NeuralNetwork (Control, eqx.Module) :
                 elif a.lower() == 'sigmoid' :
                     mods.append(nn.Lambda(jax.nn.sigmoid))
                 elif a.lower() == 'tanh' :
-                    mods.append(nn.Lambda(jax.nn.tanh))
+                    # Fixes NaN bug with tanh
+                    # mods.append(nn.Lambda(jax.nn.tanh))
+                    mods.append(nn.Lambda(lambda x : 2*jax.nn.sigmoid(2*x) - 1))
+                elif a.lower() == 'logsig' :
+                    mods.append(nn.Lambda(jax.nn.log_sigmoid))
 
         self.seq = nn.Sequential(mods)
 

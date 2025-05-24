@@ -11,7 +11,7 @@ import numpy as onp
 import shapely.geometry as sg
 import shapely.ops as so
 
-from immrax.inclusion import Corner, Interval, all_corners, i2lu, i2ut, ut2i
+from immrax.inclusion import Corner, Interval, all_corners, i2lu, i2ut, ut2i, interval
 
 
 def timed(f: Callable):
@@ -218,3 +218,18 @@ def angular_sweep(N: int):
             for n in range(1, N + 1)
         ]
     )
+
+
+def check_containment (x, y) :
+    """Checks if the interval x is contained in the interval y.
+
+    Returns
+    -------
+    int
+        1 if x is fully contained in y
+        -1 if x is fully outside of y
+        0 if x is partially contained in y
+    """
+    fully_contained = jnp.logical_and(jnp.all(x.lower >= y.lower), jnp.all(x.upper <= y.upper)).astype(int)
+    fully_outside = jnp.logical_or(jnp.any(x.lower > y.upper), jnp.any(x.upper < y.lower)).astype(int)
+    return fully_contained - fully_outside

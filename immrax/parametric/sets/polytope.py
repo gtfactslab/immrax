@@ -50,6 +50,9 @@ class Polytope (hParametope) :
     @property
     def uy (self) :
         return self.y[len(self.y)//2:]
+    @property
+    def iy (self) :
+        return interval(self.ly, self.uy)
 
     def get_vertices (self) :
         Hi = jnp.vstack((-self.H, self.H))

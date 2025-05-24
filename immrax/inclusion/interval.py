@@ -50,6 +50,10 @@ class Interval:
     @property
     def center(self) -> jax.Array:
         return (self.lower + self.upper) / 2
+    
+    @property
+    def pert (self) -> jax.Array:
+        return (self.upper - self.lower) / 2
 
     def __matmul__(self, _: "Interval") -> "Interval": ...
     def __truediv__(self, _: "Interval") -> "Interval": ...

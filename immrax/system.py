@@ -221,10 +221,10 @@ class System(abc.ABC):
                 raise Exception(f"{solver=} is not a valid solver")
 
             saveat = SaveAt(t0=True, t1=True, steps=True)
-            # return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
-            return Trajectory.from_diffrax(
-                diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
-            )
+            return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+            # return Trajectory.from_diffrax(
+            #     diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+            # )
 
         elif self.evolution == "discrete":
             if not isinstance(t0, int) or not isinstance(tf, int):
