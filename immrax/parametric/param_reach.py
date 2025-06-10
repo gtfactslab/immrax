@@ -138,23 +138,12 @@ class AdjointEmbedding (ParametopeEmbedding) :
         if PENALTY == 0 :
             ustar = jnp.zeros_like(u0)
 
-            """
-            determinant instead of cosine sim
-            """
-
         elif PENALTY == 1 :
             def soft_overmax (x, eps=1e-5) :
                 return jnp.max(jnp.exp(x) / jnp.sum(jnp.exp(x)))
 
             def barrier_LICQ (alpha) :
-                # # Normalize rows of alpha
-                # alpha = alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True)
-                # # offdiagonal inner products of rows of alpha
-                # aaT = alpha @ alpha.T - jnp.eye(alpha.shape[0])
-                # # safe set defined by non unit offdiagonal inner products
-                # # return 1. - soft_overmax(aaT) - 0.01
-                # return 1. - jnp.max(aaT) - 0.01
-                # # return jnp.sum(aaT)
+                # Normalize rows of alpha
                 return jnp.linalg.det(alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True))
                 # return jnp.linalg.slogdet(alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True))[1]
 
@@ -390,12 +379,10 @@ class FastlinAdjointEmbedding (ParametopeEmbedding) :
                     centers=(centers,), permutations=self.permutation)[0]
 
         ls = []; us = []
-        # for M, arg in zip(MM[2:], args) :
-        #     term = interval(M)@arg 
-        #     ls.append(term.lower); us.append(term.upper)
-        # dist = interval(jnp.sum(jnp.asarray(ls)), jnp.sum(jnp.asarray(us)))
 
         def F (t, iy, *args) :
+            # Bound outputs along h^{-1}([iy.lower, iy.upper])
+
             iy = refine(iy)
             iz = pt.hinv(i2ut(iy)*mul)
 
@@ -418,24 +405,16 @@ class FastlinAdjointEmbedding (ParametopeEmbedding) :
             return jax.lax.cond(empty, _zero, _ret)
             
         E = embed(F)
-
         E_res = E(t, y*mul, *args) * mul
-        # E_res = jnp.zeros_like(mul)
 
         # hParametope dynamics in same pytree structure as pt
         pt_dot = pt.from_parametope(hParametope(self.sys.olsystem.f(*centers), u0 + ustar, E_res))
-                                                # jnp.where(jnp.logical_and(y <= 1e-2, E_res <= 0), jnp.zeros_like(y), E_res)))
-                                                # jnp.where(E_res <= 0, jnp.zeros_like(y), E_res)))
 
         # sets d/dt [alpha_p @ alpha] = 0, so alpha_p @ alpha = I
         alpha_p_dot = -alpha_p@(u0 + ustar)@alpha_p
-        # alpha_p_dot = (J_x@alpha_p + J_u@C)@alpha
-        # alpha_p_dot = J@alpha_p
 
         # sets d/dt [N @ alpha] = 0, so N @ alpha = 0
         N_dot = -N@(u0 + ustar)@alpha_p
-        # N_dot = jnp.zeros_like(N)
-
 
         return (pt_dot, (alpha_p_dot, N_dot))
 

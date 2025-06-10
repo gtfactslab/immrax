@@ -52,7 +52,7 @@ class Parametope :
 
 @register_pytree_node_class
 class hParametope (Parametope) :
-    """Defines a parametope with a particular structured nonlinearity
+    """Defines a parametope with the particular structured nonlinearity
     
     g(alpha, x - ox) = (-h(alpha @ (x - ox)), h(alpha @ (x - ox)))
     

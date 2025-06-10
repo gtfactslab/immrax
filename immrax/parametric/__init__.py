@@ -10,7 +10,6 @@ from .param_reach import (
 
 from .sets.ellipsoid import (
     Ellipsoid,
-    # EllipsoidAnnulus,
 )
 from .sets.polytope import (
     Polytope,

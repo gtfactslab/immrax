@@ -1,4 +1,4 @@
-from ..dual_star import DualStar
+from ..parametope import hParametope
 import jax
 import jax.numpy as jnp
 from jaxtyping import ArrayLike
@@ -14,7 +14,7 @@ from jax.tree_util import register_pytree_node_class
 from ...inclusion import Interval, interval, icentpert
 
 @register_pytree_node_class
-class LpAnnulus (DualStar) :
+class LpAnnulus (hParametope) :
     p:float
 
     def __init__ (self, ox, H, ly, uy, p=2.) :
@@ -23,8 +23,8 @@ class LpAnnulus (DualStar) :
         self.p = p
 
     @classmethod
-    def from_ds (cls, ds:DualStar) :
-        return LpAnnulus(ds.ox, ds.H[0], ds.ly[0], ds.uy[0])
+    def from_parametope (cls, pt:hParametope) :
+        return LpAnnulus(pt.ox, pt.alpha, pt.y)
 
     def g (self, i:int, a:ArrayLike) :
         if i != 0 : 
