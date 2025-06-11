@@ -19,6 +19,7 @@ __all__ = [
     "jacemb",
     "mjacemb",
     "embed",
+    "get_faces",
 ]
 
 class EmbeddingSystem(System, abc.ABC):
@@ -236,6 +237,27 @@ def embed (F: Callable[..., Interval]) :
             return jnp.array([_E, E_])
         
     return E
+
+def get_faces (ix:Interval) -> tuple[Interval, Interval] :
+    n = len(ix)
+
+    _x = ix.lower
+    x_ = ix.upper
+
+    # _X = interval(
+    #     , jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
+    # )
+
+    # X_ = interval(
+    #     , jnp.tile(x_, (n, 1))
+    # )
+
+    X = interval(
+        jnp.vstack((jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))))), 
+        jnp.vstack((jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1))), jnp.tile(x_, (n, 1))))
+    )
+
+    return X
 
 
 class TransformEmbedding(InclusionEmbedding):

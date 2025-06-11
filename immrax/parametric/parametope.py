@@ -18,7 +18,7 @@ class Parametope :
         self.alpha = alpha
         self.y = y
 
-    def g (self, alpha:ArrayLike, x:ArrayLike) :
+    def g (self, x:ArrayLike) :
         """Evaluates the nonlinearity g at alpha, x
 
         Parameters
@@ -69,7 +69,7 @@ class hParametope (Parametope) :
         """
         pass
 
-    def g(self, alpha:ArrayLike, x:ArrayLike) :
+    def g(self, x:ArrayLike) :
         """Evaluates the nonlinearity g at alpha, x
 
         Parameters
@@ -77,7 +77,7 @@ class hParametope (Parametope) :
         z : ArrayLike
             Input to the nonlinearity
         """
-        return (-self.h(jnp.dot(alpha, x - self.ox)), self.h(jnp.dot(alpha, x - self.ox)))
+        return (-self.h(jnp.dot(self.alpha, x - self.ox)), self.h(jnp.dot(self.alpha, x - self.ox)))
 
     def hinv (self, iy:Interval) :
         """Overapproximating inverse image of the nonlinearity h
