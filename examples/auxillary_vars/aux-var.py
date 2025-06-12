@@ -7,11 +7,9 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
-from pyparsing import line
 
 import immrax as irx
 from immrax.embedding import AuxVarEmbedding
-from immrax.inclusion import interval, mjacif
 from immrax.system import Trajectory
 from immrax.utils import (
     angular_sweep,
@@ -20,9 +18,6 @@ from immrax.utils import (
     draw_refined_trajectory_2d,
     gen_ics,
 )
-
-
-# Read papers about contraction and stability
 
 
 class HarmOsc(irx.System):
@@ -50,7 +45,7 @@ class VanDerPolOsc(irx.System):
 
 def angular_refined_trajectory(
     num_aux_vars: int, mode: Literal["sample", "linprog"], save: bool = False
-) -> Tuple[Trajectory, jax.Array]:
+) -> Tuple[Trajectory, jax.Array, Trajectory]:
     # Generate angular sweep aux vars
     # Odd num_aux_var is not a good choice, as it will generate angle theta=pi/2, which is redundant with the actual state vars
     aux_vars = angular_sweep(num_aux_vars)
@@ -58,18 +53,18 @@ def angular_refined_trajectory(
     lifted_x0_int = irx.interval(H) @ x0_int
 
     # Compute refined trajectory
-    auxsys = AuxVarEmbedding(sys, H, mode=mode, if_transform=mjacif)
+    auxsys = AuxVarEmbedding(sys, H, mode=mode)
     print("Compiling...")
     start = time.time()
     get_traj = jax.jit(
         lambda t0, tf, x0: auxsys.compute_trajectory(t0, tf, x0, solver="euler"),
-        backend="gpu",
+        backend="cpu",
     )
     get_traj(0.0, 0.01, irx.i2ut(lifted_x0_int))
     print(f"Compilation took: {time.time() - start:.4g}s")
     print("Compiled.\nComputing trajectory...")
     traj, comp_time = run_times(
-        1,
+        10,
         get_traj,
         0.0,
         sim_len,
@@ -112,7 +107,7 @@ x0_int = irx.icentpert(jnp.array([1.0, 0.0]), jnp.array([0.1, 0.1]))
 sim_len = 2 * jnp.pi
 
 plt.rcParams.update({"text.usetex": True, "font.family": "CMU Serif", "font.size": 14})
-plt.figure()
+# plt.figure()
 
 
 # Trajectory of unrefined system
@@ -127,14 +122,13 @@ plt.gcf().suptitle(f"{sys.name} with Uncertainty (No Refinement)")
 draw_trajectory_2d(traj)
 
 
-for i in range(6, 7, 2):
-    # traj_s = angular_refined_trajectory(i, "sample")
-    traj_lp, H, mc_traj = angular_refined_trajectory(i, "linprog")
-    plot_angular_refined_trajectory(traj_lp, H)
-    # fig = plt.gcf()
-    x = mc_traj.ys[:, :, 0].T
-    y = mc_traj.ys[:, :, 1].T
-    plt.plot(x, y, alpha=0.5, color="gray", linewidth=0.5)
+traj_s, H, mc_traj = angular_refined_trajectory(6, "sample")
+traj_lp, H, mc_traj = angular_refined_trajectory(6, "linprog")
+plot_angular_refined_trajectory(traj_lp, H)
+fig = plt.gcf()
+x = mc_traj.ys[:, :, 0].T
+y = mc_traj.ys[:, :, 1].T
+plt.plot(x, y, alpha=0.5, color="gray", linewidth=0.5)
 
 blue_rectangle = mpatches.Patch(
     edgecolor="tab:blue", facecolor="none", alpha=0.4, label="Reachable Set Bounds"
