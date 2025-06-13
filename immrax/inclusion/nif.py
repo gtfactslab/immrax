@@ -16,7 +16,7 @@ from jax._src.core import (
     typecheck,
 )
 from jax._src.util import safe_map
-from jax.core import Primitive
+from jax.extend.core import Primitive
 
 from immrax.inclusion.interval import *
 
@@ -375,9 +375,9 @@ def _inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
 
 inclusion_registry[lax.dot_general_p] = _inclusion_dot_general_p
 
-def _inclusion_sin_p (x:Interval) -> Interval :
+def _inclusion_sin_p (x:Interval, accuracy = None) -> Interval :
     if not isinstance (x, Interval) :
-        return lax.sin(x)
+        return lax.sin(x, accuracy=accuracy)
     def _sin_if (l:jnp.float32, u:jnp.float32) :
         def case_lpi (l, u) :
             cl = jnp.cos(l); cu = jnp.cos(u)
@@ -406,11 +406,11 @@ def _inclusion_sin_p (x:Interval) -> Interval :
     return Interval(_x.reshape(x.shape), x_.reshape(x.shape))
 inclusion_registry[lax.sin_p] = _inclusion_sin_p
 
-def _inclusion_cos_p (x:Interval) -> Interval :
-    return _inclusion_sin_p(Interval(x.lower + jnp.pi/2, x.upper + jnp.pi/2))
+def _inclusion_cos_p (x:Interval, accuracy=None) -> Interval :
+    return _inclusion_sin_p(Interval(x.lower + jnp.pi/2, x.upper + jnp.pi/2), accuracy=accuracy)
 inclusion_registry[lax.cos_p] = _inclusion_cos_p
 
-def _inclusion_tan_p (x:Interval) -> Interval :
+def _inclusion_tan_p (x:Interval, accuracy=None) -> Interval :
     l = x.lower; u = x.upper
     div = jnp.floor((u + jnp.pi/2) / (jnp.pi)).astype(int)
     l -= div*jnp.pi; u -= div*jnp.pi
