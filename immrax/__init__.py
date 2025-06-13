@@ -7,7 +7,6 @@ from .system import (
     LinearTransformedSystem,
     LiftedSystem,
     OpenLoopSystem,
-    SympySystem,
 )
 
 from . import control as control
