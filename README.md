@@ -6,9 +6,24 @@ Inclusion function transformations are composable with existing JAX transformati
 
 For more information, please see the full [documentation](https://immrax.readthedocs.io).
 
-# Installation
+## Dependencies
 
-## Setting up a `conda` environment
+`immrax` depends on the library `pypoman`, which internally uses `pycddlib` as a wrapper around [the cdd library](https://people.inf.ethz.ch/fukudak/cdd_home/). For this wrapper to function properly, you must install `cdd` to your system. On Ubuntu, the relevant packages can be installed with 
+
+```bash
+apt-get install -y libcdd-dev libgmp-dev
+```
+
+On Arch linux, you can use 
+
+```bash
+pacman -S cddlib
+```
+
+
+## Installation
+
+### Setting up a `conda` environment
 
 We recommend installing JAX and `immrax` into a `conda` environment ([miniconda](https://docs.conda.io/projects/miniconda/en/latest/)).
 
@@ -17,7 +32,7 @@ conda create -n immrax python=3.11
 conda activate immrax
 ```
 
-## Installing immrax
+### Installing immrax
 
 A stable version of `immrax` is available on PyPi, and can be installed with `pip` as usual.
 
@@ -42,24 +57,6 @@ python compare.py
 
 This should return the outputs of different inclusion functions as well as their runtimes.
 
-## Installing `cyipopt` and `coinhsl` (optional)
-
-If you would like to run the [pendulum optimal control example](examples/pendulum/pendulum.ipynb), you need to install IPOPT and the MA57 linear solver from HSL.
-
-First, install `cyipopt` (more instructions [here](https://cyipopt.readthedocs.io/en/stable/install.html)).
-
-```shell
-conda install -c conda-forge cyipopt
-```
-
-This command can take a while to fully resolve.
-
-To use the MA57 solver, you'll first need to acquire a package from [HSL](https://www.hsl.rl.ac.uk/). While there are instructions [here](https://cyipopt.readthedocs.io/en/stable/install.html#conda-forge-binaries-with-hsl), we highly recommend to instead use [ThirdParty-HSL](https://github.com/coin-or-tools/ThirdParty-HSL) to install HSL globally.
-Then, use a symbolic link to help the `conda` environment locate it.
-
-```shell
-ln -s /usr/local/lib/libcoinhsl.so $CONDA_PREFIX/lib/libcoinhsl.so
-```
 
 ## Citation
 
