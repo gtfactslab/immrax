@@ -122,9 +122,11 @@ class Interval:
         return Interval(self.lower[i], self.upper[i])
 
     def __iter__(self):
-        raise IndexError(
-            "Interval is not iterable. Iterators are mutable, stateful objects which to not align with JAXs function paradigm."
-        )
+        """Return an iterator over the interval elements."""
+        # Use the actual length to create a proper iterator
+        # This avoids the infinite loop issue by using explicit indexing
+        length = int(len(self))
+        return (self[i] for i in range(length))
 
 
 # HELPER FUNCTIONS

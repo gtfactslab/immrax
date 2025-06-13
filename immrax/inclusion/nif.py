@@ -1,17 +1,24 @@
-from functools import wraps, partial
+from functools import wraps
+from typing import Any, Callable, Sequence
+
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jax import lax
-from jax.core import Primitive
-from jax import jit, vmap
+from jax import jit, lax, vmap
+from jax._src import ad_util, config, source_info_util
+from jax._src.core import (
+    Atom,
+    Jaxpr,
+    Literal,
+    Var,
+    clean_up_dead_vars,
+    last_used,
+    typecheck,
+)
 from jax._src.util import safe_map
-from typing import Callable, Any, Sequence
-from jax._src import ad_util, source_info_util, config
-from jax._src.core import Jaxpr, Literal, Var, Atom, typecheck, last_used, clean_up_dead_vars
+from jax.core import Primitive
+
 from immrax.inclusion.interval import *
-import equinox as eqx
-import itertools
-from jax._src import dtypes
 
 """
 This file implements the Natural Inclusion Function as an interpreter of Jaxprs.
@@ -117,6 +124,7 @@ def _add_passthrough_to_registry (primitive:Primitive) -> None :
 _add_passthrough_to_registry(lax.copy_p)
 _add_passthrough_to_registry(lax.reshape_p)
 _add_passthrough_to_registry(lax.slice_p)
+_add_passthrough_to_registry(lax.split_p)
 _add_passthrough_to_registry(lax.dynamic_slice_p)
 _add_passthrough_to_registry(lax.squeeze_p)
 _add_passthrough_to_registry(lax.transpose_p)
@@ -306,6 +314,11 @@ def _inclusion_integer_pow_p (x:Interval, y: int) -> Interval :
     return Interval(ol, ou)
 inclusion_registry[lax.integer_pow_p] = _inclusion_integer_pow_p
 Interval.__pow__ = _inclusion_integer_pow_p
+
+def _inclusion_square_p (x:Interval) -> Interval :
+    """Square an interval."""
+    return _inclusion_integer_pow_p(x, 2)
+inclusion_registry[lax.square_p] = _inclusion_square_p
 
 def _inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
     # All checks of batch/contracting dims are done in first pass on lower bounds
