@@ -122,33 +122,6 @@ class System(abc.ABC):
 
         """
 
-    def fi(
-        self, i: int, t: Union[Integer, Float], x: jax.Array, *args, **kwargs
-    ) -> jax.Array:
-        """The i-th component of the right hand side of the system
-
-        Parameters
-        ----------
-        i : int
-            component
-        t : Union[Integer, Float]
-            The time of the system
-        x : jax.Array
-            The state of the system
-        *args :
-            control inputs, disturbance inputs, etc. Depends on parent class.
-        **kwargs :
-
-
-        Returns
-        -------
-        jax.Array
-            The i-th component of the time evolution of the state
-
-        """
-
-        return self.f(t, x, *args, **kwargs)[i]
-
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.f(*args, **kwargs)
 
@@ -323,29 +296,3 @@ class OpenLoopSystem(System, abc.ABC):
             The time evolution of the state
 
         """
-
-    def fi(
-        self, i: int, t: Union[Integer, Float], x: jax.Array, u: jax.Array, w: jax.Array
-    ) -> jax.Array:
-        """The right hand side of the open-loop system
-
-        Parameters
-        ----------
-        i : int
-            component
-        t : Union[Integer, Float]
-            The time of the system
-        x : jax.Array
-            The state of the system
-        u : jax.Array
-            The control input to the system
-        w : jax.Array
-            The disturbance input to the system
-
-        Returns
-        -------
-        jax.Array
-            The i-th component of the time evolution of the state
-
-        """
-        return self.f(t, x, u, w)[i]

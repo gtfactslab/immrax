@@ -49,37 +49,8 @@ class EmbeddingSystem(System, abc.ABC):
 
         """
 
-    def Ei(
-        self, i: int, t: Union[Integer, Float], x: jax.Array, *args, **kwargs
-    ) -> jax.Array:
-        """The right hand side of the embedding system.
-
-        Parameters
-        ----------
-        i : int
-            component
-        t : Union[Integer, Float]
-            The time of the embedding system.
-        x : jax.Array
-            The state of the embedding system.
-        *args :
-            interval-valued control inputs, disturbance inputs, etc. Depends on parent class.
-
-        Returns
-        -------
-        jax.Array
-            The i-th component of the time evolution of the state on the upper triangle
-
-        """
-        return self.E(t, x, *args, **kwargs)[i]
-
     def f(self, t: Union[Integer, Float], x: jax.Array, *args, **kwargs) -> jax.Array:
         return self.E(t, x, *args, **kwargs)
-
-    def fi(
-        self, i: int, t: Union[Integer, Float], x: jax.Array, *args, **kwargs
-    ) -> jax.Array:
-        return self.Ei(i, t, x, *args, **kwargs)
 
 
 class InclusionEmbedding(EmbeddingSystem):
@@ -116,11 +87,6 @@ class InclusionEmbedding(EmbeddingSystem):
         """
         self.sys = sys
         self.F = F
-        self.Fi = (
-            Fi
-            if Fi is not None
-            else (lambda i, t, x, *args, **kwargs: self.F(t, x, *args, **kwargs)[i])
-        )
         self.evolution = sys.evolution
         self.xlen = sys.xlen * 2
 
