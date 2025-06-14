@@ -7,7 +7,6 @@ from .system import (
     LinearTransformedSystem,
     LiftedSystem,
     OpenLoopSystem,
-    SympySystem,
 )
 
 from . import control as control
@@ -47,5 +46,3 @@ from .embedding import (
 
 from . import refinement as refinement
 from . import utils as utils
-
-from . import optim as optim

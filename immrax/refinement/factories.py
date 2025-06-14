@@ -5,7 +5,7 @@ from typing import Callable
 import jax
 import jax.numpy as jnp
 
-from immrax.optim import linprog
+from linrax import linprog
 from immrax.inclusion import Interval, icopy, interval
 from immrax.utils import angular_sweep, null_space
 
@@ -20,9 +20,9 @@ class Refinement(abc.ABC):
 
 
 class LinProgRefinement(Refinement):
-    H: jnp.ndarray
+    H: jax.Array
 
-    def __init__(self, H: jnp.ndarray) -> None:
+    def __init__(self, H: jax.Array) -> None:
         self.H = H
         super().__init__()
 
@@ -76,13 +76,13 @@ class LinProgRefinement(Refinement):
 
 
 class SampleRefinement(Refinement):
-    H: jnp.ndarray
-    Hp: jnp.ndarray
-    N: jnp.ndarray
-    A_lib: jnp.ndarray
+    H: jax.Array
+    Hp: jax.Array
+    N: jax.Array
+    A_lib: jax.Array
     num_samples: int
 
-    def __init__(self, H: jnp.ndarray, num_samples: int = 10) -> None:
+    def __init__(self, H: jax.Array, num_samples: int = 10) -> None:
         self.num_samples = num_samples
         self.H = H
         # self.Hp = jnp.linalg.pinv(H)
@@ -112,7 +112,7 @@ class SampleRefinement(Refinement):
                 ]
             )
 
-            def permutation(mat: jnp.ndarray, perm):
+            def permutation(mat: jax.Array, perm):
                 permuted_matrix = jnp.zeros_like(mat)
                 for i, p in enumerate(perm):
                     permuted_matrix = permuted_matrix.at[:, p].set(mat[:, i])
@@ -154,8 +154,47 @@ class SampleRefinement(Refinement):
 
         def best_refinement(y: Interval):
             refinements = mat_refine_all(self.A_lib, jnp.arange(len(y)), y)
+            lower = jnp.fmax(
+                y.lower, refinements.lower
+            )  # Some refinements don't work, we need to ignore nans
+            upper = jnp.fmin(y.upper, refinements.upper)
+
             return interval(
-                jnp.max(refinements.lower, axis=0), jnp.min(refinements.upper, axis=0)
+                jnp.max(lower, axis=0),  # TODO: I need to cap this at upper boun
+                jnp.min(upper, axis=0),
             )
 
         return best_refinement
+
+
+class NullVecRefinement(Refinement):
+    null_vec: jax.Array
+
+    def __init__(self, null_vec: jax.Array) -> None:
+        self.null_vec = null_vec
+        super().__init__()
+
+    def get_refine_func(self) -> Callable[[Interval], Interval]:
+        def vec_refine(null_vector: jax.Array, var_index: jax.Array, y: Interval):
+            ret = icopy(y)
+
+            # Set up linear algebra computations for the refinement
+            bounding_vars = interval(null_vector.at[var_index].set(0))
+            ref_var = interval(null_vector[var_index])
+            b1 = lambda: ((-bounding_vars @ ret) / ref_var) & ret[var_index]
+            b2 = lambda: ret[var_index]
+
+            # Compute refinement based on null vector, if possible
+            ndb0 = jnp.abs(null_vector[var_index]) > 1e-10
+            ret = jax.lax.cond(ndb0, b1, b2)
+
+            # fix fpe problem with upper < lower
+            retu = jnp.where(ret.upper >= ret.lower, ret.upper, ret.lower)
+            return interval(ret.lower, retu)
+
+        vec_refine_all = jax.vmap(vec_refine, in_axes=(None, 0, None), out_axes=1)
+
+        def refinement(y: Interval):
+            return vec_refine_all(self.null_vec, jnp.arange(len(y)), y)
+
+        return refinement
