@@ -34,18 +34,20 @@ conda activate immrax
 
 ### Installing immrax
 
-A stable version of `immrax` is available on PyPi, and can be installed with `pip` as usual.
+For now, manually clone the Github repository and `pip install` it. We plan to release a stable version on PyPi soon.
 
 ```shell
-pip install --upgrade pip
-pip install immrax
+git clone https://github.com/gtfactslab/immrax.git
+cd immrax
+pip install .
 ```
+
 
 If you have cuda-enabled hardware you wish to utilize, please install the `cuda` optional dependency group.
 
 ```shell
-pip install --upgrade pip
-pip install immrax[cuda]
+...
+pip install .[cuda]
 ```
 
 To test if the installation process worked, run the `compare.py` example.

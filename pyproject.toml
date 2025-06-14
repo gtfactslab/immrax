@@ -26,14 +26,14 @@ dependencies = [
 
 [project.optional-dependencies]
 cuda = [
-	"jax[cuda12] ~= 0.6.1",
-	"linrax[cuda]",
+    "jax[cuda12] ~= 0.6.1",
+    "linrax[cuda]",
 ]
 
 examples = [
-	"casadi ~= 3.6.7",
-	"control ~= 0.10.1",
-	# "cyipopt ~= 1.5.0", # This is a pain to install manually, better to do with conda
+    "casadi ~= 3.6.7",
+    "control ~= 0.10.1",
+    # "cyipopt ~= 1.5.0", # This is a pain to install manually, better to do with conda
     "ipykernel ~= 6.29.5",
     "ipympl ~= 0.9.7"
 ]
