@@ -180,7 +180,7 @@ def _inclusion_pjit_p (*args, **bind_params) -> Interval :
     """For now, this ignores a pjit_p and returns the evaluation of the jaxpr."""
     # TODO: Do we need to implement consts here?
     bind_jaxpr = bind_params.pop('jaxpr')
-    if isinstance(bind_jaxpr, jax.core.ClosedJaxpr) :
+    if isinstance(bind_jaxpr, jax.extend.core.ClosedJaxpr) :
         bind_jaxpr = bind_jaxpr.jaxpr
     return natif_jaxpr(bind_jaxpr, [], *args)
 
@@ -191,7 +191,7 @@ def _inclusion_scan_p (*args, **bind_params) -> Interval :
     # print(args)
 
     # bind_jaxpr = bind_params.pop('jaxpr')
-    # if isinstance(bind_jaxpr, jax.core.ClosedJaxpr) :
+    # if isinstance(bind_jaxpr, jax.extend.core.ClosedJaxpr) :
     #     bind_jaxpr = bind_jaxpr.jaxpr
 
     # isinterval = lambda x : isinstance(x, Interval)
@@ -427,7 +427,7 @@ def _inclusion_asin_p (x:Interval) -> Interval :
     return Interval(jnp.arcsin(x.lower), jnp.arcsin(x.upper))
 inclusion_registry[lax.asin_p] = _inclusion_asin_p
 
-def _inclusion_sqrt_p (x:Interval) -> Interval :
+def _inclusion_sqrt_p (x:Interval, accuracy=None) -> Interval :
     ol = jnp.where((x.lower < 0), -jnp.inf, jnp.sqrt(x.lower))
     ou = jnp.where((x.lower < 0), jnp.inf, jnp.sqrt(x.upper))
     return Interval (ol, ou)
