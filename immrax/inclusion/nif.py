@@ -433,40 +433,56 @@ def _inclusion_sqrt_p (x:Interval, accuracy=None) -> Interval :
     return Interval (ol, ou)
 inclusion_registry[lax.sqrt_p] = _inclusion_sqrt_p
 
-def _inclusion_pow_p(x:Interval, y: int) -> Interval :
+def _inclusion_pow_p(x:Interval, y: Interval) -> Interval :
     # if isinstance (y, Interval) :
     #     # if y.lower == y.upper :
     #     if True :
     #         y = y.upper
     #     else :
     #         raise Exception('y must be a constant')
-    
-    if isinstance(x, Interval) and not isinstance(y, Interval) :
-        def _inclusion_pow_impl (x:Interval, y:int) :
-            l_pow = lax.pow(x.lower, y)
-            u_pow = lax.pow(x.upper, y)
-            cond = jnp.logical_and(x.lower >= 0, x.upper >= 0)
-            ol = jnp.where(cond, l_pow, -jnp.inf)
-            ou = jnp.where(cond, u_pow, jnp.inf)
-            return (ol, ou)
 
-        def _pos_pow () :
-            return _inclusion_pow_impl(x, y)
-        def _neg_pow () :
-            return _inclusion_pow_impl(_inclusion_reciprocal_p(x), -y)
+    x = interval(x)
+    y = interval(y)
 
-        ol, ou = lax.cond(jnp.all(y < 0), _neg_pow, _pos_pow)
-        return Interval(ol, ou)
-    elif not isinstance(x, Interval) and isinstance(y, Interval) :
-        # TODO: unifying these two cases
-        def _g1 () :
-            return (x**y.lower, x**y.upper)
-        def _l1 () : 
-            return (x**y.upper, x**y.lower)
-        ol, ou = lax.cond(jnp.all(x) >= 1, _g1, _l1)
-        return Interval(ol, ou)
-    else :
-        raise NotImplementedError()
+    # caluclate corners
+    corners = jnp.array([lax.pow(x.lower, y.lower),
+               lax.pow(x.lower, y.upper),
+               lax.pow(x.upper, y.lower),
+               lax.pow(x.upper, y.upper)])
+    # calculate the minimum and maximum of the corners
+    cond = jnp.logical_and(x.lower >= 0, x.upper >= 0)
+    ol = jnp.where(cond, jnp.min(corners), -jnp.inf)
+    ou = jnp.where(cond, jnp.max(corners), jnp.inf)
+    return Interval(ol, ou)
+
+    # if isinstance(x, Interval) and not isinstance(y, Interval) :
+    #     def _inclusion_pow_impl (x:Interval, y:int) :
+    #         l_pow = lax.pow(x.lower, y)
+    #         u_pow = lax.pow(x.upper, y)
+    #         cond = jnp.logical_and(x.lower >= 0, x.upper >= 0)
+    #         ol = jnp.where(cond, l_pow, -jnp.inf)
+    #         ou = jnp.where(cond, u_pow, jnp.inf)
+    #         return (ol, ou)
+
+    #     def _pos_pow () :
+    #         return _inclusion_pow_impl(x, y)
+    #     def _neg_pow () :
+    #         return _inclusion_pow_impl(_inclusion_reciprocal_p(x), -y)
+
+    #     ol, ou = lax.cond(jnp.all(y < 0), _neg_pow, _pos_pow)
+    #     return Interval(ol, ou)
+    # elif not isinstance(x, Interval) and isinstance(y, Interval) :
+    #     # TODO: unifying these two cases
+    #     def _g1 () :
+    #         return (x**y.lower, x**y.upper)
+    #     def _l1 () : 
+    #         return (x**y.upper, x**y.lower)
+    #     ol, ou = lax.cond(jnp.all(x) >= 1, _g1, _l1)
+    #     return Interval(ol, ou)
+    # elif isinstance(x, Interval) and isinstance(y, Interval) :
+        
+    # else :
+    #     raise NotImplementedError()
 inclusion_registry[lax.pow_p] = _inclusion_pow_p
 
 def _inclusion_tanh_p (x:Interval) -> Interval :
