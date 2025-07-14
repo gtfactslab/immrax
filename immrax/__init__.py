@@ -7,7 +7,6 @@ from .system import (
     LinearTransformedSystem,
     LiftedSystem,
     OpenLoopSystem,
-    SympySystem,
 )
 
 from . import control as control
@@ -42,9 +41,8 @@ from .embedding import (
     natemb,
     jacemb,
     mjacemb,
+    embed,
 )
 
 from . import refinement as refinement
 from . import utils as utils
-
-from . import optim as optim

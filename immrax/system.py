@@ -17,8 +17,6 @@ import jax
 from jax.tree_util import register_pytree_node_class
 import jax.numpy as jnp
 from jaxtyping import Float, Integer
-import sympy
-from sympy2jax import SymbolicModule
 
 
 @register_pytree_node_class
@@ -27,35 +25,51 @@ class Trajectory:
     _ys: jnp.ndarray
     tfinite: jnp.ndarray
 
-    def __init__(self, ts: jax.Array, ys: jax.Array) -> None:
+    def __init__(self, ts: jax.Array, ys: jax.Array, tfinite: jax.Array) -> None:
         self._ts = ts
         self._ys = ys
-        self.tfinite = jnp.where(
-            jnp.isfinite(ts),
-            jnp.ones_like(ts, dtype=bool),
-            jnp.zeros_like(ts, dtype=bool),
-        )
+        self.tfinite = tfinite
 
     @staticmethod
     def from_diffrax(sol: Solution) -> "Trajectory":
         ts = sol.ts if sol.ts is not None else jnp.empty(0)
         ys = sol.ys if sol.ys is not None else jnp.empty(0)
-        return Trajectory(ts, ys)
+        tfinite = jnp.isfinite(ts)
+        return Trajectory(ts, ys, tfinite)
 
     def tree_flatten(self):
-        return ((self._ts, self._ys), "Trajectory")
+        return ((self._ts, self._ys, self.tfinite), "Trajectory")
 
     @classmethod
     def tree_unflatten(cls, _, children):
         return cls(*children)
 
+    # NOTE: Currently, Trajectory objects that were produced by vmapping over time will 
+    # behave badly. Because this class is a pytree, a "list" of Trajectory objects is 
+    # automatically flattened into just one object, and the dimensions of the children 
+    # arrays are adjusted to accomodate this. If the indices of every trajectory do not 
+    # correspond to the same time point, this will result in a Trajectory object where
+    # some sub-trajectories might have different indices that are finite, making the 
+    # below boolean index give a ragged result. 
+    # 
+    # This is difficult to deal with, and we don't currently have a good solution.
+    #
+    # Also note that if the trajectory was produced with an adaptive step size controller, 
+    # then different trajectories might also have indices that map to different times, 
+    # causing the same issue. (Though, in this case the offset is likely to be smaller.)
     @property
     def ts(self):
-        return self._ts[self.tfinite]
+        filtered = self._ts[self.tfinite]
+        shape = list(self._ts.shape)
+        shape[-1] = jnp.sum(self.tfinite[(0,) * (self.tfinite.ndim - 1)]).item()
+        return filtered.reshape(shape)
 
     @property
     def ys(self):
-        return self._ys[self.tfinite]
+        filtered = self._ys[self.tfinite]
+        shape = list(self._ys.shape)
+        shape[-2] = jnp.sum(self.tfinite[(0,) * (self.tfinite.ndim - 1)]).item()
+        return filtered.reshape(shape)
 
 
 class EvolutionError(Exception):
@@ -107,33 +121,6 @@ class System(abc.ABC):
             The time evolution of the state
 
         """
-
-    def fi(
-        self, i: int, t: Union[Integer, Float], x: jax.Array, *args, **kwargs
-    ) -> jax.Array:
-        """The i-th component of the right hand side of the system
-
-        Parameters
-        ----------
-        i : int
-            component
-        t : Union[Integer, Float]
-            The time of the system
-        x : jax.Array
-            The state of the system
-        *args :
-            control inputs, disturbance inputs, etc. Depends on parent class.
-        **kwargs :
-
-
-        Returns
-        -------
-        jax.Array
-            The i-th component of the time evolution of the state
-
-        """
-
-        return self.f(t, x, *args, **kwargs)[i]
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.f(*args, **kwargs)
@@ -196,10 +183,10 @@ class System(abc.ABC):
                 raise Exception(f"{solver=} is not a valid solver")
 
             saveat = SaveAt(t0=True, t1=True, steps=True)
-            return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
-            # return Trajectory.from_diffrax(
-            #     diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
-            # )
+            # return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+            return Trajectory.from_diffrax(
+                diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+            )
 
         elif self.evolution == "discrete":
             if not isinstance(t0, int) or not isinstance(tf, int):
@@ -214,7 +201,7 @@ class System(abc.ABC):
 
             times = jnp.arange(t0, tf + 1)
             _, traj = jax.lax.scan(step, x0, times)
-            return Trajectory(times, jnp.vstack((x0, traj)))
+            return Trajectory(times, jnp.vstack((x0, traj)), jnp.ones_like(times, dtype=bool))
         else:
             raise Exception(
                 f"Evolution needs to be 'continuous' or 'discrete', got {self.evolution=}"
@@ -309,160 +296,3 @@ class OpenLoopSystem(System, abc.ABC):
             The time evolution of the state
 
         """
-
-    def fi(
-        self, i: int, t: Union[Integer, Float], x: jax.Array, u: jax.Array, w: jax.Array
-    ) -> jax.Array:
-        """The right hand side of the open-loop system
-
-        Parameters
-        ----------
-        i : int
-            component
-        t : Union[Integer, Float]
-            The time of the system
-        x : jax.Array
-            The state of the system
-        u : jax.Array
-            The control input to the system
-        w : jax.Array
-            The disturbance input to the system
-
-        Returns
-        -------
-        jax.Array
-            The i-th component of the time evolution of the state
-
-        """
-        return self.f(t, x, u, w)[i]
-
-
-class SympySystem(OpenLoopSystem):
-    t_var: sympy.Symbol
-    x_vars: sympy.Matrix
-    u_vars: sympy.Matrix
-    w_vars: sympy.Matrix
-    xlen: int
-    ulen: int
-    wlen: int
-    f_eqn: List[sympy.Expr]
-    _f: SymbolicModule
-    _fi: List[SymbolicModule]
-
-    def __init__(
-        self,
-        t_var: sympy.Symbol,
-        x_vars: List[sympy.Symbol],
-        u_vars: List[sympy.Symbol],
-        w_vars: List[sympy.Symbol],
-        f_eqn: List[sympy.Expr],
-        evolution: Literal["continuous", "discrete"] = "continuous",
-    ) -> None:
-        """Initialize an open-loop system using Sympy.
-
-        Parameters
-        ----------
-        t_var : sympy.Symbol
-            Symbolic variable for the time
-        x_vars : List[sympy.Symbol]
-            Symbolic variables for the state
-        u_vars : List[sympy.Symbol]
-            Symbolic variables for the control input
-        w_vars : List[sympy.Symbol]
-            Symbolic variables for the disturbance input
-        f_eqn : List[sympy.Expr]
-            Symbolic expressions for the RHS
-        evolution : Literal['continuous','discrete'], optional
-            Type of time evolution, by default 'continuous'
-        """
-        self.evolution = evolution
-
-        self.t_var = t_var
-        self.x_vars = sympy.Matrix(x_vars)
-        self.u_vars = sympy.Matrix(u_vars)
-        self.w_vars = sympy.Matrix(w_vars)
-
-        self.xlen = len(x_vars)
-        self.ulen = len(u_vars)
-        self.wlen = len(w_vars)
-
-        self.f_eqn = [sympy.sympify(f_eqn_i) for f_eqn_i in f_eqn]
-        self._f = SymbolicModule(self.f_eqn)
-        self._fi = [SymbolicModule(f_eqn_i) for f_eqn_i in self.f_eqn]
-
-    def _txuw_to_kwargs(
-        self, t: Union[Integer, Float], x: jax.Array, u: jax.Array, w: jax.Array
-    ) -> dict:
-        """Return the kwargs to the SymbolicModule from sympy2jax given a specific value.
-
-        Returns
-        -------
-        dict
-            {name: value} pairs for each symbol and value
-        """
-        return {
-            self.t_var.name: t,
-            **{xvar.name: xval for xvar, xval in zip(self.x_vars, x)},
-            **{uvar.name: uval for uvar, uval in zip(self.u_vars, u)},
-            **{wvar.name: wval for wvar, wval in zip(self.w_vars, w)},
-        }
-
-    def f(
-        self, t: Union[Integer, Float], x: jax.Array, u: jax.Array, w: jax.Array
-    ) -> jax.Array:
-        """Get the value of the RHS of the dynamical system.
-
-        .. math ::
-
-            f (t, x, u, w)
-
-        Parameters
-        ----------
-        t : Union[Integer, Float]
-            state value
-        x : jax.Array
-            state value
-        u : jax.Array
-            control value
-        w : jax.Array
-            disturbance value
-
-        Returns
-        -------
-        jax.Array
-            :math:`f(t,x,u,w)`
-
-        """
-        x = jnp.asarray(x)
-        u = jnp.asarray(u)
-        w = jnp.asarray(w)
-        return jnp.asarray(self._f(**self._txuw_to_kwargs(t, x, u, w)))
-
-    def fi(
-        self, i: int, t: Union[Integer, Float], x: jax.Array, u: jax.Array, w: jax.Array
-    ) -> jax.Array:
-        """Get the value of the i-th component of the RHS of the dynamical system.
-
-        Parameters
-        ----------
-        i : int
-            component
-        t : Union[Integer, Float]
-            state value
-        x : jax.Array
-            state value
-        u : jax.Array
-            control value
-        w : jax.Array
-            disturbance value
-
-        Returns
-        -------
-        jax.Array
-            :math:`f_i(t,x,u,w)`
-
-        """
-        x = jnp.asarray(x)
-        u = jnp.asarray(u)
-        w = jnp.asarray(w)
-        return jnp.asarray(self._fi[i](**self._txuw_to_kwargs(t, x, u, w)))
