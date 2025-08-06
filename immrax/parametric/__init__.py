@@ -17,6 +17,11 @@ from .sets.polytope import (
 # from .sets.annulus import (
 #     LpAnnulus,
 # )
+from .sets.normotope import (
+    Normotope,
+    LinfNormotope,
+    L2Normotope,
+)
 
 __all__ = [
     'Parametope',
@@ -26,4 +31,7 @@ __all__ = [
     'FastlinAdjointEmbedding',
     'Ellipsoid',
     'Polytope',
+    'Normotope',
+    'LinfNormotope',
+    'L2Normotope',
 ]

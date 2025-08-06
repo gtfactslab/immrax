@@ -19,7 +19,7 @@ class Parametope :
         self.y = y
 
     def g (self, x:ArrayLike) :
-        """Evaluates the nonlinearity g at alpha, x
+        """Evaluates the nonlinearity g(alpha, x - ox) at x
 
         Parameters
         ----------
@@ -28,7 +28,7 @@ class Parametope :
         x : ArrayLike
             _description_
         """
-        pass
+        raise NotImplementedError("Subclasses must implement the g method.")
 
     # Always flatten parametope data into (ox, alpha, y)
     def tree_flatten (self) :
