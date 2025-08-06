@@ -18,6 +18,14 @@ from jax.tree_util import register_pytree_node_class
 import jax.numpy as jnp
 from jaxtyping import Float, Integer
 
+__all__ = [
+    "System",
+    "ReversedSystem",
+    "LinearTransformedSystem",
+    "LiftedSystem",
+    "OpenLoopSystem",
+    "Trajectory",
+]
 
 @register_pytree_node_class
 class Trajectory:
@@ -80,14 +88,14 @@ class EvolutionError(Exception):
 
 
 class System(abc.ABC):
-    """System
+    r"""System
 
     A dynamical system of one of the following forms:
 
     .. math::
-        \\dot{x} = f(t, x, \\dots), \\text{ or } \\x^+ = f(t, x, \\dots).
+        \dot{x} = f(t, x, \dots), \text{ or } x^+ = f(t, x, \dots).
 
-    where :math:`t\\in\\T\\in\\{\\mathbb{Z},\\mathbb{R}\\}` is a discrete or continuous time variable, :math:`x\\in\\mathbb{R}^n` is the state of the system, and :math:`\\dots` are some other inputs, perhaps control and disturbance.
+    where :math:`t\in T\in\{\mathbb{Z},\mathbb{R}\}` is a discrete or continuous time variable, :math:`x\in\mathbb{R}^n` is the state of the system, and :math:`\dots` are some other inputs, perhaps control and disturbance.
 
     There are two main attributes that need to be defined in a subclass:
 
@@ -183,10 +191,10 @@ class System(abc.ABC):
                 raise Exception(f"{solver=} is not a valid solver")
 
             saveat = SaveAt(t0=True, t1=True, steps=True)
-            # return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
-            return Trajectory.from_diffrax(
-                diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
-            )
+            return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+            # return Trajectory.from_diffrax(
+            #     diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
+            # )
 
         elif self.evolution == "discrete":
             if not isinstance(t0, int) or not isinstance(tf, int):

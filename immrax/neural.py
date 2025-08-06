@@ -24,6 +24,15 @@ from immrax.inclusion import (
 from immrax.system import OpenLoopSystem
 from immrax.utils import d_positive, set_columns_from_corner
 
+__all__ = [
+    "NeuralNetwork",
+    "CROWNResult",
+    "FastlinResult",
+    "crown",
+    "fastlin",
+    "NNCSystem",
+    "NNCEmbeddingSystem",
+]
 
 class NeuralNetwork (eqx.Module, Control) :
     """NeuralNetwork
@@ -75,7 +84,11 @@ class NeuralNetwork (eqx.Module, Control) :
                 elif a.lower() == 'sigmoid' :
                     mods.append(nn.Lambda(jax.nn.sigmoid))
                 elif a.lower() == 'tanh' :
-                    mods.append(nn.Lambda(jax.nn.tanh))
+                    # Fixes NaN bug with tanh
+                    # mods.append(nn.Lambda(jax.nn.tanh))
+                    mods.append(nn.Lambda(lambda x : 2*jax.nn.sigmoid(2*x) - 1))
+                elif a.lower() == 'logsig' :
+                    mods.append(nn.Lambda(jax.nn.log_sigmoid))
 
         self.seq = nn.Sequential(mods)
 
@@ -121,6 +134,19 @@ class NeuralNetwork (eqx.Module, Control) :
         savepath = self.dir.joinpath('model.eqx')
         print(f'Saving model to {savepath}')
         eqx.tree_serialise_leaves(savepath, seq)
+
+    def loadzeros (self) :
+        """Initialize the weights and biases to zero."""
+        seq = self.seq
+        for i, layer in enumerate(self.seq) :
+            if isinstance(layer, nn.Linear) :
+                seq = eqx.tree_at(lambda seq: seq[i].weight, seq, jnp.zeros_like(seq[i].weight))
+                seq = eqx.tree_at(lambda seq: seq[i].bias, seq, jnp.zeros_like(seq[i].bias))
+        savepath = self.dir.joinpath('model.eqx')
+        eqx.tree_serialise_leaves(savepath, seq)
+        # self.seq = eqx.tree_deserialise_leaves(savepath, self.seq)
+        # self = NeuralNetwork(self.dir, load=True)
+        # print(f'Successfully zero initialized model and saved to {savepath}')
 
     def __call__ (self, x:jax.Array) -> jax.Array :
         return self.seq(x)
@@ -434,6 +460,10 @@ class FastlinResult (namedtuple('FastlinResult', ['C', 'ld', 'ud'])) :
         elif isinstance(x, jax.Array) :
             c = self.C@x
             return interval(c + self.ld, c + self.ud)
+    
+    @property
+    def lud (self) :
+        return interval(self.ld, self.ud)
 
 def fastlin (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., FastlinResult] :
     if out_len is None :

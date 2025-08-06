@@ -10,6 +10,17 @@ from .refinement import SampleRefinement, LinProgRefinement, NullVecRefinement
 from .inclusion import Interval, i2ut, interval, jacif, mjacif, natif, ut2i
 from .system import LiftedSystem, System
 
+__all__ = [
+    "EmbeddingSystem",
+    "InclusionEmbedding",
+    "TransformEmbedding",
+    "ifemb",
+    "natemb",
+    "jacemb",
+    "mjacemb",
+    "embed",
+    "get_faces",
+]
 
 class EmbeddingSystem(System, abc.ABC):
     """EmbeddingSystem
@@ -181,18 +192,44 @@ def embed (F: Callable[..., Interval]) :
 
         # Computing F on the faces of the hyperrectangle
 
-        _X = interval(
-            jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
-        )
-        _E = interval(jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, _X, *args))
+        if n > 1 :
+            _X = interval(
+                jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
+            )
+            _E = interval(jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, _X, *args))
 
-        X_ = interval(
-            jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
-        )
-        E_ = interval(jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, X_, *args))
-
-        return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
+            X_ = interval(
+                jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
+            )
+            E_ = interval(jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, X_, *args))
+            return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
+        else :
+            _E = Fkwargs(t, interval(_x)).lower
+            E_ = Fkwargs(t, interval(x_)).upper
+            return jnp.array([_E, E_])
+        
     return E
+
+def get_faces (ix:Interval) -> tuple[Interval, Interval] :
+    n = len(ix)
+
+    _x = ix.lower
+    x_ = ix.upper
+
+    # _X = interval(
+    #     , jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
+    # )
+
+    # X_ = interval(
+    #     , jnp.tile(x_, (n, 1))
+    # )
+
+    X = interval(
+        jnp.vstack((jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))))), 
+        jnp.vstack((jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1))), jnp.tile(x_, (n, 1))))
+    )
+
+    return X
 
 
 class TransformEmbedding(InclusionEmbedding):

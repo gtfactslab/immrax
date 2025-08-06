@@ -92,7 +92,7 @@ class SampleRefinement(Refinement):
 
         self.N = jnp.array(
             [
-                jnp.squeeze(null_space(jnp.vstack([jnp.eye(H.shape[1]), aug_var]).T))
+                jnp.squeeze(null_space(jnp.vstack([jnp.eye(H.shape[1]), aug_var]).T, dim_null=1))
                 for aug_var in H[H.shape[1] :]
             ]
         ).T
