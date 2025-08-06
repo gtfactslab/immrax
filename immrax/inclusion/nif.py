@@ -1,17 +1,24 @@
-from functools import wraps, partial
+from functools import wraps
+from typing import Any, Callable, Sequence
+
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jax import lax
-from jax.core import Primitive
-from jax import jit, vmap
+from jax import jit, lax, vmap
+from jax._src import ad_util, config, source_info_util
+from jax._src.core import (
+    Atom,
+    Jaxpr,
+    Literal,
+    Var,
+    clean_up_dead_vars,
+    last_used,
+    typecheck,
+)
 from jax._src.util import safe_map
-from typing import Callable, Any, Sequence
-from jax._src import ad_util, source_info_util, config
-from jax._src.core import Jaxpr, Literal, Var, Atom, typecheck, last_used, clean_up_dead_vars
+from jax.extend.core import Primitive
+
 from immrax.inclusion.interval import *
-import equinox as eqx
-import itertools
-from jax._src import dtypes
 
 """
 This file implements the Natural Inclusion Function as an interpreter of Jaxprs.
@@ -116,6 +123,7 @@ def _add_passthrough_to_registry (primitive:Primitive) -> None :
 _add_passthrough_to_registry(lax.copy_p)
 _add_passthrough_to_registry(lax.reshape_p)
 _add_passthrough_to_registry(lax.slice_p)
+_add_passthrough_to_registry(lax.split_p)
 _add_passthrough_to_registry(lax.dynamic_slice_p)
 _add_passthrough_to_registry(lax.squeeze_p)
 _add_passthrough_to_registry(lax.transpose_p)
@@ -173,7 +181,7 @@ def _inclusion_pjit_p (*args, **bind_params) -> Interval :
     """For now, this ignores a pjit_p and returns the evaluation of the jaxpr."""
     # TODO: Do we need to implement consts here?
     bind_jaxpr = bind_params.pop('jaxpr')
-    if isinstance(bind_jaxpr, jax.core.ClosedJaxpr) :
+    if isinstance(bind_jaxpr, jax.extend.core.ClosedJaxpr) :
         bind_jaxpr = bind_jaxpr.jaxpr
     return natif_jaxpr(bind_jaxpr, [], *args)
 
@@ -184,7 +192,7 @@ def _inclusion_scan_p (*args, **bind_params) -> Interval :
     # print(args)
 
     # bind_jaxpr = bind_params.pop('jaxpr')
-    # if isinstance(bind_jaxpr, jax.core.ClosedJaxpr) :
+    # if isinstance(bind_jaxpr, jax.extend.core.ClosedJaxpr) :
     #     bind_jaxpr = bind_jaxpr.jaxpr
 
     # isinterval = lambda x : isinstance(x, Interval)
@@ -308,6 +316,11 @@ def _inclusion_integer_pow_p (x:Interval, y: int) -> Interval :
 inclusion_registry[lax.integer_pow_p] = _inclusion_integer_pow_p
 Interval.__pow__ = _inclusion_integer_pow_p
 
+def _inclusion_square_p (x:Interval) -> Interval :
+    """Square an interval."""
+    return _inclusion_integer_pow_p(x, 2)
+inclusion_registry[lax.square_p] = _inclusion_square_p
+
 def _inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
     # All checks of batch/contracting dims are done in first pass on lower bounds
 
@@ -363,9 +376,9 @@ def _inclusion_dot_general_p (A: Interval, B: Interval, **kwargs) -> Interval :
 
 inclusion_registry[lax.dot_general_p] = _inclusion_dot_general_p
 
-def _inclusion_sin_p (x:Interval) -> Interval :
+def _inclusion_sin_p (x:Interval, accuracy = None) -> Interval :
     if not isinstance (x, Interval) :
-        return lax.sin(x)
+        return lax.sin(x, accuracy=accuracy)
     def _sin_if (l:jnp.float32, u:jnp.float32) :
         def case_lpi (l, u) :
             cl = jnp.cos(l); cu = jnp.cos(u)
@@ -394,11 +407,11 @@ def _inclusion_sin_p (x:Interval) -> Interval :
     return Interval(_x.reshape(x.shape), x_.reshape(x.shape))
 inclusion_registry[lax.sin_p] = _inclusion_sin_p
 
-def _inclusion_cos_p (x:Interval) -> Interval :
-    return _inclusion_sin_p(Interval(x.lower + jnp.pi/2, x.upper + jnp.pi/2))
+def _inclusion_cos_p (x:Interval, accuracy=None) -> Interval :
+    return _inclusion_sin_p(Interval(x.lower + jnp.pi/2, x.upper + jnp.pi/2), accuracy=accuracy)
 inclusion_registry[lax.cos_p] = _inclusion_cos_p
 
-def _inclusion_tan_p (x:Interval) -> Interval :
+def _inclusion_tan_p (x:Interval, accuracy=None) -> Interval :
     l = x.lower; u = x.upper
     div = jnp.floor((u + jnp.pi/2) / (jnp.pi)).astype(int)
     l -= div*jnp.pi; u -= div*jnp.pi
@@ -415,7 +428,7 @@ def _inclusion_asin_p (x:Interval) -> Interval :
     return Interval(jnp.arcsin(x.lower), jnp.arcsin(x.upper))
 inclusion_registry[lax.asin_p] = _inclusion_asin_p
 
-def _inclusion_sqrt_p (x:Interval) -> Interval :
+def _inclusion_sqrt_p (x:Interval, accuracy=None) -> Interval :
     ol = jnp.where((x.lower < 0), -jnp.inf, jnp.sqrt(x.lower))
     ou = jnp.where((x.lower < 0), jnp.inf, jnp.sqrt(x.upper))
     return Interval (ol, ou)

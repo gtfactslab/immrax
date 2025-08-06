@@ -4,9 +4,9 @@ from typing import Any, Callable, Literal, Union
 
 import jax
 import jax.numpy as jnp
-from jaxtyping import Float, Integer
+from jaxtyping import Float, Integer, Bool, Array
 
-from .refinement import SampleRefinement, LinProgRefinement
+from .refinement import SampleRefinement, LinProgRefinement, NullVecRefinement
 from .inclusion import Interval, i2ut, interval, jacif, mjacif, natif, ut2i
 from .system import LiftedSystem, System
 
@@ -60,37 +60,8 @@ class EmbeddingSystem(System, abc.ABC):
 
         """
 
-    def Ei(
-        self, i: int, t: Union[Integer, Float], x: jax.Array, *args, **kwargs
-    ) -> jax.Array:
-        """The right hand side of the embedding system.
-
-        Parameters
-        ----------
-        i : int
-            component
-        t : Union[Integer, Float]
-            The time of the embedding system.
-        x : jax.Array
-            The state of the embedding system.
-        *args :
-            interval-valued control inputs, disturbance inputs, etc. Depends on parent class.
-
-        Returns
-        -------
-        jax.Array
-            The i-th component of the time evolution of the state on the upper triangle
-
-        """
-        return self.E(t, x, *args, **kwargs)[i]
-
     def f(self, t: Union[Integer, Float], x: jax.Array, *args, **kwargs) -> jax.Array:
         return self.E(t, x, *args, **kwargs)
-
-    def fi(
-        self, i: int, t: Union[Integer, Float], x: jax.Array, *args, **kwargs
-    ) -> jax.Array:
-        return self.Ei(i, t, x, *args, **kwargs)
 
 
 class InclusionEmbedding(EmbeddingSystem):
@@ -127,11 +98,6 @@ class InclusionEmbedding(EmbeddingSystem):
         """
         self.sys = sys
         self.F = F
-        self.Fi = (
-            Fi
-            if Fi is not None
-            else (lambda i, t, x, *args, **kwargs: self.F(t, x, *args, **kwargs)[i])
-        )
         self.evolution = sys.evolution
         self.xlen = sys.xlen * 2
 
@@ -144,6 +110,7 @@ class InclusionEmbedding(EmbeddingSystem):
         **kwargs,
     ) -> jax.Array:
         t = interval(t)
+        # jax.debug.print("isnan: {0}", jnp.isnan(x).any())
 
         if refine is not None:
             convert = lambda x: refine(ut2i(x))
@@ -153,6 +120,11 @@ class InclusionEmbedding(EmbeddingSystem):
             Fkwargs = partial(self.F, **kwargs)
 
         x_int = convert(x)
+        # jax.debug.print(
+        #     "lower: {0}, upper: {1}",
+        #     jnp.isnan(x_int.lower).any(),
+        #     jnp.isnan(x_int.upper).any(),
+        # )
 
         if self.evolution == "continuous":
             n = self.sys.xlen
@@ -165,15 +137,15 @@ class InclusionEmbedding(EmbeddingSystem):
                 jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
             )
             _E = jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, _X, *args)
-            # _E = jnp.array([self.Fi[i](t, _X[i], *args, **kwargs).lower for i in range(n)])
 
             X_ = interval(
                 jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
             )
             E_ = jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, X_, *args)
-            # E_ = jnp.array([self.Fi[i](t, X_[i], *args, **kwargs).upper for i in range(n)])
 
             # return jnp.concatenate((_E, E_))
+            output = jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
+            # jax.debug.print("output isnan: {0}", jnp.isnan(output).any())
             return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
 
         elif self.evolution == "discrete":
@@ -343,12 +315,14 @@ class AuxVarEmbedding(InclusionEmbedding):
     def __init__(
         self,
         sys: System,
-        H: jax.Array,
-        mode: Literal["sample", "linprog"] = "sample",
+        H: Float[Array, "lstates bstates"],
+        *,
+        base_invariants: Bool[Array, "lstates"] | None = None,
         if_transform: Callable[[Callable[..., jnp.ndarray]], Callable[..., Interval]]
         | None = None,
         F: Callable[..., Interval] | None = None,
-        num_samples=10,
+        mode: Literal["sample", "linprog"] = "sample",
+        num_samples: int =10,
     ) -> None:
         """
         Embedding system defined by auxiliary variables. Given a base system with dimension n
@@ -375,9 +349,8 @@ class AuxVarEmbedding(InclusionEmbedding):
         """
         self.H = H
         # self.Hp = jnp.linalg.pinv(H)
-        self.Hp = jnp.hstack(
-            (jnp.eye(H.shape[1]), jnp.zeros((H.shape[1], H.shape[0] - H.shape[1])))
-        )
+        H_inv = jnp.linalg.inv(H[: H.shape[1]])
+        self.Hp = jnp.hstack([H_inv, jnp.zeros((H.shape[1], H.shape[0] - H.shape[1]))])
 
         liftsys = LiftedSystem(sys, self.H, self.Hp)
 
@@ -390,10 +363,16 @@ class AuxVarEmbedding(InclusionEmbedding):
                 "Invalid mode argument. Mode must be either 'sample' or 'linprog'."
             )
 
+        def liftf(t, x, *args, **kwargs):
+            dx = liftsys.f(t, x, *args, **kwargs)
+            if base_invariants is not None:
+                dx = dx.at[base_invariants].set(0)
+            return dx
+
         if F is None and if_transform is None:
-            F = natif(liftsys.f)  # default to natif
+            F = natif(liftf)  # default to natif
         elif if_transform is not None and F is None:
-            F = if_transform(liftsys.f)
+            F = if_transform(liftf)
         elif F is not None and if_transform is None:
             pass  # do nothing, take F as given
         else:

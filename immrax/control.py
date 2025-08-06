@@ -3,7 +3,6 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Integer, Float
 from typing import Union
-from sympy2jax import SymbolicModule
 from immrax.system import System, OpenLoopSystem
 
 __all__ = [

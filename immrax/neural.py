@@ -1,22 +1,28 @@
-import jax
-from jax import jit
-import jax.numpy as jnp
+from collections import namedtuple
+from pathlib import Path
+from typing import Callable, Literal, Sequence, Tuple, Union
+
 import equinox as eqx
 import equinox.nn as nn
-from immrax.control import Control, ControlledSystem
-from immrax.inclusion import interval, natif, jacif, mjacif, mjacM, Interval
-from immrax.inclusion import ut2i, i2ut, i2lu, standard_permutation
-from immrax.inclusion import Permutation, Corner
-from immrax.embedding import EmbeddingSystem, InclusionEmbedding
-from immrax.utils import d_metzler, d_positive, set_columns_from_corner
-from jaxtyping import Integer, Float
-from typing import Any, List, Literal, Callable, NamedTuple, Union, Tuple, Sequence
-from pathlib import Path
-from functools import partial
-from collections import namedtuple
-from jax._src.api import api_boundary
+import jax
+import jax.numpy as jnp
+from jax import jit
+from jax._src.traceback_util import api_boundary
+from jaxtyping import Float, Integer
 
+from immrax.control import Control, ControlledSystem
+from immrax.embedding import EmbeddingSystem
+from immrax.inclusion import (
+    Corner,
+    Interval,
+    Permutation,
+    i2lu,
+    interval,
+    mjacM,
+    ut2i,
+)
 from immrax.system import OpenLoopSystem
+from immrax.utils import d_positive, set_columns_from_corner
 
 __all__ = [
     "NeuralNetwork",
@@ -28,7 +34,7 @@ __all__ = [
     "NNCEmbeddingSystem",
 ]
 
-class NeuralNetwork (Control, eqx.Module) :
+class NeuralNetwork (eqx.Module, Control) :
     """NeuralNetwork
     
     A fully connected neural network, that extends immrax.Control and eqx.Module. Loads from a directory.
@@ -175,6 +181,7 @@ from jax_verify.src import (
     synthetic_primitives,
 )
 from jax_verify.src.linear import backward_crown, linear_relaxations
+
 
 def to_jv_interval (x:Interval) -> jv.IntervalBound :
     return jv.IntervalBound(x.lower, x.upper)
@@ -852,6 +859,3 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
 
 
         #     #     for i, (tc, xc, uc, wc) in enumerate(centers) :
-                    
-
-    

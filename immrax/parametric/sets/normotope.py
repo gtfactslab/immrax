@@ -10,13 +10,14 @@ from math import sqrt
 
 @register_pytree_node_class
 class Normotope (Parametope) :
-    """ Defines the set
+    r""" Defines the set
 
-    {x : \|H(x - \ox)\| \leq y}
+    .. math::
+        {x : \|H(x - \ox)\| \leq y}
 
-    where \|\cdot\| is a norm, \ox is the center, H is a shaping matrix, and y is the offset.
+    where :math:`\|\cdot\|` is a norm, :math:`\ox` is the center, :math:`H` is a shaping matrix, and :math:`y` is the offset.
 
-    Define h as the norm in subclasses, and mu as the logarithmic norm associated to h.
+    Define :math:`h` as the norm in subclasses, and :math:`\mu` as the logarithmic norm associated to :math:`h`.
     """
 
     def g (self, x) :
@@ -83,9 +84,10 @@ class Normotope (Parametope) :
 
 @register_pytree_node_class
 class LinfNormotope (Normotope) :
-    """ Defines the set 
+    r""" Defines the set 
     
-    {x : \|H(x - \ox)\|_\infty \leq y}
+    .. math::
+        {x : \|H(x - \ox)\|_\infty \leq y}
 
     """
     def h (self, z) :
@@ -98,13 +100,13 @@ class LinfNormotope (Normotope) :
 
     @classmethod 
     def induced_norm (cls, A) :
-        """Computes the induced \ell_\infty norm of A"""
+        r"""Computes the induced :math:`\ell_\infty` norm of A"""
         # Maximum row sum of |A|
         return jnp.max(jnp.sum(jnp.abs(A), axis=1))
     
     @classmethod
     def logarithmic_norm (cls, A) :
-        """Computes the logarithmic \ell_\infty norm of A"""
+        r"""Computes the logarithmic :math:`\ell_\infty` norm of A"""
         # Maximum row sum of A_M (Metzlerized)
         A_M = jnp.where(jnp.eye(A.shape[0], dtype=bool), A, jnp.abs(A))
         return jnp.max(jnp.sum(A_M, axis=1))
@@ -127,9 +129,10 @@ class LinfNormotope (Normotope) :
 
 @register_pytree_node_class
 class L2Normotope (Normotope) :
-    """ Defines the set 
+    r""" Defines the set 
     
-    {x : \|H(x - \ox)\|_2 \leq y}
+    .. math::
+        {x : \|H(x - \ox)\|_2 \leq y}
 
     """
     def h (self, z) :
@@ -142,12 +145,12 @@ class L2Normotope (Normotope) :
 
     @classmethod 
     def induced_norm (cls, A) :
-        """Computes the induced \ell_2 norm of A"""
+        r"""Computes the induced :math:`\ell_2` norm of A"""
         return jnp.linalg.norm(A, ord=2)
     
     @classmethod
     def logarithmic_norm (cls, A) :
-        """Computes the \ell_2 logarithmic norm of A"""
+        r"""Computes the :math:`\ell_2` logarithmic norm of A"""
         return jnp.max(jnp.linalg.eigvalsh((A + A.T) / 2))
 
     

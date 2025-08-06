@@ -8,18 +8,23 @@ from ..inclusion import Interval, interval
 
 @register_pytree_node_class
 class Parametope :
-    """Parametope. Defines the set
-    
-    {x : g(alpha, x - ox) <= y}
-    
+    r"""Parametope. Defines the set
+
+    .. math::
+        {x : g(\alpha, x - \mathring{x}) <= y}
+
     """
+    ox: ArrayLike  # Center
+    alpha: ArrayLike  # Parameters
+    y: ArrayLike  # Offset
+
     def __init__ (self, ox, alpha, y) :
         self.ox = ox
         self.alpha = alpha
         self.y = y
 
     def g (self, x:ArrayLike) :
-        """Evaluates the nonlinearity g(alpha, x - ox) at x
+        r"""Evaluates the nonlinearity :math:`g(\alpha, x - \mathring{x})` at x
 
         Parameters
         ----------
@@ -52,10 +57,11 @@ class Parametope :
 
 @register_pytree_node_class
 class hParametope (Parametope) :
-    """Defines a parametope with the particular structured nonlinearity
+    r"""Defines a parametope with the particular structured nonlinearity
     
-    g(alpha, x - ox) = (-h(alpha @ (x - ox)), h(alpha @ (x - ox)))
-    
+    .. math::
+        g(\alpha, x - \mathring{x}) = (-h(\alpha (x - \mathring{x})), h(\alpha (x - \mathring{x})))
+
     and y split into lower and upper bounds y = (ly, uy).
     """
 
@@ -91,7 +97,7 @@ class hParametope (Parametope) :
     
     def k_face (self, k:int) -> Interval :
         """Overapproximate the k-face of the hParametope"""
-
+        pass
 
     # Override in subclasses to unpack the flattened data
     @classmethod

@@ -1,3 +1,4 @@
+from typing import List
 import jax
 from jax.tree_util import register_pytree_node_class
 import jax.numpy as jnp
@@ -67,6 +68,9 @@ class Interval:
             self.lower.reshape(*args, **kwargs), self.upper.reshape(*args, **kwargs)
         )
 
+    def ravel(self) -> List["Interval"]:
+        return [interval(l, u) for l, u in zip(self.lower.ravel(), self.upper.ravel())]
+
     def atleast_1d(self) -> "Interval":
         return interval(jnp.atleast_1d(self.lower), jnp.atleast_1d(self.upper))
 
@@ -122,9 +126,11 @@ class Interval:
         return Interval(self.lower[i], self.upper[i])
 
     def __iter__(self):
-        raise IndexError(
-            "Interval is not iterable. Iterators are mutable, stateful objects which to not align with JAXs function paradigm."
-        )
+        """Return an iterator over the interval elements."""
+        # Use the actual length to create a proper iterator
+        # This avoids the infinite loop issue by using explicit indexing
+        length = int(len(self))
+        return (self[i] for i in range(length))
 
 
 # HELPER FUNCTIONS
