@@ -17,6 +17,7 @@ from jax._src.core import (
 )
 from jax._src.util import safe_map
 from jax.extend.core import Primitive
+from jax._src.lax import linalg as LA
 
 from immrax.inclusion.interval import *
 
@@ -464,3 +465,54 @@ inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
 
 
 Interval.__matmul__ = jit(natif(jnp.matmul))
+
+# Some linear algebra routines 
+
+# Cholesky decomposition
+def _manual_cholesky (A):
+    """
+    Computes the Cholesky decomposition of a symmetric positive definite matrix A using Python for loops.
+    Returns lower-triangular matrix L such that A = L @ L.T
+    """
+    n = A.shape[0]
+    L = jnp.zeros_like(A)
+    for i in range(n):
+        for j in range(i + 1):
+            s = jnp.sum(L[i, :j] * L[j, :j])
+            val = jnp.where(i == j,
+                            jnp.sqrt(A[i, i] - s),
+                            (A[i, j] - s) / L[j, j])
+            L = L.at[i, j].set(val)
+    return L
+
+inclusion_registry[LA.cholesky_p] = natif(_manual_cholesky)
+
+# Triangular solve
+
+def _manual_lower_triangular_solve (A, b):
+    """
+    Solves the system Ax = b for a lower triangular matrix A using Python for loops.
+    Returns the solution vector x.
+    """
+    n = A.shape[0]
+    x = jnp.zeros_like(b)
+    for i in range(n):
+        s = jnp.sum(A[i, :i] * x[:i])
+        x = x.at[i].set((b[i] - s) / A[i, i])
+    return x
+def _manual_upper_triangular_solve (A, b):
+    """
+    Solves the system Ax = b for an upper triangular matrix A using Python for loops.
+    Returns the solution vector x.
+    """
+    n = A.shape[0]
+    x = jnp.zeros_like(b)
+    for i in range(n - 1, -1, -1):
+        s = jnp.sum(A[i, i + 1:] * x[i + 1:])
+        x = x.at[i].set((b[i] - s) / A[i, i])
+    return x
+
+def _manual_triangular_solve (A, b, *, left_side=False, lower=False, transpose_a=False, conjugate_a=False, unit_diagonal=False) :
+    A = jax.lax.cond(transpose_a, A.T, A)
+
+inclusion_registry[LA.triangular_solve_p] = natif(_manual_triangular_solve)
