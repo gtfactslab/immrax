@@ -108,6 +108,10 @@ class System(abc.ABC):
     evolution: Literal["continuous", "discrete"]
     xlen: int
 
+    def __init__ (self, evolution, xlen) :
+        self.evolution = evolution
+        self.xlen = xlen
+
     @abc.abstractmethod
     def f(self, t: Union[Integer, Float], x: jax.Array, *args, **kwargs) -> jax.Array:
         """The right hand side of the system

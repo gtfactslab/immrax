@@ -20,6 +20,7 @@ from jax.extend.core import Primitive
 from jax._src.lax import linalg as LA
 
 from immrax.inclusion.interval import *
+from functools import partial
 
 """
 This file implements the Natural Inclusion Function as an interpreter of Jaxprs.
@@ -489,30 +490,72 @@ inclusion_registry[LA.cholesky_p] = natif(_manual_cholesky)
 
 # Triangular solve
 
-def _manual_lower_triangular_solve (A, b):
-    """
-    Solves the system Ax = b for a lower triangular matrix A using Python for loops.
-    Returns the solution vector x.
-    """
-    n = A.shape[0]
-    x = jnp.zeros_like(b)
-    for i in range(n):
-        s = jnp.sum(A[i, :i] * x[:i])
-        x = x.at[i].set((b[i] - s) / A[i, i])
-    return x
-def _manual_upper_triangular_solve (A, b):
-    """
-    Solves the system Ax = b for an upper triangular matrix A using Python for loops.
-    Returns the solution vector x.
-    """
-    n = A.shape[0]
-    x = jnp.zeros_like(b)
-    for i in range(n - 1, -1, -1):
-        s = jnp.sum(A[i, i + 1:] * x[i + 1:])
-        x = x.at[i].set((b[i] - s) / A[i, i])
+def _manual_triangular_solve(
+    A, b, *,
+    left_side=True,
+    lower=True,
+    transpose_a=False,
+    conjugate_a=False,
+    unit_diagonal=False
+):
+    # Apply transpose if needed
+    A = jnp.where(transpose_a, A.T, A)
+    # Apply conjugate if needed
+    A = jnp.where(conjugate_a, jnp.conj(A), A)
+    # # If unit_diagonal, set diagonal to 1
+    # if unit_diagonal:
+    #     A = A.at[jnp.diag_indices(A.shape[0])].set(1)
+
+    def lower_triangular_solve(A, b):
+        n = A.shape[0]
+        x = jnp.zeros_like(b)
+        for i in range(n):
+            s = jnp.sum(A[i, :i] * x[:i])
+            xi = (b[i] - s) / A[i, i]
+            x = x.at[i].set(xi)
+        return x
+
+    def upper_triangular_solve(A, b):
+        n = A.shape[0]
+        x = jnp.zeros_like(b)
+        for i in range(n - 1, -1, -1):
+            s = jnp.sum(A[i, i + 1:] * x[i + 1:])
+            x = x.at[i].set((b[i] - s) / A[i, i])
+        return x
+
+    # # Choose lower or upper triangular solve
+    # x = lax.cond(lower,
+    #              lambda _: lower_triangular_solve(A, b),
+    #              lambda _: upper_triangular_solve(A, b),
+    #              operand=None)
+
+    # # If not left_side, solve xA = b instead of Ax = b
+    # x = lax.cond(left_side,
+    #              lambda x: x,
+    #              lambda _: jnp.linalg.solve(A.T, b.T).T,
+    #              x)
+
+    if lower:
+        if left_side:
+            x = lower_triangular_solve(A, b)
+        else:
+            x = lower_triangular_solve(A.T, b.T).T
+    else :
+        if left_side:
+            x = upper_triangular_solve(A, b)
+        else:
+            x = upper_triangular_solve(A.T, b.T).T
+
+    # return lower_triangular_solve(A, b)
     return x
 
-def _manual_triangular_solve (A, b, *, left_side=False, lower=False, transpose_a=False, conjugate_a=False, unit_diagonal=False) :
-    A = jax.lax.cond(transpose_a, A.T, A)
+@partial(jit, static_argnames=('left_side', 'lower', 'transpose_a', 'conjugate_a', 'unit_diagonal'))
+def _inclusion_triangular_solve (A, b, *, left_side=True, lower=True, transpose_a=False, conjugate_a=False, unit_diagonal=False):
+    # return natif(partial(jax.vmap(_manual_triangular_solve, in_axes=()), 
+    #                      left_side=left_side, lower=lower, transpose_a=transpose_a, conjugate_a=conjugate_a, unit_diagonal=unit_diagonal))(A, b)
+    return natif(partial(jax.vmap(_manual_triangular_solve, in_axes=    ()), 
+                         left_side=left_side, lower=lower, transpose_a=transpose_a, conjugate_a=conjugate_a, unit_diagonal=unit_diagonal))(A, b)
 
-inclusion_registry[LA.triangular_solve_p] = natif(_manual_triangular_solve)
+inclusion_registry[LA.triangular_solve_p] = _inclusion_triangular_solve
+
+# natif(lambda A, b, left_side=True, lower=True, transpose_a=False, conjugate_a=False, unit_diagonal=False: _manual_triangular_solve(A, b, left_side=left_side, lower=lower, transpose_a=transpose_a, conjugate_a=conjugate_a, unit_diagonal=unit_diagonal))

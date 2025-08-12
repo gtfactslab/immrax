@@ -1,14 +1,16 @@
 import abc
 import jax
 import jax.numpy as jnp
-from jaxtyping import Integer, Float
+from jaxtyping import Integer, Float, ArrayLike
 from typing import Union
 from immrax.system import System, OpenLoopSystem
+from jax.tree_util import register_pytree_node_class
 
 __all__ = [
     'Control',
     'ControlledSystem',
     'LinearControl',
+    'InterpControl',
 ]
 
 class Control (abc.ABC) :
@@ -99,3 +101,30 @@ class ControlledSystem (System) :
     
 #     def fc(self, x: jax.Array, w: jax.Array) -> jax.Array:
 #         return self.system.f(x, self.ut, w)
+
+@register_pytree_node_class
+class InterpControl (Control) :
+    t0: Union[Integer, Float]
+    tf: Union[Integer, Float]
+    us: ArrayLike
+    ts: ArrayLike 
+    def __init__ (self, t0, tf, us) :
+        self.t0 = t0
+        self.tf = tf
+        # Us should be shape ((tf - t0)/dt, Ulen)
+        self.us = us
+        self.ts = jnp.linspace(t0, tf, us.shape[0], endpoint=False)
+
+    def tree_flatten (self) :
+        return ((self.t0, self.tf, self.us), type(self).__name__)
+    
+    @classmethod 
+    def tree_unflatten (cls, aux_data, children) :
+        return cls(*children)
+    
+# @register_pytree_node_class
+# class LinearInterpControl (InterpControl) :
+#     def u(self, t, x) :
+#         i = jnp.searchsorted(self.ts, t, side='left')
+
+        
