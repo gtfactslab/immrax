@@ -8,18 +8,17 @@ For more information, please see the full [documentation](https://immrax.readthe
 
 ## Dependencies
 
-`immrax` depends on the library `pypoman`, which internally uses `pycddlib` as a wrapper around [the cdd library](https://people.inf.ethz.ch/fukudak/cdd_home/). For this wrapper to function properly, you must install `cdd` to your system. On Ubuntu, the relevant packages can be installed with 
+`immrax` depends on the library `pypoman`, which internally uses `pycddlib` as a wrapper around [the cdd library](https://people.inf.ethz.ch/fukudak/cdd_home/). For this wrapper to function properly, you must install `cdd` to your system. On Ubuntu, the relevant packages can be installed with
 
 ```bash
 apt-get install -y libcdd-dev libgmp-dev
 ```
 
-On Arch linux, you can use 
+On Arch linux, you can use
 
 ```bash
 pacman -S cddlib
 ```
-
 
 ## Installation
 
@@ -34,23 +33,20 @@ conda activate immrax
 
 ### Installing immrax
 
-For now, manually clone the Github repository and `pip install` it. We plan to release a stable version on PyPi soon.
+`immrax` is available as a package on PyPI and can be installed with `pip`.
 
 ```shell
-git clone https://github.com/gtfactslab/immrax.git
-cd immrax
-pip install .
+pip install immrax
 ```
-
 
 If you have cuda-enabled hardware you wish to utilize, please install the `cuda` optional dependency group.
 
 ```shell
 ...
-pip install .[cuda]
+pip install immrax[cuda]
 ```
 
-To test if the installation process worked, run the `compare.py` example.
+To test if the installation process worked, run the `compare.py` example. The additional `examples` optional dependency group contains some dependencies needed for the more complex examples; be sure to also install it if you want to run the others.
 
 ```shell
 cd examples
@@ -58,7 +54,6 @@ python compare.py
 ```
 
 This should return the outputs of different inclusion functions as well as their runtimes.
-
 
 ## Citation
 
