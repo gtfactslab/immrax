@@ -45,6 +45,7 @@ dependencies = [
 
 [project.urls]
 "Homepage" = "https://github.com/gtfactslab/immrax"
+"Documentation" = "https://immrax.readthedocs.io"
 "Bug Tracker" = "https://github.com/gtfactslab/immrax/issues"
 "Source Code" = "https://github.com/gtfactslab/immrax"
 
