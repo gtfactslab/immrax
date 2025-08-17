@@ -18,6 +18,8 @@ ignore = ["E731"] # We like lambda functions
 [project]
 name = "immrax"
 version = "0.3.0"
+readme = {file = "README.md", content-type = "text/markdown"}
+
 dependencies = [
     "numpy ~= 2.3.2",
     "scipy ~= 1.16.1",
@@ -32,6 +34,11 @@ dependencies = [
     "immutabledict ~= 4.2.0",
     "linrax"
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/gtfactslab/immrax"
+"Bug Tracker" = "https://github.com/gtfactslab/immrax/issues"
+"Source Code" = "https://github.com/gtfactslab/immrax"
 
 [project.optional-dependencies]
 cuda = [
