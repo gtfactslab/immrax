@@ -51,9 +51,9 @@ class Interval:
     @property
     def center(self) -> jax.Array:
         return (self.lower + self.upper) / 2
-    
+
     @property
-    def pert (self) -> jax.Array:
+    def pert(self) -> jax.Array:
         return (self.upper - self.lower) / 2
 
     def __matmul__(self, _: "Interval") -> "Interval": ...
@@ -113,7 +113,7 @@ class Interval:
         #     .reshape(self.shape + (1,))
         #     .__str__()
         # )
-        return self.lower.__str__() + ' <= x <= ' + self.upper.__str__()
+        return self.lower.__str__() + " <= x <= " + self.upper.__str__()
 
     def __repr__(self) -> str:
         # return onp.array([[(l,u)] for (l,u) in
@@ -228,7 +228,7 @@ def i2centpert(i: Interval) -> Tuple[jax.Array, jax.Array]:
     return (i.lower + i.upper) / 2, (i.upper - i.lower) / 2
 
 
-def interval_intersect (Is:Iterable[Interval]) -> Interval :
+def interval_intersect(Is: Iterable[Interval]) -> Interval:
     """interval_intersect: Helper to get the intersection of a list of intervals.
 
     Parameters
@@ -246,7 +246,8 @@ def interval_intersect (Is:Iterable[Interval]) -> Interval :
     u = jnp.min(jnp.array([i.upper for i in Is]), axis=0)
     return interval(l, u)
 
-def interval_union (Is:Iterable[Interval]) -> Interval :
+
+def interval_union(Is: Iterable[Interval]) -> Interval:
     """interval_union: Helper to get the union of a list of intervals.
 
     Parameters

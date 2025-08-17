@@ -7,7 +7,7 @@ from functools import partial
 from itertools import accumulate, product
 from itertools import permutations as perms
 from jax._src.api import api_boundary
-from .interval import *
+from .interval import Interval, interval
 from .nif import natif
 
 

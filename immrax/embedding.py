@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Float, Integer, Bool, Array
 
-from .refinement import SampleRefinement, LinProgRefinement, NullVecRefinement
+from .refinement import SampleRefinement, LinProgRefinement
 from .inclusion import Interval, i2ut, interval, jacif, mjacif, natif, ut2i
 from .system import LiftedSystem, System
 
@@ -21,6 +21,7 @@ __all__ = [
     "embed",
     "get_faces",
 ]
+
 
 class EmbeddingSystem(System, abc.ABC):
     """EmbeddingSystem
@@ -173,14 +174,15 @@ def ifemb(sys: System, F: Callable[..., Interval]):
     """
     return InclusionEmbedding(sys, F)
 
-def embed (F: Callable[..., Interval]) :
-    def E (
+
+def embed(F: Callable[..., Interval]):
+    def E(
         t: Any,
         x: jax.Array,
         *args,
         refine: Callable[[Interval], Interval] | None = None,
         **kwargs,
-    ) :
+    ):
         n = len(x) // 2
         _x = x[:n]
         x_ = x[n:]
@@ -192,25 +194,30 @@ def embed (F: Callable[..., Interval]) :
 
         # Computing F on the faces of the hyperrectangle
 
-        if n > 1 :
+        if n > 1:
             _X = interval(
                 jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1)))
             )
-            _E = interval(jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, _X, *args))
+            _E = interval(
+                jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, _X, *args)
+            )
 
             X_ = interval(
                 jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))), jnp.tile(x_, (n, 1))
             )
-            E_ = interval(jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, X_, *args))
+            E_ = interval(
+                jax.vmap(Fkwargs, (None, 0) + (None,) * len(args))(t, X_, *args)
+            )
             return jnp.concatenate((jnp.diag(_E.lower), jnp.diag(E_.upper)))
-        else :
+        else:
             _E = Fkwargs(t, interval(_x)).lower
             E_ = Fkwargs(t, interval(x_)).upper
             return jnp.array([_E, E_])
-        
+
     return E
 
-def get_faces (ix:Interval) -> tuple[Interval, Interval] :
+
+def get_faces(ix: Interval) -> tuple[Interval, Interval]:
     n = len(ix)
 
     _x = ix.lower
@@ -225,8 +232,12 @@ def get_faces (ix:Interval) -> tuple[Interval, Interval] :
     # )
 
     X = interval(
-        jnp.vstack((jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))))), 
-        jnp.vstack((jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1))), jnp.tile(x_, (n, 1))))
+        jnp.vstack(
+            (jnp.tile(_x, (n, 1)), jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))))
+        ),
+        jnp.vstack(
+            (jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1))), jnp.tile(x_, (n, 1)))
+        ),
     )
 
     return X
@@ -322,7 +333,7 @@ class AuxVarEmbedding(InclusionEmbedding):
         | None = None,
         F: Callable[..., Interval] | None = None,
         mode: Literal["sample", "linprog"] = "sample",
-        num_samples: int =10,
+        num_samples: int = 10,
     ) -> None:
         """
         Embedding system defined by auxiliary variables. Given a base system with dimension n

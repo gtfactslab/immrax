@@ -1,0 +1,3 @@
+[submodule "immrax/_vendor/jax-verify"]
+	path = immrax/_vendor/jax_verify
+	url = git@github.com:Akash-Harapanahalli/jax_verify.git
