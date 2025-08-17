@@ -5,6 +5,16 @@ build-backend = "hatchling.build"
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[tool.ruff]
+
+exclude = [
+	"immrax/_vendor/**"
+]
+
+[tool.ruff.lint]
+
+ignore = ["E731"] # We like lambda functions
+
 [project]
 name = "immrax"
 version = "0.2.0"

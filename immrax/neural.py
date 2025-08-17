@@ -113,7 +113,7 @@ class NeuralNetwork(eqx.Module, Control):
         savepath = self.dir.joinpath("model.eqx")
         print(f"Saving model to {savepath}...", end="")
         eqx.tree_serialise_leaves(savepath, self.seq)
-        print(f" done.")
+        print(" done.")
 
     # def load (self, path) :
     #     loadpath = Path(path).joinpath('model.eqx')

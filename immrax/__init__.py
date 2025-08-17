@@ -7,7 +7,8 @@ from .system import *
 from . import control as control
 from .control import *
 
-import sys, os
+import sys
+import os
 
 jax_verify_path = os.path.join(
     os.path.dirname(__file__),

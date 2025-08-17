@@ -1,31 +1,34 @@
 import jax
 from jax import core
-from jax._src import api
 import jax.numpy as jnp
 from jax.interpreters import mlir, ad, batching
-import numpy as onp
 from immrax.inclusion.interval import interval, Interval
 from immrax.inclusion import nif
-from immrax.inclusion import jacobian as jif
 
 polynomial_p = core.Primitive("polynomial")
+
 
 # @jax.jit
 def polynomial(a, x):
     return polynomial_p.bind(a, x)
 
+
 def polynomial_impl(a, x):
     return jnp.polyval(a, x)
     # return jnp.sum([x**n for n in reversed(range(a.shape[0]))])
 
-def polynomial_batch(vector_arg_values, batch_axes) :
+
+def polynomial_batch(vector_arg_values, batch_axes):
     res = jax.vmap(polynomial_impl, batch_axes)(*vector_arg_values)
     return res, 0
+
 
 def polynomial_abstract_eval(a, x):
     return core.ShapedArray(x.shape, x.dtype)
 
+
 polynomial_lowering = mlir.lower_fun(polynomial_impl, False)
+
 
 def polynomial_jvp(primals, tangents):
     """JVP for the polynomial primitive.
@@ -41,27 +44,31 @@ def polynomial_jvp(primals, tangents):
     at, xt = tangents
     primal_out = polynomial(a, x)
 
-    if isinstance (xt, ad.Zero) :
-        return primal_out, polynomial(at, x) 
-    elif isinstance(at, ad.Zero) :
-        return primal_out, polynomial(xt*jnp.polyder(a), x) 
-    else :
-        return primal_out, polynomial(jnp.polyadd(xt*jnp.polyder(a), at), x) 
+    if isinstance(xt, ad.Zero):
+        return primal_out, polynomial(at, x)
+    elif isinstance(at, ad.Zero):
+        return primal_out, polynomial(xt * jnp.polyder(a), x)
+    else:
+        return primal_out, polynomial(jnp.polyadd(xt * jnp.polyder(a), at), x)
 
-def polynomial_transpose(ct, a, x) :
+
+def polynomial_transpose(ct, a, x):
     """Transpose rule for the polynomial primitive.
 
     Needs to return f^T at the cotangent input. f is linear in a wrt fixed x.
     """
     assert ad.is_undefined_primal(a) and not ad.is_undefined_primal(x)
-    if type(ct) is ad.Zero :
+    if type(ct) is ad.Zero:
         return ad.Zero, None
-    else :
-        ret = ct*jnp.array([x**n for n in reversed(range(a.aval.shape[0]))]).reshape(a.aval.shape)
+    else:
+        ret = ct * jnp.array([x**n for n in reversed(range(a.aval.shape[0]))]).reshape(
+            a.aval.shape
+        )
         return ret, None
 
-def polynomial_inclusion(a, x) :
-    if not isinstance(a, Interval) or jnp.allclose(a.lower, a.upper) :
+
+def polynomial_inclusion(a, x):
+    if not isinstance(a, Interval) or jnp.allclose(a.lower, a.upper):
         # TODO: Can we make this static wrt a somehow, to avoid recomputing the critical points?
         """Minimal inclusion function for constant coefficient a.
 
@@ -70,7 +77,7 @@ def polynomial_inclusion(a, x) :
 
         Since f is a polynomial, check critical points and endpoints.
         """
-        if isinstance(a, Interval) :
+        if isinstance(a, Interval):
             a = a.lower
 
         ad = jnp.polyder(a)
@@ -79,19 +86,20 @@ def polynomial_inclusion(a, x) :
         crit = jnp.real(ad_roots[jnp.isreal(ad_roots)])
         crit_vals = jnp.array([jnp.polyval(a, c) for c in crit])
 
-        crit_in_x = jnp.logical_and(crit > x.lower, crit < x.upper)       
+        crit_in_x = jnp.logical_and(crit > x.lower, crit < x.upper)
 
         end_vals = jnp.array([jnp.polyval(a, x.lower), jnp.polyval(a, x.upper)])
 
-        l_vals = jnp.concatenate((end_vals, jnp.where(crit_in_x, crit_vals,  jnp.inf)))
+        l_vals = jnp.concatenate((end_vals, jnp.where(crit_in_x, crit_vals, jnp.inf)))
         u_vals = jnp.concatenate((end_vals, jnp.where(crit_in_x, crit_vals, -jnp.inf)))
 
         return interval(jnp.min(l_vals), jnp.max(u_vals))
 
-    else :
+    else:
         """Otherwise, simply use natural inclusion function."""
-        print('Using natural inclusion function for polynomial primitive.')
+        print("Using natural inclusion function for polynomial primitive.")
         return nif.natif(polynomial_impl)(a, x)
+
 
 # Primal evaluation (concrete implementation)
 polynomial_p.def_impl(polynomial_impl)
@@ -109,25 +117,40 @@ ad.primitive_transposes[polynomial_p] = polynomial_transpose
 nif.inclusion_registry[polynomial_p] = polynomial_inclusion
 
 
-
-if __name__ == '__main__' :
+if __name__ == "__main__":
     # Test the polynomial primitive
 
-    a = jnp.array([1., 3., 5.])
-    x = jnp.array([2.])
+    a = jnp.array([1.0, 3.0, 5.0])
+    x = jnp.array([2.0])
 
-    with jax.disable_jit() :
+    with jax.disable_jit():
         assert jnp.allclose(jnp.polyval(a, x), polynomial(a, x))
         assert jnp.allclose(jax.jit(polynomial)(a, x), polynomial(a, x))
-        assert jnp.allclose(jax.jacfwd(jnp.polyval, 0)(a, x), jax.jacfwd(polynomial, 0)(a, x))
-        assert jnp.allclose(jax.jacfwd(jnp.polyval, 1)(a, x), jax.jacfwd(polynomial, 1)(a, x))
-        assert jnp.allclose(jax.jacfwd(polynomial, 0)(a, x), jax.jit(jax.jacfwd(polynomial, 0))(a, x))
-        assert jnp.allclose(jax.jacfwd(polynomial, 1)(a, x), jax.jit(jax.jacfwd(polynomial, 1))(a, x))
-        assert jnp.allclose(jax.jacrev(jnp.polyval, 0)(a, x), jax.jacrev(polynomial, 0)(a, x))
-        assert jnp.allclose(jax.jacrev(jnp.polyval, 1)(a, x), jax.jacrev(polynomial, 1)(a, x))
-        assert jnp.allclose(jax.jacrev(polynomial, 0)(a, x), jax.jit(jax.jacrev(polynomial, 0))(a, x))
-        assert jnp.allclose(jax.jacrev(polynomial, 1)(a, x), jax.jit(jax.jacrev(polynomial, 1))(a, x))
-        print('Passed all tests of primitive functionality.')
+        assert jnp.allclose(
+            jax.jacfwd(jnp.polyval, 0)(a, x), jax.jacfwd(polynomial, 0)(a, x)
+        )
+        assert jnp.allclose(
+            jax.jacfwd(jnp.polyval, 1)(a, x), jax.jacfwd(polynomial, 1)(a, x)
+        )
+        assert jnp.allclose(
+            jax.jacfwd(polynomial, 0)(a, x), jax.jit(jax.jacfwd(polynomial, 0))(a, x)
+        )
+        assert jnp.allclose(
+            jax.jacfwd(polynomial, 1)(a, x), jax.jit(jax.jacfwd(polynomial, 1))(a, x)
+        )
+        assert jnp.allclose(
+            jax.jacrev(jnp.polyval, 0)(a, x), jax.jacrev(polynomial, 0)(a, x)
+        )
+        assert jnp.allclose(
+            jax.jacrev(jnp.polyval, 1)(a, x), jax.jacrev(polynomial, 1)(a, x)
+        )
+        assert jnp.allclose(
+            jax.jacrev(polynomial, 0)(a, x), jax.jit(jax.jacrev(polynomial, 0))(a, x)
+        )
+        assert jnp.allclose(
+            jax.jacrev(polynomial, 1)(a, x), jax.jit(jax.jacrev(polynomial, 1))(a, x)
+        )
+        print("Passed all tests of primitive functionality.")
 
     """
     We need to disable JIT for this inclusion function to work as I expected it to.
@@ -142,10 +165,9 @@ if __name__ == '__main__' :
         jacfwd/jacrev internally use vmap, which JITs the function.
     """
 
-    with jax.disable_jit() :
+    with jax.disable_jit():
         # Test the inclusion function
-        ix = interval(-10., 10.)
+        ix = interval(-10.0, 10.0)
         print(nif.natif(polynomial)(a, ix))
         print(nif.natif(jax.jacfwd(polynomial, 1))(a, ix))
         # print(jif.jacM(polynomial)(a, ix))
-
