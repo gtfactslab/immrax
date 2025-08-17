@@ -32,7 +32,15 @@ dependencies = [
     "diffrax ~= 0.7.0",
     "equinox ~= 0.12.2",
     "immutabledict ~= 4.2.0",
-    "linrax"
+    "linrax",
+	# jax_verify dependencies. 
+	"absl-py",
+	"cvxpy",
+	"dm-tree",
+	"optax",
+	"dm-haiku",
+	"einshape",
+	"ml_collections",
 ]
 
 [project.urls]
