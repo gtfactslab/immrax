@@ -82,6 +82,10 @@ class Normotope (Parametope) :
         alpha = vec[n:N].reshape(-1, n)
         return cls(ox, alpha, y)
 
+    def sample_boundary (self, key:jax.random.PRNGKey, num_samples:int) -> jnp.ndarray:
+        """Samples points uniformly from the boundary of the normotope."""
+        raise NotImplementedError("Subclasses must implement the sample_boundary method.")
+
 @register_pytree_node_class
 class LinfNormotope (Normotope) :
     r""" Defines the set 
@@ -172,4 +176,12 @@ class L2Normotope (Normotope) :
     @classmethod
     def from_normotope (cls, nt:Normotope):
         return L2Normotope(nt.ox, nt.alpha, nt.y)
+
+    def sample_boundary (self, key:jax.random.PRNGKey, num_samples:int) -> jnp.ndarray:
+        """Samples points uniformly along the boundary of the L2Normotope."""
+        gauss = jax.random.multivariate_normal(key, jnp.zeros_like(self.ox), jnp.eye(len(self.ox)), shape=(num_samples,))
+        unif_Sn = (gauss / jnp.linalg.norm(gauss, axis=-1, keepdims=True))
+        alpha_inv = jnp.linalg.inv(self.alpha/self.y)
+        unif_nt = jax.vmap(lambda x : alpha_inv@x + self.ox)(unif_Sn)
+        return unif_nt
 
