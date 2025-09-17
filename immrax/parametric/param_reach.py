@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 from ..system import System
 from .parametope import Parametope, hParametope
+from .sets.normotope import Normotope
 from abc import ABC, abstractmethod
 from immutabledict import immutabledict
 from jaxtyping import Integer, Float, ArrayLike
