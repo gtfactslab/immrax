@@ -20,6 +20,7 @@ from .sets.polytope import (
 from .sets.normotope import (
     Normotope,
     LinfNormotope,
+    L1Normotope,
     L2Normotope,
 )
 
@@ -33,5 +34,6 @@ __all__ = [
     'Polytope',
     'Normotope',
     'LinfNormotope',
+    'L1Normotope',
     'L2Normotope',
 ]

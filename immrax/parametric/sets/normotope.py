@@ -7,6 +7,7 @@ from jax.tree_util import register_pytree_node_class
 from .ellipsoid import Ellipsoid
 from functools import partial
 from math import sqrt
+from itertools import product
 
 @register_pytree_node_class
 class Normotope (Parametope) :
@@ -119,6 +120,55 @@ class LinfNormotope (Normotope) :
         n = self.alpha.shape[0]
         return Polytope (self.ox, self.alpha, jnp.ones(2*n)*self.y)
     
+    def plot_projection (self, ax, xi=0, yi=1, rescale=False, **kwargs) :
+        self.to_polytope().plot_projection(ax, xi, yi, rescale, **kwargs)
+    
+    @classmethod
+    def from_interval (cls, *args) :
+        cent, pert = i2centpert(interval(*args))
+        return LinfNormotope(cent, jnp.diag(1/pert), 1.)
+    
+    @classmethod
+    def from_normotope (cls, nt:Normotope):
+        return LinfNormotope(nt.ox, nt.alpha, nt.y)
+
+@register_pytree_node_class
+class L1Normotope (Normotope) :
+    r""" Defines the set 
+    
+    .. math::
+        {x : \|H(x - \ox)\|_1 \leq y}
+
+    """
+    def h (self, z) :
+        """The L1 norm"""
+        return jnp.sum(jnp.abs(z))
+
+    def hinv (self, y) :
+        n = self.alpha.shape[0]
+        return icentpert(jnp.zeros(n), y*jnp.ones(n))
+
+    @classmethod 
+    def induced_norm (cls, A) :
+        r"""Computes the induced :math:`\ell_1` norm of A"""
+        # Maximum row sum of |A|
+        return jnp.max(jnp.sum(jnp.abs(A), axis=0))
+    
+    @classmethod
+    def logarithmic_norm (cls, A) :
+        r"""Computes the logarithmic :math:`\ell_1` norm of A"""
+        # Maximum row sum of A_M (Metzlerized)
+        A_M = jnp.where(jnp.eye(A.shape[0], dtype=bool), A, jnp.abs(A))
+        return jnp.max(jnp.sum(A_M, axis=0))
+    
+    def to_polytope (self) -> Polytope :
+        # n = self.alpha.shape[0]
+        # return Polytope (self.ox, self.alpha, jnp.ones(2*n)*self.y)
+        # S is the matrix whose rows are all sign combinations of length n
+        n = self.alpha.shape[0]
+        S = jnp.array(list(product(*[[1, -1]]*n)))
+        return Polytope (self.ox, S@self.alpha, jnp.ones(2*2**n)*self.y)
+
     def plot_projection (self, ax, xi=0, yi=1, rescale=False, **kwargs) :
         self.to_polytope().plot_projection(ax, xi, yi, rescale, **kwargs)
     
