@@ -91,6 +91,7 @@ def natif_jaxpr (jaxpr: Jaxpr, consts, *args, propagate_source_info=True) -> lis
             invars = safe_map(read, eqn.invars)
             if any([isinstance(read(iv), Interval) for iv in eqn.invars]) :
                 try :
+                    # print(eqn.primitive)
                     ans = inclusion_registry[eqn.primitive](*subfuns, *invars, **bind_params)
                 except KeyError :
                     raise NotImplementedError(f'{eqn.primitive} not in inclusion_registry')
@@ -150,6 +151,7 @@ _add_passthrough_to_registry(lax.exp_p)
 _add_passthrough_to_registry(lax.reduce_sum_p)
 _add_passthrough_to_registry(lax.pad_p)
 
+_add_passthrough_to_registry(lax.mul_p)
 
 """
 TODO: Handle higher order primitives
@@ -444,16 +446,26 @@ def _inclusion_pow_p(x:Interval, y: Interval) -> Interval :
     x = interval(x)
     y = interval(y)
 
-    # caluclate corners
-    corners = jnp.array([lax.pow(x.lower, y.lower),
-               lax.pow(x.lower, y.upper),
-               lax.pow(x.upper, y.lower),
-               lax.pow(x.upper, y.upper)])
-    # calculate the minimum and maximum of the corners
-    cond = jnp.logical_and(x.lower >= 0, x.upper >= 0)
-    ol = jnp.where(cond, jnp.min(corners), -jnp.inf)
-    ou = jnp.where(cond, jnp.max(corners), jnp.inf)
-    return Interval(ol, ou)
+    def _inclusion_pow_impl (xl, xu, yl, yu) -> Interval :
+        # caluclate corners
+        corners = jnp.array([lax.pow(xl, yl),
+                lax.pow(xl, yu),
+                lax.pow(xu, yl),
+                lax.pow(xu, yu)])
+        # calculate the minimum and maximum of the corners
+        cond = jnp.logical_and(x.lower >= 0, x.upper >= 0)
+        ol = jnp.where(cond, jnp.min(corners), -jnp.inf)
+        ou = jnp.where(cond, jnp.max(corners), jnp.inf)
+        return ol, ou
+    
+    xl, yl = jnp.broadcast_arrays(x.lower, y.lower)
+    xu, yu = jnp.broadcast_arrays(x.upper, y.upper)
+    xsh = jnp.shape(xl)
+
+    resl, resu = jax.vmap(_inclusion_pow_impl, (0,0,0,0))(
+        xl.reshape(-1), xu.reshape(-1),
+        yl.reshape(-1), yu.reshape(-1))
+    return Interval(resl.reshape(xsh), resu.reshape(xsh))
 
     # if isinstance(x, Interval) and not isinstance(y, Interval) :
     #     def _inclusion_pow_impl (x:Interval, y:int) :
