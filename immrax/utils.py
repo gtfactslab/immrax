@@ -18,6 +18,8 @@ import immrax as irx
 from immrax.inclusion import Corner, Interval, all_corners, i2lu, i2ut, ut2i
 from immrax.system import Trajectory
 
+from itertools import product
+
 # ================================================================================
 # Function wrappers
 # ================================================================================
@@ -229,6 +231,37 @@ def get_corners(x: Interval, corners: Tuple[Corner] | None = None):
             for c in corners
         ]
     )
+
+def get_sparse_corners (x: Interval, verbose=False, **kwargs) :
+    """Returns a function returning the sparse corners of the interval 
+
+    Parameters
+    ----------
+    x : Interval
+        Interval object to model the gsc off of---value of x is treated as static
+    **kwargs : dict
+        Additional keyword arguments to pass to jnp.isclose
+
+    Returns
+    -------
+    function
+        A function that takes an Interval object and returns the sparse corners based on 
+        the entries that are not constant in the test x
+    """
+    sh = x.shape
+
+    # Static value usage here.
+    ic = onp.isclose(x.lower.reshape(-1), x.upper.reshape(-1), **kwargs)
+    cs = [irx.Corner(p) for p in product(*[(0,) if ic[i] else (0,1) for i in range(len(ic))])]
+    if verbose :
+        print(f'Found {len(cs)} corners, from {jnp.sum(jnp.logical_not(ic))} nonconstant entries.')
+
+    @jax.jit
+    def gsc (x:Interval) :
+        x = x.reshape(-1)
+        return [jnp.array([x.lower[i] if ci == 0 else x.upper[i] for i, ci in enumerate(c)]).reshape(sh) for c in cs]
+
+    return gsc
 
 
 def null_space(A, rcond=None, dim_null:int|None=None):

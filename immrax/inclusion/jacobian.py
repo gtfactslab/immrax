@@ -408,7 +408,7 @@ def mjacM(f: Callable[..., jax.Array], argnums=None) -> Callable:
                     f"Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around"
                 )
             # f0 = f(*center)
-            zc = arg2z(*center)
+            zc = arg2z(*[jnp.atleast_1d(c) for c in center])
             for sig in permutations:
                 Z = interval(
                     jnp.where(

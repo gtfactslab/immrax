@@ -85,7 +85,7 @@ class ParametopeEmbedding (ABC) :
         return diffeqsolve(term, solver, t0, tf, dt, (pt0, aux0), saveat=saveat, **kwargs)
 
 class AdjointEmbedding (ParametopeEmbedding) :
-    def __init__(self, sys, alpha_p0, N0, kap:float=0.1, permutation=None) :
+    def __init__(self, sys, alpha_p0, N0, kap:float=0.1, permutation=None, disable_adjoint=False) :
                 #  refine_factory:Callable[[ArrayLike], Callable]=partial(SampleRefinement, num_samples=10)):
         super().__init__(sys)
         self.Jf_x = jax.jacfwd(sys.f, 1)
@@ -95,6 +95,7 @@ class AdjointEmbedding (ParametopeEmbedding) :
         self.alpha_p0 = alpha_p0
         self.N0 = N0
         self.permutation = permutation
+        self.disable_adjoint = disable_adjoint
 
     def _initialize (self, pt0:hParametope) -> ArrayLike :
         if not isinstance(pt0, hParametope):
@@ -114,6 +115,8 @@ class AdjointEmbedding (ParametopeEmbedding) :
         pt, aux = state
         ox = pt.ox
 
+        # jax.debug.print('args={args}', args=args)
+
         K = len(pt.y) // 2
         # ly = -pt.y[:K] # negative for lower bound
         # uy = pt.y[K:]
@@ -122,18 +125,24 @@ class AdjointEmbedding (ParametopeEmbedding) :
         alpha = pt.alpha
         alpha_p, N = aux
 
+        # alpha_p = jnp.linalg.inv(alpha)
+
         ## Adjoint dynamics + LICQ CBF
 
-        args_centers = (arg.center for arg in args) 
-        centers = (jnp.array([t]), ox) + tuple(args_centers)
+        args_centers = tuple(arg.center for arg in args) 
+        centers = (jnp.array([t]), ox) + args_centers
 
         J = self.Jf_x(*centers)
-        u0 = -alpha@J
+        if not self.disable_adjoint :
+            u0 = -alpha@J
+        else :
+            u0 = jnp.zeros_like(-alpha@J)
+
         u0flat = u0.reshape(-1)
 
         # CBF: Enforce pairwise independence on the rows of alpha
 
-        PENALTY = 1
+        PENALTY = 0
 
         if PENALTY == 0 :
             ustar = jnp.zeros_like(u0)
@@ -193,10 +202,15 @@ class AdjointEmbedding (ParametopeEmbedding) :
             MM = self.Mf(t, interval(alpha_p)@big_iz + ox, *args, \
                         centers=(centers,), permutations=self.permutation)[0]
             ls = []; us = []
-            for M, arg in zip(MM[2:], args) :
-                term = interval(M)@arg 
+
+            # jax.debug.print('{a}, {b}, {c}', a=len(MM[2:]), b=len(args), c=len(args_centers))
+            # jax.debug.print('{a}', a=len(args_centers))
+            for M, arg, cent in zip(MM[2:], args, args_centers) :
+                term = interval(M)@(arg - cent)
                 ls.append(term.lower); us.append(term.upper)
+           
             dist = interval(jnp.sum(jnp.asarray(ls)), jnp.sum(jnp.asarray(us)))
+            # jax.debug.print('dist={dist}', dist=dist)
 
             def F (t, iy, *args) :
                 iy = refine(iy)
@@ -207,13 +221,18 @@ class AdjointEmbedding (ParametopeEmbedding) :
                 #             centers=(centers,), permutations=self.permutation)[0]
                 Mx = MM[1]
 
-                empty = jnp.any(iy.lower > iy.upper)
+                # empty = jnp.any(iy.lower > iy.upper)
+                # empty = jnp.ones_like(iy.lower).astype(bool)
+                empty = False
                 def _zero () :
                     return interval(jnp.zeros_like(iz.lower))
                 def _ret () :
                     # Post first order cancellation
                     PH = Jh(iz)
-                    return interval(PH[len(PH)//2:,:])@( (interval(alpha)@(Mx - J) + ustar)@(interval(alpha_p)@iz) + dist)
+                    if not self.disable_adjoint :
+                        return interval(PH[len(PH)//2:,:])@( (interval(alpha)@(Mx - J) + ustar)@(interval(alpha_p)@iz) + dist)
+                    else :
+                        return interval(PH[len(PH)//2:,:])@( (interval(alpha)@(Mx) + ustar)@(interval(alpha_p)@iz) + dist)
 
                 return jax.lax.cond(empty, _zero, _ret)
                 

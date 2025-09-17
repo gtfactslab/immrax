@@ -422,12 +422,12 @@ def _inclusion_tan_p (x:Interval, accuracy=None) -> Interval :
     return Interval(ol, ou)
 inclusion_registry[lax.tan_p] = _inclusion_tan_p
 
-def _inclusion_atan_p (x:Interval) -> Interval :
-    return Interval(jnp.arctan(x.lower), jnp.arctan(x.upper))
+def _inclusion_atan_p (x:Interval, accuracy=None) -> Interval :
+    return Interval(lax.arctan(x.lower, accuracy=accuracy), lax.arctan(x.upper, accuracy=accuracy))
 inclusion_registry[lax.atan_p] = _inclusion_atan_p
 
-def _inclusion_asin_p (x:Interval) -> Interval :
-    return Interval(jnp.arcsin(x.lower), jnp.arcsin(x.upper))
+def _inclusion_asin_p (x:Interval, accuracy=None) -> Interval :
+    return Interval(lax.arcsin(x.lower, accuracy=accuracy), lax.arcsin(x.upper, accuracy=accuracy))
 inclusion_registry[lax.asin_p] = _inclusion_asin_p
 
 def _inclusion_sqrt_p (x:Interval, accuracy=None) -> Interval :
@@ -460,8 +460,8 @@ def _inclusion_pow_p(x:Interval, y: int) -> Interval :
     return Interval(ol, ou)
 inclusion_registry[lax.pow_p] = _inclusion_pow_p
 
-def _inclusion_tanh_p (x:Interval) -> Interval :
-    return Interval(jnp.tanh(x.lower), jnp.tanh(x.upper))
+def _inclusion_tanh_p (x:Interval, accuracy=None) -> Interval :
+    return Interval(lax.tanh(x.lower, accuracy=accuracy), lax.tanh(x.upper, accuracy=accuracy))
 inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
 
 
