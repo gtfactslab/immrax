@@ -422,9 +422,10 @@ def _inclusion_tan_p (x:Interval, accuracy=None) -> Interval :
     return Interval(ol, ou)
 inclusion_registry[lax.tan_p] = _inclusion_tan_p
 
-def _inclusion_atan_p (x:Interval, accuracy=None) -> Interval :
-    return Interval(lax.arctan(x.lower, accuracy=accuracy), lax.arctan(x.upper, accuracy=accuracy))
-inclusion_registry[lax.atan_p] = _inclusion_atan_p
+# def _inclusion_atan_p (x:Interval, accuracy=None) -> Interval :
+#     return Interval(lax.atan(x.lower), lax.atan(x.upper))
+# inclusion_registry[lax.atan_p] = _inclusion_atan_p
+_add_passthrough_to_registry(lax.atan_p)
 
 def _inclusion_asin_p (x:Interval, accuracy=None) -> Interval :
     return Interval(lax.arcsin(x.lower, accuracy=accuracy), lax.arcsin(x.upper, accuracy=accuracy))

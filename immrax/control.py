@@ -60,7 +60,7 @@ class ControlledSystem (System) :
         self.evolution = olsystem.evolution
         self.xlen = olsystem.xlen
     
-    def f (self, t:Union[Integer,Float], x:jax.Array, w:jax.Array) -> jax.Array :
+    def f (self, t:Union[Integer,Float], x:jax.Array, *args) -> jax.Array :
         """Returns the value of the closed loop system
 
         Parameters
@@ -79,7 +79,7 @@ class ControlledSystem (System) :
 
         """
         # x = jnp.asarray(x); w = jnp.asarray(w)
-        return self.olsystem.f(t, x, self.control.u(t, x), w)
+        return self.olsystem.f(t, x, self.control.u(t, x), *args)
 
 # class FOHControlledSystem (ControlledSystem) :
 #     """FOHControlledSystem
