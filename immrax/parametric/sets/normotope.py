@@ -196,6 +196,12 @@ class L2Normotope (Normotope) :
     def hinv (self, y) :
         n = self.alpha.shape[0]
         return icentpert(jnp.zeros(n), y*jnp.ones(n))
+        
+    def iover (self) :
+        n = self.alpha.shape[0]
+        Pinv = jnp.linalg.inv(self.alpha.T@self.alpha/self.y**2)
+        # Pinv = self.alpha.T @ self.alpha
+        return icentpert(jnp.zeros(n), jnp.sqrt(jnp.diag(Pinv))) + self.ox
 
     @classmethod 
     def induced_norm (cls, A) :
