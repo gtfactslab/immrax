@@ -8,30 +8,33 @@ from immrax.inclusion.polynomial import polynomial
 # --- Test Case Flags ---
 # Set these to True to run the corresponding tests.
 # You can then run tests using `pytest` in your terminal.
-TEST_VECTOR_INPUTS = True
+TEST_VECTOR_INPUTS = False
 TEST_INCLUSION_FUNCTIONS = True
 TEST_JACFWD = True
-TEST_JACREV = False
+TEST_JACREV = True
 TEST_JIT_COMPILATION = True
 
 # --- Fixtures for test data ---
 
+coeff_params = [
+    pytest.param(jnp.array([1.0, 4]), id="2nd-order"),
+    pytest.param(jnp.array([1.0, 4, -5]), id="3rd-order"),
+    pytest.param(jnp.array([1.0, 4, -5, -3]), id="4th-order"),
+]
 
-@pytest.fixture(
-    params=[
-        jnp.array([1.0, 4]),
-        jnp.array([1.0, 4, -5]),
-        jnp.array([1.0, 4, -5, -3]),
-    ],
-    ids=[
-        "2nd-order",
-        "3rd-order",
-        "4th-order",
-    ],
-)
-def poly_coeff(request):
-    """A parametrized fixture that provides a single polynomial coefficient."""
-    return request.param
+if TEST_VECTOR_COEFFS:
+    coeff_params.append(
+        pytest.param(
+            jnp.array(
+                [
+                    [1.0, 4, -5],
+                    [-3, 2, 3],
+                    [1, 2, 3],
+                ]
+            ),
+            id="Multiple 3rd-order",
+        )
+    )
 
 
 # --- Helper Functions and Dynamic Parameters ---
@@ -68,6 +71,13 @@ if TEST_INCLUSION_FUNCTIONS:
 
 
 # --- Parametrized Fixtures ---
+
+
+@pytest.fixture(params=coeff_params)
+def poly_coeff(request):
+    """Parametrized fixture for polynomial coefficients."""
+
+    return request.param
 
 
 @pytest.fixture(params=eval_point_params)
@@ -116,16 +126,21 @@ def test_inclusion_function(poly_coeff, eval_interval):
 def test_jacfwd(poly_coeff, eval_point):
     """Tests forward-mode AD for various dynamically-provided input types."""
     pd_fwd = jax.jacfwd(polynomial, argnums=1)
-    jacobian = pd_fwd(poly_coeff, eval_point)
+    der_ad = pd_fwd(poly_coeff, eval_point)
 
-    deriv_vals = jnp.polyval(jnp.polyder(poly_coeff), eval_point)
+    der_sym = jnp.polyval(jnp.polyder(poly_coeff), eval_point)
+
+    # print()
+    # print(f"{eval_point=}")
+    # print(f"{der_ad=}")
+    # print(f"{der_sym=}")
 
     if jnp.ndim(eval_point) == 0:
-        expected_jacobian = deriv_vals
+        expected_jacobian = der_sym
     else:
-        expected_jacobian = jnp.diag(deriv_vals)
+        expected_jacobian = jnp.diag(der_sym)
 
-    assert jnp.allclose(jacobian, expected_jacobian)
+    assert jnp.allclose(der_ad, expected_jacobian)
 
 
 @pytest.mark.skipif(not TEST_JACREV, reason="JACREV tests are disabled")

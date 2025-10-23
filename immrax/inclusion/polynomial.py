@@ -10,14 +10,15 @@ from immrax.inclusion import jacobian as jif
 
 polynomial_p = jax.extend.core.Primitive("polynomial")
 
+impl = jnp.polyval
 
-# @jax.jit
+
 def polynomial(a, x):
     return polynomial_p.bind(a, x)
 
 
 def polynomial_impl(a, x):
-    return jnp.polyval(a, x)
+    return impl(a, x)
     # return jnp.sum([x**n for n in reversed(range(a.shape[0]))])
 
 
@@ -27,60 +28,19 @@ def polynomial_batch(vector_arg_values, batch_axes):
 
 
 def polynomial_abstract_eval(a, x):
-    return core.ShapedArray(x.shape, x.dtype)
+    try:
+        # FIXME: this is flat out wrong. a cannot be more than 1D consistently
+        # jnp.polyval broadcasts over the leading dimensions of `a` and all of `x`'s dimensions.
+        # The output shape is the result of broadcasting `a.shape[:-1]` with `x.shape`.
+        out_shape = jnp.broadcast_shapes(a.shape[:-1], x.shape)
+    except ValueError:
+        raise ValueError(
+            f"Incompatible shapes for polynomial evaluation: cannot broadcast polynomial shape {a.shape[:-1]} with input shape {x.shape}."
+        )
+    return core.ShapedArray(out_shape, x.dtype)
 
 
 polynomial_lowering = mlir.lower_fun(polynomial_impl, False)
-
-
-def polynomial_jvp(primals, tangents):
-    """JVP for the polynomial primitive.
-
-    f(a, x) = a[0]*x^(n-1) + a[1]*x^(n-2) + ... + a[n-1]
-    (df/da) = [x^(n-1), x^(n-2), ..., 1]
-    (df/dx) = (n-1)*a[0]*x^(n-2) + (n-2)*a[1]*x^(n-3) + ... + a[n-2]
-            = polynomial(polyder(a), x)
-    (df/da)at = polynomial(at, x)
-    (df/dx)xt = polynomial(xt*jnp.polyder(a), x)
-    """
-    a, x = primals
-    at, xt = tangents
-    primal_out = polynomial(a, x)
-
-    def _pjvp(xi, xt_i):
-        if isinstance(xt_i, ad.Zero):
-            return primal_out, polynomial(at, xi)
-        elif isinstance(at, ad.Zero):
-            return primal_out, polynomial(xt_i * jnp.polyder(a), xi)
-        else:
-            return primal_out, polynomial(jnp.polyadd(xt_i * jnp.polyder(a), at), xi)
-
-    return jax.vmap(_pjvp, in_axes=(0, 0))(jnp.atleast_1d(x), jnp.atleast_1d(xt))
-
-
-def polynomial_transpose(ct, a, x):
-    """Transpose rule for the polynomial primitive.
-
-    Needs to return f^T at the cotangent input. f is linear in a wrt fixed x.
-    """
-
-    if not ad.is_undefined_primal(a):
-        # Constant a case
-        pass
-
-    else:
-        pass
-        # Constant x case
-
-        # assert ad.is_undefined_primal(a) and not ad.is_undefined_primal(xi)
-        # if type(ct_i) is ad.Zero :
-        #     return ad.Zero, None
-        # else :
-        #     # ret = ct_i*jnp.array([xi**n for n in reversed(range(a.aval.shape[0]))]).reshape(a.aval.shape)
-        #     ret = polynomial(ct_i, xi)
-        #     return ret, None
-
-    # return jax.vmap(_ptranspose, in_axes=(0,0))(x, ct)
 
 
 def polynomial_inclusion(a, x):
@@ -139,20 +99,30 @@ def polynomial_inclusion(a, x):
         return nif.natif(polynomial_impl)(a, x)
 
 
-# Primal evaluation (concrete implementation)
-polynomial_p.def_impl(polynomial_impl)
-# Abstract evaluation (shape and dtype propagation)
-polynomial_p.def_abstract_eval(polynomial_abstract_eval)
-# JIT lowering to XLA
-mlir.register_lowering(polynomial_p, polynomial_lowering)
-# Linearizing rule (JVP support)
-ad.primitive_jvps[polynomial_p] = polynomial_jvp
-# vmap batching rule
-batching.primitive_batchers[polynomial_p] = polynomial_batch
-# Transpose rule (VJP support)
-ad.primitive_transposes[polynomial_p] = polynomial_transpose
-# Inclusion function (natif support)
-nif.inclusion_registry[polynomial_p] = polynomial_inclusion
+polynomial_p.def_impl(polynomial_impl)  # Primal evaluation (concrete implementation)
+polynomial_p.def_abstract_eval(
+    polynomial_abstract_eval
+)  # Abstract evaluation (shape and dtype propagation)
+mlir.register_lowering(polynomial_p, polynomial_lowering)  # JIT lowering to XLA
+
+
+def polynomial_p_jvp_a(tangent_a, a, x):
+    tangent_x_zero = jax.tree_util.tree_map(jnp.zeros_like, x)
+    _, tangent_out = jax.jvp(impl, (a, x), (tangent_a, tangent_x_zero))
+    return tangent_out
+
+
+def polynomial_p_jvp_x(tangent_x, a, x):
+    tangent_a_zero = jax.tree_util.tree_map(jnp.zeros_like, a)
+    _, tangent_out = jax.jvp(impl, (a, x), (tangent_a_zero, tangent_x))
+    return tangent_out
+
+
+batching.primitive_batchers[polynomial_p] = polynomial_batch  # vmap batching rule
+ad.defjvp(polynomial_p, polynomial_p_jvp_a, polynomial_p_jvp_x)  # autodiff jvp rule
+nif.inclusion_registry[polynomial_p] = (
+    polynomial_inclusion  # Inclusion function (natif support)
+)
 
 
 if __name__ == "__main__":
