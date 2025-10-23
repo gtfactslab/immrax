@@ -8,7 +8,7 @@ from immrax.inclusion.polynomial import polynomial
 # --- Test Case Flags ---
 # Set these to True to run the corresponding tests.
 # You can then run tests using `pytest` in your terminal.
-TEST_VECTOR_INPUTS = False
+TEST_VECTOR_INPUTS = True
 TEST_INCLUSION_FUNCTIONS = True
 TEST_JACFWD = True
 TEST_JACREV = True
@@ -21,21 +21,6 @@ coeff_params = [
     pytest.param(jnp.array([1.0, 4, -5]), id="3rd-order"),
     pytest.param(jnp.array([1.0, 4, -5, -3]), id="4th-order"),
 ]
-
-if TEST_VECTOR_COEFFS:
-    coeff_params.append(
-        pytest.param(
-            jnp.array(
-                [
-                    [1.0, 4, -5],
-                    [-3, 2, 3],
-                    [1, 2, 3],
-                ]
-            ),
-            id="Multiple 3rd-order",
-        )
-    )
-
 
 # --- Helper Functions and Dynamic Parameters ---
 
