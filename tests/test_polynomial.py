@@ -176,3 +176,38 @@ def test_jit_inclusion(poly_coeff, eval_interval):
 
     # Validate the overapproximation by sampling
     validate_overapproximation(polynomial, poly_coeff, eval_interval, result)
+
+
+if __name__ == "__main__":
+    a = jnp.array([1, 2, 3])
+    # The major axis determines the degree of the polynomial (i.e. num rows = degree + 1)
+    # The minor axis determines the number of polynomials (i.e. num cols = num polynomials)
+    a_multiple = jnp.array(
+        [
+            [1.0, 4, 2],
+            [-3, 2, 2],
+            [1, 2, 2],
+        ]
+    )
+    x = 2
+    x_multiple = 1 + jnp.arange(
+        a_multiple.shape[1]
+    )  # WARN: this only works if x_multiple.shape() = a_multiple.shape()[1]
+
+    # Confirmed same behavior as jnp.polyval
+    print(polynomial(a, x))
+    print(polynomial(a_multiple, x))
+
+    print(polynomial(a, x_multiple))
+    print(polynomial(a_multiple, x_multiple))
+    # This batches over both arguments simultaneously (NOT product wise)
+    # That is, the first polynomial is ONLY evaluated at the first point, the second at the second, etc.
+
+    # Checking polyder
+    print(jnp.polyder(a))
+    # print(jnp.polyder(a_multiple)) # This is not supported by jnp or numpy
+
+    # print(jnp.polyder(jnp.array([[1]])))
+    # print(jnp.polyder(jnp.array([[1], [2]])))
+    # print(jnp.polyder(jnp.array([[1], [2], [3]])))
+    # print(jnp.polyder(jnp.array([[1], [2], [3], [4]]).squeeze()))

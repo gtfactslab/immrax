@@ -8,7 +8,7 @@ from jax.interpreters import ad, batching, mlir
 from immrax.inclusion import nif
 
 
-def register_inclusion_primitive(inclusion_func, *, abstract_eval_func=None):
+def register_inclusion_primitive(inclusion_func):
     """A decorator to register a JAX traceable function as a primitive with a custom inclusion function.
 
     This annotation will:
@@ -35,8 +35,6 @@ def register_inclusion_primitive(inclusion_func, *, abstract_eval_func=None):
 
     Args:
         inclusion_func: The inclusion function to be associated with the primitive.
-        abstract_eval_func: (Optional) A custom abstract evaluation function for shape inference.
-            If not provided, a default will be used which may fail for complex functions.
     """
 
     def decorator(func):
@@ -56,21 +54,18 @@ def register_inclusion_primitive(inclusion_func, *, abstract_eval_func=None):
         primitive.def_impl(func)
 
         # 2. Abstract evaluation (shape inference)
-        if abstract_eval_func is not None:
-            primitive.def_abstract_eval(abstract_eval_func)
-        else:
+        def default_abstract_eval(*args_aval):
+            try:
+                shape_dtype = jax.eval_shape(func, *args_aval)
+                # TODO: I am not entirely sure if this will respect the device / ref counting behavior of the wrapped function
+                # Should look here first if those types of problems come up
+                return jax.core.ShapedArray(shape_dtype.shape, shape_dtype.dtype)
+            except Exception as e:
+                raise TypeError(
+                    f"Automatic shape inference for '{func.__name__}' failed. "
+                ) from e
 
-            def default_abstract_eval(*args_aval):
-                try:
-                    return jax.eval_shape(func, *args_aval)
-                except Exception as e:
-                    raise TypeError(
-                        f"Automatic shape inference for '{func.__name__}' failed. "
-                        "Please provide a custom `abstract_eval_func` to `register_inclusion_primitive` "
-                        "to specify the output shape of your function."
-                    ) from e
-
-            primitive.def_abstract_eval(default_abstract_eval)
+        primitive.def_abstract_eval(default_abstract_eval)
 
         # 3. JIT lowering
         # Assuming the wrapped function returns a single result, as in polynomial.py.

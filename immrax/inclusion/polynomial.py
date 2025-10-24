@@ -1,16 +1,13 @@
 import jax
 from jax import core
-from jax._src import api
 import jax.numpy as jnp
-from jax.interpreters import mlir, ad, batching
-import numpy as onp
 from immrax.inclusion.interval import interval, Interval
 from immrax.inclusion import nif, register_inclusion_primitive
-from immrax.inclusion import jacobian as jif
 
 
 def polynomial_inclusion(a, x):
     # if not isinstance(a, Interval) or jnp.allclose(a.lower, a.upper) :
+    # TODO: This only works for constant coefficients. Try to take inclusion for x, natif into inclusion for both
     if True:
         # TODO: Can we make this static wrt a somehow, to avoid recomputing the critical points?
         """Minimal inclusion function for constant coefficient a.
@@ -65,11 +62,4 @@ def polynomial_inclusion(a, x):
         return nif.natif(polynomial_impl)(a, x)
 
 
-def polyval_abstract_eval(p_aval, x_aval):
-    """Abstract evaluation rule for jnp.polyval."""
-    return core.ShapedArray(x_aval.shape, jnp.result_type(p_aval.dtype, x_aval.dtype))
-
-
-polynomial = register_inclusion_primitive(
-    polynomial_inclusion, abstract_eval_func=polyval_abstract_eval
-)(jnp.polyval)
+polynomial = register_inclusion_primitive(polynomial_inclusion)(jnp.polyval)
