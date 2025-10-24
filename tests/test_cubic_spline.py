@@ -10,6 +10,7 @@ from immrax.inclusion.cubic_spline import (
     make_spline_eval_fn,
 )
 from immrax.inclusion.polynomial import polynomial
+from tests.utils import validate_overapproximation_1d_list
 
 # --- Test Case Flags ---
 TEST_INCLUSION_FUNCTIONS = True
@@ -106,7 +107,7 @@ def test_inclusion_function(spline_coeffs, spline_eval_fn):
 
     assert isinstance(result, irx.Interval)
 
-    validate_overapproximation(spline_eval_fn, eval_interval, result)
+    validate_overapproximation_1d_list(spline_eval_fn, eval_interval, result)
 
 
 @pytest.mark.skipif(
@@ -124,7 +125,7 @@ def test_jit_inclusion(spline_coeffs, spline_eval_fn):
 
     assert isinstance(result, irx.Interval)
 
-    validate_overapproximation(spline_eval_fn, eval_interval, result)
+    validate_overapproximation_1d_list(spline_eval_fn, eval_interval, result)
 
 
 @pytest.mark.skipif(not TEST_JACFWD, reason="JACFWD tests are disabled")
@@ -163,20 +164,6 @@ def test_jacrev(spline_coeffs, spline_eval_fn, eval_point):
         expected_jacobian = jnp.diag(der_sym)
 
     assert jnp.allclose(der_ad, expected_jacobian)
-
-
-def validate_overapproximation(func, input_interval, output_interval):
-    """
-    Validates that the output_interval overapproximates the true values of the
-    function over the input_interval by sampling.
-    """
-    for i in range(len(input_interval.lower)):
-        sample_points = jnp.linspace(
-            input_interval.lower[i], input_interval.upper[i], 100
-        )
-        true_values = jax.vmap(func)(sample_points)
-        assert jnp.all(true_values >= output_interval.lower[i].squeeze())
-        assert jnp.all(true_values <= output_interval.upper[i].squeeze())
 
 
 def plot_interval_bounds(ax, interval_bounds, output_bounds, color, label):

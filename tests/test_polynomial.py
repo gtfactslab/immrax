@@ -4,6 +4,7 @@ import pytest
 
 import immrax as irx
 from immrax.inclusion.polynomial import polynomial
+from tests.utils import validate_overapproximation_nd
 
 # --- Test Case Flags ---
 # Set these to True to run the corresponding tests.
@@ -104,7 +105,9 @@ def test_inclusion_function(poly_coeff, eval_interval):
     assert isinstance(result, irx.Interval)
 
     # Validate the overapproximation by sampling
-    validate_overapproximation(polynomial, poly_coeff, eval_interval, result)
+    validate_overapproximation_nd(
+        lambda x: polynomial(poly_coeff, x), eval_interval, result
+    )
 
 
 @pytest.mark.skipif(not TEST_JACFWD, reason="JACFWD tests are disabled")
@@ -144,23 +147,6 @@ def test_jacrev(poly_coeff, eval_point):
     assert jnp.allclose(jacobian, expected_jacobian)
 
 
-def validate_overapproximation(func, poly_coeff, input_interval, output_interval):
-    """
-    Validates that the output_interval overapproximates the true values of the
-    function over the input_interval by sampling.
-    """
-    # Generate 100 sample points along the line from lower to upper bound
-    sample_points = jnp.linspace(input_interval.lower, input_interval.upper, 100)
-
-    # Apply the original polynomial function to these sample points
-    true_values = func(poly_coeff, sample_points)
-
-    # Check that all resulting values are within the computed interval bounds
-    # Note: This check is along a line, not the full interval hyper-rectangle for vector inputs
-    assert jnp.all(true_values >= output_interval.lower)
-    assert jnp.all(true_values <= output_interval.upper)
-
-
 @pytest.mark.skipif(
     not (TEST_JIT_COMPILATION and TEST_INCLUSION_FUNCTIONS),
     reason="JIT inclusion tests are disabled",
@@ -175,7 +161,9 @@ def test_jit_inclusion(poly_coeff, eval_interval):
     assert isinstance(result, irx.Interval)
 
     # Validate the overapproximation by sampling
-    validate_overapproximation(polynomial, poly_coeff, eval_interval, result)
+    validate_overapproximation_nd(
+        lambda x: polynomial(poly_coeff, x), eval_interval, result
+    )
 
 
 if __name__ == "__main__":
