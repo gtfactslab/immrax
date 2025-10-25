@@ -134,7 +134,9 @@ class System(abc.ABC):
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.f(*args, **kwargs)
 
-    @partial(jax.jit, static_argnums=(0, 4), static_argnames=("solver", "f_kwargs"))
+    @partial(
+        jax.jit, static_argnums=(0, 4), static_argnames=("solver", "f_kwargs", "inputs")
+    )
     def compute_trajectory(
         self,
         t0: Union[Integer, Float],
@@ -146,7 +148,7 @@ class System(abc.ABC):
         solver: Union[Literal["euler", "rk45", "tsit5"], AbstractSolver] = "tsit5",
         f_kwargs: immutabledict = immutabledict({}),
         **kwargs,
-    ) -> Trajectory:
+    ) -> Solution:
         """Computes the trajectory of the system from time t0 to tf with initial condition x0.
 
         Parameters
@@ -170,8 +172,8 @@ class System(abc.ABC):
 
         Returns
         -------
-        Trajectory
-            _description_
+        diffrax.Solution
+            Flow line / trajectory of the system from the initial condition x0 to the final time tf
         """
 
         def func(t, x, args):
@@ -192,10 +194,7 @@ class System(abc.ABC):
                 raise Exception(f"{solver=} is not a valid solver")
 
             saveat = SaveAt(t0=True, t1=True, steps=True)
-            # return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
-            return Trajectory.from_diffrax(
-                diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
-            )
+            return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
 
         elif self.evolution == "discrete":
             if not isinstance(t0, int) or not isinstance(tf, int):
