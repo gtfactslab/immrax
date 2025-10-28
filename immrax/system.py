@@ -197,21 +197,31 @@ class System(abc.ABC):
             return diffeqsolve(term, solver, t0, tf, dt, x0, saveat=saveat, **kwargs)
 
         elif self.evolution == "discrete":
-            if not isinstance(t0, int) or not isinstance(tf, int):
+            if not (
+                jnp.issubdtype(jnp.array(t0).dtype, jnp.integer)
+                and jnp.issubdtype(jnp.array(tf).dtype, jnp.integer)
+            ):
                 raise Exception(
                     f"Times {t0=} and {tf=} must be integers for discrete evolution, got {type(t0)=} and {type(tf)=}"
                 )
 
+            max_steps = 4096
+            times = t0 + jnp.arange(max_steps)
+            tfinite = jnp.where(
+                jnp.arange(max_steps) <= tf - t0,
+                jnp.ones(max_steps, dtype=bool),
+                jnp.zeros(max_steps, dtype=bool),
+            )
+
             # Use jax.lax.scan to compute the trajectory of the discrete system
             def step(x, t):
-                xtp1 = func(t, x, None)
+                xtp1 = jax.lax.cond(
+                    t < tf, lambda: func(t, x, None), lambda: jnp.nan * x0
+                )
                 return xtp1, xtp1
 
-            times = jnp.arange(t0, tf + 1)
             _, traj = jax.lax.scan(step, x0, times)
-            return Trajectory(
-                times, jnp.vstack((x0, traj)), jnp.ones_like(times, dtype=bool)
-            )
+            return Trajectory(times, jnp.vstack((x0, traj[:-1])), tfinite)
         else:
             raise Exception(
                 f"Evolution needs to be 'continuous' or 'discrete', got {self.evolution=}"

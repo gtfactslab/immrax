@@ -61,6 +61,7 @@ class Vehicle(System):
 def validate_trajectory(traj_diffrax: Solution):
     """Validates the properties of a computed trajectory."""
     assert isinstance(traj_diffrax, Solution)
+    assert traj_diffrax is not None
 
     t_finite = jnp.isfinite(traj_diffrax.ts)
     computed_ys = traj_diffrax.ys[jnp.where(t_finite)]
@@ -185,3 +186,19 @@ def test_linear_sys_stabilization(system_linear, x0_2d):
     # Assert that the final state is close to zero
     final_state = traj_diffrax.ys[jnp.where(jnp.isfinite(traj_diffrax.ts))][-1]
     assert jnp.allclose(final_state, jnp.zeros_like(final_state), atol=1e-2)
+
+    # Sanity check: With a zero controller, the system should not stabilize.
+    if not jnp.allclose(x0_2d, jnp.zeros_like(x0_2d)):
+        zero_controller = (lambda t, x: jnp.zeros((1,)),)
+        traj_uncontrolled = system_linear.compute_trajectory(
+            t0=0, tf=10.0, x0=x0_2d, inputs=zero_controller
+        )
+        validate_trajectory(traj_uncontrolled)
+        final_state_uncontrolled = traj_uncontrolled.ys[
+            jnp.where(jnp.isfinite(traj_uncontrolled.ts))
+        ][-1]
+        assert not jnp.allclose(
+            final_state_uncontrolled,
+            jnp.zeros_like(final_state_uncontrolled),
+            atol=1e-1,
+        )
