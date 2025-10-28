@@ -2,9 +2,15 @@ import jax
 from jax import core
 import jax.numpy as jnp
 from immrax.inclusion.interval import interval, Interval
-from immrax.inclusion import nif, register_inclusion_primitive
+from immrax.inclusion import nif, custom_if
 
 
+@custom_if
+def polynomial(a, x):
+    return jnp.polyval(a, x)
+
+
+@polynomial.defif
 def polynomial_inclusion(a, x):
     # if not isinstance(a, Interval) or jnp.allclose(a.lower, a.upper) :
     # TODO: This only works for constant coefficients. Try to take inclusion for x, natif into inclusion for both
@@ -60,6 +66,3 @@ def polynomial_inclusion(a, x):
         """Otherwise, simply use natural inclusion function."""
         print("Using natural inclusion function for polynomial primitive.")
         return nif.natif(polynomial_impl)(a, x)
-
-
-polynomial = register_inclusion_primitive(polynomial_inclusion)(jnp.polyval)

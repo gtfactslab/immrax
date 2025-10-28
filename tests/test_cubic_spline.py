@@ -205,7 +205,6 @@ if __name__ == "__main__":
     # Convert to JAX array for spline computation
     input_points_jax = jnp.array(input_points_np)
 
-    print("--- Input Data ---")
     # Sort for comparison and plotting
     sorted_indices = np.argsort(input_points_np[:, 0])
     input_points_np_sorted = input_points_np[sorted_indices]

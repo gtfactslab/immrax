@@ -1,10 +1,9 @@
 import jax
-from jax import core
 import jax.numpy as jnp
 
 import immrax as irx
 from immrax.inclusion.polynomial import polynomial
-from immrax.inclusion import register_inclusion_primitive
+from immrax.inclusion import custom_if
 
 
 def create_cubic_spline_coeffs(points):
@@ -90,6 +89,7 @@ def make_spline_eval_fn(x_knots, coeffs):
     """
     a, b, c, d = coeffs
 
+    @custom_if
     def eval_fn(x_eval):
         """
         Evaluates the spline at given x-values.
@@ -103,6 +103,7 @@ def make_spline_eval_fn(x_knots, coeffs):
 
         return my_eval
 
+    @eval_fn.defif
     def incl_fn(int_eval):
         # For extrapolation, we extend the first and last domains to infinity.
         lower_bins = jnp.concatenate((-jnp.array([jnp.inf]), x_knots[1:-1]))
@@ -142,6 +143,4 @@ def make_spline_eval_fn(x_knots, coeffs):
 
         return irx.interval(jnp.min(valid_lowers), jnp.max(valid_uppers))
 
-    eval = register_inclusion_primitive(incl_fn)(eval_fn)
-
-    return eval
+    return eval_fn
