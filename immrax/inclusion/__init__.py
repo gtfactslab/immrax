@@ -34,7 +34,6 @@ from .jacobian import (
     all_corners,
     get_corner,
     get_corners,
-    get_sparse_corners,
     mjacif,
     mjacM,
 )
@@ -68,7 +67,6 @@ __all__ = [
     "all_corners",
     "get_corner",
     "get_corners",
-    "get_sparse_corners",
     "mjacif",
     "mjacM",
 ]

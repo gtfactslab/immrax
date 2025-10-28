@@ -255,21 +255,6 @@ def get_corners(M: Interval, cs: Tuple[Corner] | None = None):
     # return [(Mc := get_corner(M, c)) for c in cs if not jnp.allclose(Mc, 0)]
 
 
-def get_sparse_corners(M: Interval):
-    """Gets the corners of the interval M that are not the same. Will"""
-    sh = M.shape
-    M = M.reshape(-1)
-    ic = jnp.isclose(M.lower, M.upper)
-    cs = [
-        Corner(p) for p in product(*[(0,) if ic[i] else (0, 1) for i in range(len(ic))])
-    ]
-    return [
-        jnp.array(
-            [M.lower[i] if ci == 0 else M.upper[i] for i, ci in enumerate(c)]
-        ).reshape(sh)
-        for c in cs
-    ]
-
 
 def mjacM(f: Callable[..., jax.Array], argnums=None) -> Callable:
     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
