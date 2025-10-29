@@ -1,8 +1,7 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from diffrax import Solution
-from immrax import System, Trajectory
+from immrax import System, RawTrajectory, RawContinuousTrajectory, ContinuousTrajectory
 
 A = jnp.array([[0, 1], [0, 0]])
 B = jnp.array([[0], [1]])
@@ -58,21 +57,22 @@ class Vehicle(System):
 # --- Helper Functions ---
 
 
-def validate_trajectory(traj_diffrax: Solution):
+def validate_trajectory(traj_raw: RawTrajectory):
     """Validates the properties of a computed trajectory."""
-    assert isinstance(traj_diffrax, Solution)
-    assert traj_diffrax is not None
+    assert isinstance(traj_raw, RawContinuousTrajectory)
+    assert traj_raw is not None
 
-    t_finite = jnp.isfinite(traj_diffrax.ts)
-    computed_ys = traj_diffrax.ys[jnp.where(t_finite)]
-    padding_ys = traj_diffrax.ys[jnp.where(~t_finite)]
+    t_finite = jnp.isfinite(traj_raw.ts)
+    computed_ys = traj_raw.ys[jnp.where(t_finite)]
+    padding_ys = traj_raw.ys[jnp.where(~t_finite)]
 
     assert jnp.isfinite(computed_ys).all()
     assert jnp.isinf(padding_ys).all()
-    assert computed_ys.shape[1:] == traj_diffrax.ys.shape[1:]
-    assert padding_ys.shape[1:] == traj_diffrax.ys.shape[1:]
+    assert computed_ys.shape[1:] == traj_raw.ys.shape[1:]
+    assert padding_ys.shape[1:] == traj_raw.ys.shape[1:]
 
-    traj = Trajectory.from_diffrax(traj_diffrax)
+    traj = traj_raw.to_convenience()
+    assert isinstance(traj, ContinuousTrajectory)
     assert jnp.equal(traj.ys, computed_ys).all()
 
 
@@ -202,3 +202,30 @@ def test_linear_sys_stabilization(system_linear, x0_2d):
             jnp.zeros_like(final_state_uncontrolled),
             atol=1e-1,
         )
+
+
+def test_ragged_trajectory_continuous(system_2d, x0_2d):
+    """Tests ragged trajectory creation for continuous systems."""
+    tfs = jnp.arange(1.0, 2.0, 0.2)
+
+    # vmap compute_trajectory over tf
+    # We expect this to create a ragged trajectory, as each `tf` is different.
+    compute_traj_vmap = jax.vmap(system_2d.compute_trajectory, in_axes=(None, 0, None))
+
+    raw_traj = compute_traj_vmap(0.0, tfs, x0_2d)
+
+    traj = raw_traj.to_convenience()
+
+    # 1. is_ragged should return true
+    assert traj.is_ragged()
+
+    # 2. The list of ts should have the same length as the range of tfs
+    assert len(traj.ts) == len(tfs)
+
+    # 3. Each ts should correspond to a ys of the same length
+    for i in range(len(tfs)):
+        assert len(traj.ts[i]) == len(traj.ys[i])
+
+    # 4. Each element of ys should be finite
+    for i in range(len(tfs)):
+        assert jnp.all(jnp.isfinite(traj.ys[i]))

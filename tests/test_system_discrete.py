@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from immrax import System, Trajectory
+from immrax import System, RawTrajectory, RawDiscreteTrajectory, DiscreteTrajectory
 
 # --- Systems ---
 
@@ -50,12 +50,23 @@ class LogisticMap(System):
 # --- Helper Functions ---
 
 
-def validate_trajectory(traj: Trajectory):
+def validate_trajectory(traj_raw: RawTrajectory):
     """Validates the properties of a computed trajectory."""
-    assert isinstance(traj, Trajectory)
-    assert jnp.isfinite(traj.ts).all()
-    assert jnp.isfinite(traj.ys).all()
-    assert traj.ts.shape[0] == traj.ys.shape[0]
+    assert isinstance(traj_raw, RawDiscreteTrajectory)
+    assert traj_raw is not None
+
+    t_finite = jnp.isfinite(traj_raw.ts)
+    computed_ys = traj_raw.ys[jnp.where(t_finite)]
+    padding_ys = traj_raw.ys[jnp.where(~t_finite)]
+
+    assert jnp.isfinite(computed_ys).all()
+    # assert jnp.isinf(padding_ys).all()
+    assert computed_ys.shape[1:] == traj_raw.ys.shape[1:]
+    assert padding_ys.shape[1:] == traj_raw.ys.shape[1:]
+
+    traj = traj_raw.to_convenience()
+    assert isinstance(traj, DiscreteTrajectory)
+    assert jnp.equal(traj.ys, computed_ys).all()
 
 
 # --- Fixtures ---
@@ -109,6 +120,7 @@ def test_compute_trajectory_1d(system_1d, x0_1d):
     """Tests trajectory computation for 1D systems without inputs."""
     traj = system_1d.compute_trajectory(t0=0, tf=10, x0=x0_1d)
     validate_trajectory(traj)
+    traj = traj.to_convenience()
     assert jnp.equal(traj.ys[0], x0_1d).all()
     assert traj.ys.shape == (11, 1)
 
@@ -124,6 +136,7 @@ def test_compute_trajectory_2d(system_linear_discrete, x0_2d):
         t0=0, tf=10, x0=x0_2d, inputs=inputs
     )
     validate_trajectory(traj)
+    traj = traj.to_convenience()
     assert jnp.equal(traj.ys[0], x0_2d).all()
     assert traj.ys.shape == (11, 2)
 
@@ -133,6 +146,7 @@ def test_nilpotent_convergence(system_nilpotent, x0_3d):
     n = system_nilpotent.xlen
     traj = system_nilpotent.compute_trajectory(t0=0, tf=n, x0=x0_3d)
     validate_trajectory(traj)
+    traj = traj.to_convenience()
     assert jnp.equal(traj.ys[0], x0_3d).all()
     assert traj.ys.shape[0] == n + 1
 
@@ -173,6 +187,7 @@ def test_linear_sys_stabilization_discrete(system_linear_discrete, x0_2d):
     )
 
     validate_trajectory(traj)
+    traj = traj.to_convenience()
     assert jnp.equal(traj.ys[0], x0_2d).all()
 
     # Assert that the final state is close to zero
@@ -186,9 +201,39 @@ def test_linear_sys_stabilization_discrete(system_linear_discrete, x0_2d):
             t0=0, tf=50, x0=x0_2d, inputs=zero_controller
         )
         validate_trajectory(traj_uncontrolled)
+        traj_uncontrolled = traj_uncontrolled.to_convenience()
         final_state_uncontrolled = traj_uncontrolled.ys[-1]
         assert not jnp.allclose(
             final_state_uncontrolled,
             jnp.zeros_like(final_state_uncontrolled),
             atol=1e-1,
         )
+
+
+def test_ragged_trajectory_discrete(system_1d, x0_1d):
+    """Tests ragged trajectory creation for discrete systems."""
+    tfs = jnp.arange(5, 10)
+
+    # vmap compute_trajectory over tf
+    # We expect this to create a ragged trajectory, as each `tf` is different.
+    compute_traj_vmap = jax.vmap(system_1d.compute_trajectory, in_axes=(None, 0, None))
+
+    raw_traj = compute_traj_vmap(0, tfs, x0_1d)
+
+    traj = raw_traj.to_convenience()
+
+    # 1. is_ragged should return true
+    assert traj.is_ragged()
+
+    # 2. The list of ts should have the same length as the range of tfs
+    assert len(traj.ts) == len(tfs)
+
+    # 3. Each ts should correspond to a ys of the same length
+    for i in range(len(tfs)):
+        assert len(traj.ts[i]) == len(traj.ys[i])
+        # For discrete systems, trajectory length is tf + 1 (for t0=0)
+        assert len(traj.ts[i]) == tfs[i] + 1
+
+    # 4. Each element of ys should be finite
+    for i in range(len(tfs)):
+        assert jnp.all(jnp.isfinite(traj.ys[i]))
