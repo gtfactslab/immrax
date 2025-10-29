@@ -17,7 +17,7 @@ ignore = ["E731"] # We like lambda functions
 
 [project]
 name = "immrax"
-version = "0.3.3"
+version = "0.3.4"
 readme = {file = "README.md", content-type = "text/markdown"}
 
 dependencies = [
@@ -33,7 +33,7 @@ dependencies = [
     "equinox ~= 0.12.2",
     "immutabledict ~= 4.2.0",
     "linrax ~= 0.1.0",
-	# jax_verify dependencies. 
+	# jax_verify dependencies.
 	"absl-py",
 	"cvxpy",
 	"dm-tree",
