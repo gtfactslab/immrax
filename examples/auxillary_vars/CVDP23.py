@@ -30,7 +30,7 @@ class CVDP(irx.System):
 x0 = irx.interval(
     jnp.array([1.25, 2.35, 1.25, 2.35, 1]), jnp.array([1.55, 2.45, 1.55, 2.45, 3])
 )
-N = 10  # WARN: don't choose odd numbers here, makes redundant aux vars
+N = 2  # WARN: don't choose odd numbers here, makes redundant aux vars
 sweep = angular_sweep(N)
 couplings = [(0, 1), (2, 3), (1, 2), (0, 4)]
 H = jnp.eye(5)
@@ -51,6 +51,7 @@ print("Compiling...")
 traj = embsys.compute_trajectory(t0, 0.01, irx.i2ut(x0_lifted))
 print("Compiled.\nComputing trajectory...")
 traj, time = run_times(1, embsys.compute_trajectory, t0, tf, irx.i2ut(x0_lifted))
+traj = traj.to_convenience()
 print(
     f"Computing trajectory took {time.item():.4g} s, {((tf - t0) / 0.01 / time).item():.4g} it/s"
 )

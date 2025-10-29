@@ -70,6 +70,7 @@ def angular_refined_trajectory(
         sim_len,
         irx.i2ut(lifted_x0_int),
     )
+    traj = traj.to_convenience()
     print(
         f"Computing trajectory with {mode} refinement for {num_aux_vars} aux vars took: {comp_time.mean():.4g} ± {comp_time.std():.4g}s"
     )
