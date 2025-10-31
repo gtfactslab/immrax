@@ -16,6 +16,7 @@ from .interval import (
 
 from . import nif as nif
 from .nif import natif
+from .custom_if import custom_if
 
 from .jacobian import (
     jacif,
@@ -54,6 +55,7 @@ __all__ = [
     "natif",
     "jacM",
     "jacif",
+    "custom_if",
     "Permutation",
     "standard_permutation",
     "two_permutations",

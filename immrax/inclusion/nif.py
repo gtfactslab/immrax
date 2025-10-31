@@ -3,6 +3,7 @@ from typing import Any, Callable, Sequence
 
 import equinox as eqx
 import jax
+from jax._src.debugging import debug_callback_p
 import jax.numpy as jnp
 from jax import jit, lax, vmap
 from jax._src import ad_util, config, source_info_util
@@ -164,13 +165,14 @@ _add_passthrough_to_registry(lax.pad_p)
 _add_passthrough_to_registry(lax.ne_p)
 _add_passthrough_to_registry(lax.lt_p)
 _add_passthrough_to_registry(lax.lt_to_p)
+_add_passthrough_to_registry(debug_callback_p)
 
 """
 TODO: Handle higher order primitives
 
 natif_jaxpr should be thought of as an interpreter.
     - evaluates a jaxpr with interval arguments
-    - uses the inclusion functions from the inclusion_registry 
+    - uses the inclusion functions from the inclusion_registry
 it cannot currently handle higher order primitives like scan, pjit
     - These HO primitives trace a jaxpr as their evaluation.
     - We can use natif_jaxpr to handle the jaxpr subexpression.
