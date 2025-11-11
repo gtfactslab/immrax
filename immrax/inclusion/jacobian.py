@@ -425,7 +425,8 @@ def mjacM(f: Callable[..., jax.Array], argnums=None) -> Callable:
                 # Using vmap to build columns
                 for i in range(len(args)):
                     idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i + 1])
-                    Mi = jax.vmap(df_func[i])(*natif(z2arg)(Z[idx]))
+                    iargs = natif(z2arg)(Z[idx]) if len(args) > 1 else (Z[idx],) # fix unpacking issue for single argument
+                    Mi = jax.vmap(df_func[i])(*iargs)
                     # sig.arr[idx]-_cumsum[i] rearranges/extracts the columns of Mi
                     # retc.append(Mi[np.arange(leninputsfull[i]),:,npsig[idx]-_cumsum[i]].T)
                     retc.append(

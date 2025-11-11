@@ -22,6 +22,7 @@ __all__ = [
     "System",
     "ReversedSystem",
     "LinearTransformedSystem",
+    "NonlinearTransformedSystem",
     "LiftedSystem",
     "OpenLoopSystem",
     "Trajectory",
@@ -253,6 +254,23 @@ class LinearTransformedSystem(System):
     def f(self, t: Union[Integer, Float], x: jax.Array, *args, **kwargs) -> jax.Array:
         return self.T @ self.sys.f(t, self.Tinv @ x, *args, **kwargs)
 
+class NonlinearTransformedSystem(System):
+    r"""Nonlinear Transformed System, :math:`y = \phi(x)`
+    A system with dynamics :math:`\dot{x} = T_{\phi^{-1}(x)) \phi (f(t, \phi^{-1}(x), ...))` where H^+Hx = x.
+    """
+    sys: System
+
+    def __init__ (self, sys: System, phi: Callable[[jax.Array], jax.Array], phi_inv: Callable[[jax.Array], jax.Array]) -> None:
+        self.evolution = sys.evolution
+        self.xlen = sys.xlen
+        self.sys = sys
+        self.phi = phi
+        self.phi_inv = phi_inv
+
+    def f (self, t: Union[Integer, Float], x: jax.Array, *args, **kwargs) -> jax.Array:
+        x_pre = self.phi_inv(x)
+        f_pre = self.sys.f(t, self.phi_inv(x), *args, **kwargs)
+        return jax.jvp(self.phi, (x_pre,), (f_pre,))[1]
 
 class LiftedSystem(System):
     """Lifted System

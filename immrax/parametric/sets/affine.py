@@ -1,91 +1,84 @@
+from abc import ABC, abstractmethod
+from functools import partial
+from typing import Callable, Iterable, List, Literal, Mapping, Tuple, Union
+
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-from ..system import System
-from .parametope import Parametope, hParametope
-from .sets.normotope import Normotope
-from abc import ABC, abstractmethod
+import numpy as onp
+from diffrax import AbstractSolver, Dopri5, Euler, ODETerm, SaveAt, Tsit5, diffeqsolve
 from immutabledict import immutabledict
-from jaxtyping import Integer, Float, ArrayLike
-from typing import Tuple, Union, List, Callable, Literal, Mapping
-from diffrax import AbstractSolver, ODETerm, Euler, Dopri5, Tsit5, SaveAt, diffeqsolve
-from ..inclusion import Interval, Permutation, standard_permutation, mjacM, interval, ut2i, i2ut, natif, jacM, icentpert, i2lu, lu2i, icopy
-from ..embedding import embed
-from ..refinement import SampleRefinement
-from ..utils import null_space
-from ..neural import fastlin
-from functools import partial
-import equinox as eqx
 from jax.experimental.jet import jet
+from jax.tree_util import register_pytree_node_class
+from jaxtyping import ArrayLike, Float, Integer
 
-class ParametopeEmbedding (ABC) :
-    sys: System
+from ...embedding import embed
+from ...inclusion import Interval, Permutation, icentpert, icopy, i2lu, i2ut, \
+    interval, jacM, lu2i, mjacM, natif, standard_permutation, ut2i
+from ...neural import fastlin
+from ...refinement import SampleRefinement
+from ...system import System
+from ...utils import null_space
+from ..parametope import Parametope
+from ..embedding import ParametricEmbedding
 
-    def __init__ (self, sys:System) :
-        self.sys = sys
 
-    @abstractmethod
-    def _initialize (self, pt0:Parametope) -> ArrayLike :
-        """Initialize the Embedding System for a particular initial set pt0
+@register_pytree_node_class
+class AffineParametope (Parametope) :
+    r"""Defines a parametope with the particular structured nonlinearity
+    
+    .. math::
+        g(\alpha, x - \mathring{x}) = (-h(\alpha (x - \mathring{x})), h(\alpha (x - \mathring{x})))
+
+    and y split into lower and upper bounds y = (ly, uy).
+    """
+
+    def h(self, z:ArrayLike) :
+        """Evaluates the nonlinearity h at z
 
         Parameters
         ----------
-        pt0 : hParametope
-            _description_
-
-        Returns
-        -------
-        ArrayLike
-            aux0: Auxilliary states to evolve with the embedding system
+        z : ArrayLike
+            Input to the nonlinearity
         """
-    
-    @abstractmethod
-    def _dynamics (self, t, state, *args) :
-        """Embedding dynamics
+        pass
+
+    def g(self, x:ArrayLike) :
+        """Evaluates the nonlinearity g at alpha, x
 
         Parameters
         ----------
-        t : _type_
-            _description_
-        state : _type_
+        z : ArrayLike
+            Input to the nonlinearity
+        """
+        return self.h(jnp.dot(self.alpha, x - self.ox))
+
+    def hinv (self, iy:Interval) :
+        """Overapproximating inverse image of the nonlinearity h
+
+        Parameters
+        ----------
+        iy : ArrayLike
             _description_
         """
+        pass
     
-    # @partial(jax.jit, static_argnums=(0, 4), static_argnames=("solver", "f_kwargs"))
-    def compute_reachset (
-        self,
-        t0: Union[Integer, Float],
-        tf: Union[Integer, Float],
-        pt0: Parametope,
-        inputs: List[Callable[[int, jax.Array], jax.Array]] = [],
-        dt: float = 0.01,
-        *,
-        solver: Union[Literal["euler", "rk45", "tsit5"], AbstractSolver] = "tsit5",
-        f_kwargs: immutabledict = immutabledict({}),
-        **kwargs,
-    ) :
-        def func (t, x, args) :
-            # Unpack the inputs
-            return self._dynamics(t, x, *[u(t, x) for u in inputs], **f_kwargs)
+    def k_face (self, k:int) -> Interval :
+        """Overapproximate the k-face of the hParametope"""
+        pass
 
-        term = ODETerm(func)
-        if solver == "euler":
-            solver = Euler()
+    # Override in subclasses to unpack the flattened data
+    @classmethod
+    def from_parametope (cls, pt:'hParametope') :
+        return pt
+    
+    @classmethod
+    def tree_unflatten (cls, aux_data, children) :
+        return cls.from_parametope(hParametope(*children))
 
-        elif solver == "rk45":
-            solver = Dopri5()
-        elif solver == "tsit5":
-            solver = Tsit5()
-        elif isinstance(solver, AbstractSolver):
-            pass
-        else:
-            raise Exception(f"{solver=} is not a valid solver")
+hParametope = AffineParametope
 
-        aux0 = self._initialize(pt0)
-
-        saveat = SaveAt(t0=True, t1=True, steps=True)
-        return diffeqsolve(term, solver, t0, tf, dt, (pt0, aux0), saveat=saveat, **kwargs)
-
-class AdjointEmbedding (ParametopeEmbedding) :
+class AdjointEmbedding (ParametricEmbedding) :
     def __init__(self, sys, alpha_p0, N0, kap:float=0.1, permutation=None, disable_adjoint=False) :
                 #  refine_factory:Callable[[ArrayLike], Callable]=partial(SampleRefinement, num_samples=10)):
         super().__init__(sys)
@@ -284,7 +277,7 @@ class AdjointEmbedding (ParametopeEmbedding) :
         return (pt_dot, (alpha_p_dot, N_dot))
 
 
-class FastlinAdjointEmbedding (ParametopeEmbedding) :
+class FastlinAdjointEmbedding (ParametricEmbedding) :
     def __init__(self, sys, alpha_p0, N0, permutation=None, ustars=None, tt=None, kap=None) :
                 #  refine_factory:Callable[[ArrayLike], Callable]=partial(SampleRefinement, num_samples=10)):
         super().__init__(sys)
@@ -458,3 +451,4 @@ def _vec_refine(null_vector: jax.Array, var_index: jax.Array, y: Interval):
 
 _mat_refine = jax.vmap(_vec_refine, in_axes=(0, None, None), out_axes=0)
 _mat_refine_all = jax.vmap(_mat_refine, in_axes=(None, 0, None), out_axes=1)
+

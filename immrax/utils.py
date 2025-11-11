@@ -15,7 +15,7 @@ import shapely.geometry as sg
 import shapely.ops as so
 
 import immrax as irx
-from immrax.inclusion import Corner, Interval, all_corners, i2lu, i2ut, ut2i
+from immrax.inclusion import interval, Corner, Interval, all_corners, i2lu, i2ut, ut2i
 from immrax.system import Trajectory
 
 from itertools import product
@@ -308,6 +308,7 @@ def check_containment (x, y) :
         -1 if x is fully outside of y
         0 if x is partially contained in y
     """
+    x = interval(x); y = interval(y)
     fully_contained = jnp.logical_and(jnp.all(x.lower >= y.lower), jnp.all(x.upper <= y.upper)).astype(int)
     fully_outside = jnp.logical_or(jnp.any(x.lower > y.upper), jnp.any(x.upper < y.lower)).astype(int)
     return fully_contained - fully_outside

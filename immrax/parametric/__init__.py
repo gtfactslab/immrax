@@ -1,11 +1,18 @@
 from .parametope import (
     Parametope,
-    hParametope,
+    g_parametope,
 )
-from .param_reach import (
-    ParametopeEmbedding,
+
+from .embedding import (
+    ParametricEmbedding,
+    ParametopeEmbedding
+)
+
+from .sets.affine import (
+    AffineParametope,
+    hParametope,
     AdjointEmbedding,
-    FastlinAdjointEmbedding,
+    FastlinAdjointEmbedding
 )
 
 from .sets.ellipsoid import (
@@ -26,8 +33,11 @@ from .sets.normotope import (
 
 __all__ = [
     'Parametope',
-    'hParametope',
+    'g_parametope',
     'ParametopeEmbedding',
+    'ParametricEmbedding',
+    'AffineParametope',
+    'hParametope',
     'AdjointEmbedding',
     'FastlinAdjointEmbedding',
     'Ellipsoid',

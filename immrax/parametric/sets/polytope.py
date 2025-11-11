@@ -1,4 +1,4 @@
-from ..parametope import hParametope
+from .affine import hParametope
 import jax
 import jax.numpy as jnp
 from jaxtyping import ArrayLike
@@ -14,25 +14,10 @@ from pypoman import plot_polygon, compute_polytope_vertices, project_polytope
 def _lu2y (l, u) :
     return jnp.concatenate((-l, u))
 def _y2lu (y) :
-    print(y)
     return -y[:len(y)//2], y[len(y)//2:]
 
 @register_pytree_node_class
 class Polytope (hParametope) :
-    # def __init__ (self, ox, H, ) :
-    #     super().__init__(ox, H, _lu2y(ly, uy))
-    #     # m_ks = [H.shape[0], len(ly), len(uy)]
-    #     # if len(set(m_ks)) != 1 :
-    #     #     raise Exception(f"Dimension mismatch: {m_ks}")
-    #     # self.mk = m_ks[0]
-    #     # if len(ox) != H.shape[1] :
-    #     #     raise Exception(f"Dimension mismatch: {ox.shape=} {H.shape=}")
-    
-    # @classmethod
-    # def from_parametope (cls, pt:hParametope) :
-    #     # print(ds.H)
-    #     return cls(pt.ox, pt.alpha, *_y2lu(pt.y))
-    
     def h (self, z) :
         # Identity nonlinearity
         return jnp.concatenate((-z, z))
@@ -86,9 +71,9 @@ class Polytope (hParametope) :
         E[0, yi] = 1
         return project_polytope((E, jnp.zeros(1)), (Hi, bi))
 
-    # @classmethod
-    # def from_Hpolytope (H, uy, ox=jnp.zeros(2)) :
-    #     return Polytope(ox, H, -jnp.inf*jnp.ones_like(uy), uy)
+    @classmethod
+    def from_Hpolytope (cls, H, uy, ox=jnp.zeros(2)) :
+        return Polytope(ox, H, jnp.hstack((jnp.inf*jnp.ones_like(uy), uy)))
 
     @classmethod
     def from_interval (cls, *args) :
@@ -100,6 +85,10 @@ class Polytope (hParametope) :
         return Polytope(self.ox, jnp.vstack((self.H, Haug)), _lu2y(
                         jnp.concatenate((self.ly, yaug.lower)),
                         jnp.concatenate((self.uy, yaug.upper))))
+
+    def to_Hpolytope (self) :
+        Hox = self.alpha @ self.ox
+        return (jnp.vstack((-self.H, self.H)), jnp.hstack((-self.ly - Hox, self.uy + Hox)))
 
     # Override in subclasses to unpack the flattened data
     @classmethod
