@@ -40,9 +40,9 @@ class Parametope :
         """
         raise NotImplementedError("Parametope.g must be implemented in subclasses")
 
-    def contains (self, x:Array) -> bool :
+    def contains (self, x:Array, **kwargs) -> bool :
         """Checks if x is in the parametope."""
-        return jnp.all(self.g(x) <= self.y)
+        return jnp.all(jnp.logical_or(self.g(x) <= self.y, jnp.isclose(self.g(x), self.y, **kwargs)))
 
     @classmethod
     def from_parametope (cls, pt:'Parametope') :
