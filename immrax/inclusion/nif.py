@@ -21,7 +21,7 @@ from jax.extend.core import Primitive
 from jax._src.lax import linalg as LA
 
 # TODO: import only necessary things
-from immrax.inclusion.interval import *
+from immrax.inclusion.interval import Interval, interval
 from functools import partial
 
 """
@@ -55,7 +55,7 @@ def natif(
     @jit
     @wraps(f)
     def wrapped(*args, **kwargs):
-        f"""Natural inclusion function.
+        """Natural inclusion function.
         """
         # Traverse the args and kwargs, replacing intervals with lower bounds.
         # Convert args to at least jax.Array when they are not interval

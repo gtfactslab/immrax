@@ -1,8 +1,7 @@
 from jax.tree_util import register_pytree_node_class
 import jax.numpy as jnp
-from jaxtyping import Integer, Float, Array, ArrayLike
-from typing import Tuple, Iterable, Union, List, Callable, Literal, Mapping
-from ..inclusion import Interval, interval
+from jaxtyping import Array, ArrayLike
+from typing import Callable
 
 
 @register_pytree_node_class

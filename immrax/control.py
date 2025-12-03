@@ -1,10 +1,8 @@
 import abc
 import jax
-import jax.numpy as jnp
-from jaxtyping import Integer, Float, ArrayLike
+from jaxtyping import Integer, Float
 from typing import Union
 from immrax.system import System, OpenLoopSystem
-from jax.tree_util import register_pytree_node_class
 
 __all__ = [
     "Control",

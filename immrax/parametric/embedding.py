@@ -1,7 +1,6 @@
 import jax
-import jax.numpy as jnp
 from jaxtyping import Integer, Float, ArrayLike
-from typing import Tuple, Iterable, Union, List, Callable, Literal, Mapping
+from typing import Union, List, Callable, Literal
 from abc import ABC, abstractmethod
 from ..system import System
 from .parametope import Parametope

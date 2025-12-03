@@ -1,37 +1,23 @@
-from abc import ABC, abstractmethod
-from functools import partial
-from typing import Callable, Iterable, List, Literal, Mapping, Tuple, Union
+from typing import Tuple
 
-import equinox as eqx
 import jax
 import jax.numpy as jnp
-import numpy as onp
-from diffrax import AbstractSolver, Dopri5, Euler, ODETerm, SaveAt, Tsit5, diffeqsolve
-from immutabledict import immutabledict
 from jax.experimental.jet import jet
 from jax.tree_util import register_pytree_node_class
-from jaxtyping import ArrayLike, Float, Integer
+from jaxtyping import ArrayLike
 
 from ...embedding import embed
 from ...inclusion import (
     Interval,
-    Permutation,
-    icentpert,
     icopy,
-    i2lu,
     i2ut,
     interval,
     jacM,
-    lu2i,
     mjacM,
     natif,
     standard_permutation,
-    ut2i,
 )
 from ...neural import fastlin
-from ...refinement import SampleRefinement
-from ...system import System
-from ...utils import null_space
 from ..parametope import Parametope
 from ..embedding import ParametricEmbedding
 

@@ -1,5 +1,4 @@
 from .affine import hParametope
-import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from jax.tree_util import register_pytree_node_class
