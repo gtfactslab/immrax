@@ -28,6 +28,7 @@ __all__ = [
     "Trajectory",
 ]
 
+
 @register_pytree_node_class
 class Trajectory:
     _ts: jnp.ndarray
@@ -53,18 +54,18 @@ class Trajectory:
     def tree_unflatten(cls, _, children):
         return cls(*children)
 
-    # NOTE: Currently, Trajectory objects that were produced by vmapping over time will 
-    # behave badly. Because this class is a pytree, a "list" of Trajectory objects is 
-    # automatically flattened into just one object, and the dimensions of the children 
-    # arrays are adjusted to accomodate this. If the indices of every trajectory do not 
+    # NOTE: Currently, Trajectory objects that were produced by vmapping over time will
+    # behave badly. Because this class is a pytree, a "list" of Trajectory objects is
+    # automatically flattened into just one object, and the dimensions of the children
+    # arrays are adjusted to accomodate this. If the indices of every trajectory do not
     # correspond to the same time point, this will result in a Trajectory object where
-    # some sub-trajectories might have different indices that are finite, making the 
-    # below boolean index give a ragged result. 
-    # 
+    # some sub-trajectories might have different indices that are finite, making the
+    # below boolean index give a ragged result.
+    #
     # This is difficult to deal with, and we don't currently have a good solution.
     #
-    # Also note that if the trajectory was produced with an adaptive step size controller, 
-    # then different trajectories might also have indices that map to different times, 
+    # Also note that if the trajectory was produced with an adaptive step size controller,
+    # then different trajectories might also have indices that map to different times,
     # causing the same issue. (Though, in this case the offset is likely to be smaller.)
     @property
     def ts(self):
@@ -109,7 +110,7 @@ class System(abc.ABC):
     evolution: Literal["continuous", "discrete"]
     xlen: int
 
-    def __init__ (self, evolution, xlen) :
+    def __init__(self, evolution, xlen):
         self.evolution = evolution
         self.xlen = xlen
 
@@ -214,7 +215,9 @@ class System(abc.ABC):
 
             times = jnp.arange(t0, tf + 1)
             _, traj = jax.lax.scan(step, x0, times)
-            return Trajectory(times, jnp.vstack((x0, traj)), jnp.ones_like(times, dtype=bool))
+            return Trajectory(
+                times, jnp.vstack((x0, traj)), jnp.ones_like(times, dtype=bool)
+            )
         else:
             raise Exception(
                 f"Evolution needs to be 'continuous' or 'discrete', got {self.evolution=}"
@@ -254,23 +257,31 @@ class LinearTransformedSystem(System):
     def f(self, t: Union[Integer, Float], x: jax.Array, *args, **kwargs) -> jax.Array:
         return self.T @ self.sys.f(t, self.Tinv @ x, *args, **kwargs)
 
+
 class NonlinearTransformedSystem(System):
     r"""Nonlinear Transformed System, :math:`y = \phi(x)`
     A system with dynamics :math:`\dot{x} = T_{\phi^{-1}(x)) \phi (f(t, \phi^{-1}(x), ...))` where H^+Hx = x.
     """
+
     sys: System
 
-    def __init__ (self, sys: System, phi: Callable[[jax.Array], jax.Array], phi_inv: Callable[[jax.Array], jax.Array]) -> None:
+    def __init__(
+        self,
+        sys: System,
+        phi: Callable[[jax.Array], jax.Array],
+        phi_inv: Callable[[jax.Array], jax.Array],
+    ) -> None:
         self.evolution = sys.evolution
         self.xlen = sys.xlen
         self.sys = sys
         self.phi = phi
         self.phi_inv = phi_inv
 
-    def f (self, t: Union[Integer, Float], x: jax.Array, *args, **kwargs) -> jax.Array:
+    def f(self, t: Union[Integer, Float], x: jax.Array, *args, **kwargs) -> jax.Array:
         x_pre = self.phi_inv(x)
         f_pre = self.sys.f(t, self.phi_inv(x), *args, **kwargs)
         return jax.jvp(self.phi, (x_pre,), (f_pre,))[1]
+
 
 class LiftedSystem(System):
     """Lifted System

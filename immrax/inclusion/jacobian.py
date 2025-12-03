@@ -255,7 +255,6 @@ def get_corners(M: Interval, cs: Tuple[Corner] | None = None):
     # return [(Mc := get_corner(M, c)) for c in cs if not jnp.allclose(Mc, 0)]
 
 
-
 def mjacM(f: Callable[..., jax.Array], argnums=None) -> Callable:
     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
 
@@ -425,7 +424,9 @@ def mjacM(f: Callable[..., jax.Array], argnums=None) -> Callable:
                 # Using vmap to build columns
                 for i in range(len(args)):
                     idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i + 1])
-                    iargs = natif(z2arg)(Z[idx]) if len(args) > 1 else (Z[idx],) # fix unpacking issue for single argument
+                    iargs = (
+                        natif(z2arg)(Z[idx]) if len(args) > 1 else (Z[idx],)
+                    )  # fix unpacking issue for single argument
                     Mi = jax.vmap(df_func[i])(*iargs)
                     # sig.arr[idx]-_cumsum[i] rearranges/extracts the columns of Mi
                     # retc.append(Mi[np.arange(leninputsfull[i]),:,npsig[idx]-_cumsum[i]].T)

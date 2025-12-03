@@ -8,14 +8,15 @@ from .parametope import Parametope
 from immutabledict import immutabledict
 from diffrax import AbstractSolver, ODETerm, Euler, Dopri5, Tsit5, SaveAt, diffeqsolve
 
-class ParametricEmbedding (ABC) :
+
+class ParametricEmbedding(ABC):
     sys: System
 
-    def __init__ (self, sys:System) :
+    def __init__(self, sys: System):
         self.sys = sys
 
     @abstractmethod
-    def _initialize (self, pt0:Parametope) -> ArrayLike :
+    def _initialize(self, pt0: Parametope) -> ArrayLike:
         """Initialize the Embedding System for a particular initial set pt0
 
         Parameters
@@ -28,9 +29,9 @@ class ParametricEmbedding (ABC) :
         ArrayLike
             aux0: Auxilliary states to evolve with the embedding system
         """
-    
+
     @abstractmethod
-    def _dynamics (self, t, state, *args) :
+    def _dynamics(self, t, state, *args):
         """Embedding dynamics
 
         Parameters
@@ -40,9 +41,9 @@ class ParametricEmbedding (ABC) :
         state : _type_
             _description_
         """
-    
+
     # @partial(jax.jit, static_argnums=(0, 4), static_argnames=("solver", "f_kwargs"))
-    def compute_reachset (
+    def compute_reachset(
         self,
         t0: Union[Integer, Float],
         tf: Union[Integer, Float],
@@ -53,8 +54,8 @@ class ParametricEmbedding (ABC) :
         solver: Union[Literal["euler", "rk45", "tsit5"], AbstractSolver] = "tsit5",
         f_kwargs: immutabledict = immutabledict({}),
         **kwargs,
-    ) :
-        def func (t, x, args) :
+    ):
+        def func(t, x, args):
             # Unpack the inputs
             return self._dynamics(t, x, *[u(t, x) for u in inputs], **f_kwargs)
 
@@ -73,6 +74,9 @@ class ParametricEmbedding (ABC) :
         aux0 = self._initialize(pt0)
 
         saveat = SaveAt(t0=True, t1=True, steps=True)
-        return diffeqsolve(term, solver, t0, tf, dt, (pt0, aux0), saveat=saveat, **kwargs)
+        return diffeqsolve(
+            term, solver, t0, tf, dt, (pt0, aux0), saveat=saveat, **kwargs
+        )
+
 
 ParametopeEmbedding = ParametricEmbedding

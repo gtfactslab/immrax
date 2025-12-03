@@ -11,13 +11,11 @@ from .interval import (
     iconcatenate,
     izeros,
     interval_intersect,
-    interval_union
+    interval_union,
 )
 
 from . import nif as nif
-from .nif import (
-    natif
-)
+from .nif import natif
 
 from .jacobian import (
     jacM,

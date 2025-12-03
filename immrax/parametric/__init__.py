@@ -3,16 +3,13 @@ from .parametope import (
     g_parametope,
 )
 
-from .embedding import (
-    ParametricEmbedding,
-    ParametopeEmbedding
-)
+from .embedding import ParametricEmbedding, ParametopeEmbedding
 
 from .sets.affine import (
     AffineParametope,
     hParametope,
     AdjointEmbedding,
-    FastlinAdjointEmbedding
+    FastlinAdjointEmbedding,
 )
 
 from .sets.ellipsoid import (
@@ -21,6 +18,7 @@ from .sets.ellipsoid import (
 from .sets.polytope import (
     Polytope,
 )
+
 # from .sets.annulus import (
 #     LpAnnulus,
 # )
@@ -32,18 +30,18 @@ from .sets.normotope import (
 )
 
 __all__ = [
-    'Parametope',
-    'g_parametope',
-    'ParametopeEmbedding',
-    'ParametricEmbedding',
-    'AffineParametope',
-    'hParametope',
-    'AdjointEmbedding',
-    'FastlinAdjointEmbedding',
-    'Ellipsoid',
-    'Polytope',
-    'Normotope',
-    'LinfNormotope',
-    'L1Normotope',
-    'L2Normotope',
+    "Parametope",
+    "g_parametope",
+    "ParametopeEmbedding",
+    "ParametricEmbedding",
+    "AffineParametope",
+    "hParametope",
+    "AdjointEmbedding",
+    "FastlinAdjointEmbedding",
+    "Ellipsoid",
+    "Polytope",
+    "Normotope",
+    "LinfNormotope",
+    "L1Normotope",
+    "L2Normotope",
 ]

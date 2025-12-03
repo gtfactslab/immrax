@@ -11,58 +11,66 @@ from ...inclusion import Interval, interval, icentpert, i2centpert, natif, iconc
 import numpy as onp
 from pypoman import plot_polygon, compute_polytope_vertices, project_polytope
 
-def _lu2y (l, u) :
+
+def _lu2y(l, u):
     return jnp.concatenate((-l, u))
-def _y2lu (y) :
-    return -y[:len(y)//2], y[len(y)//2:]
+
+
+def _y2lu(y):
+    return -y[: len(y) // 2], y[len(y) // 2 :]
+
 
 @register_pytree_node_class
-class Polytope (hParametope) :
-    def h (self, z) :
+class Polytope(hParametope):
+    def h(self, z):
         # Identity nonlinearity
         return jnp.concatenate((-z, z))
-    
-    def hinv (self, y) :
+
+    def hinv(self, y):
         # Inverse image is also identity
-        return interval(-y[:len(y)//2], y[len(y)//2:])
-    
+        return interval(-y[: len(y) // 2], y[len(y) // 2 :])
+
     @property
-    def H (self) :
+    def H(self):
         return self.alpha
+
     @property
-    def ly (self) :
-        return -self.y[:len(self.y)//2]
+    def ly(self):
+        return -self.y[: len(self.y) // 2]
+
     @property
-    def uy (self) :
-        return self.y[len(self.y)//2:]
+    def uy(self):
+        return self.y[len(self.y) // 2 :]
+
     @property
-    def iy (self) :
+    def iy(self):
         return interval(self.ly, self.uy)
 
-    def get_vertices (self) :
+    def get_vertices(self):
         Hi = jnp.vstack((-self.H, self.H))
         bi = jnp.hstack((-self.ly, self.uy))
         return jnp.asarray(compute_polytope_vertices(Hi, bi)) + self.ox
-    
-    def plot_projection (self, ax, xi=0, yi=1, rescale=False, **kwargs) :
+
+    def plot_projection(self, ax, xi=0, yi=1, rescale=False, **kwargs):
         Hi = onp.vstack((-self.H, self.H))
         bi = onp.hstack((-self.ly, self.uy))
-        if Hi.shape[1] == 2 :
+        if Hi.shape[1] == 2:
             V = compute_polytope_vertices(Hi, bi)
-        elif Hi.shape[1] > 2 :
+        elif Hi.shape[1] > 2:
             E = onp.zeros((2, self.H.shape[1]))
-            E[0, xi] = 1; E[1, yi] = 1
+            E[0, xi] = 1
+            E[1, yi] = 1
             Hi = onp.vstack((-self.H, self.H))
             bi = onp.hstack((-self.ly, self.uy))
             # print(Hi.shape, bi.shape)
             V = project_polytope((E, jnp.zeros(2)), (Hi, bi))
         plt.sca(ax)
-        kwargs.setdefault('alpha', 1.)
-        kwargs.setdefault('fill', False)
-        plot_polygon([v + self.ox[(xi,yi),] for v in V], **kwargs)
+        kwargs.setdefault("alpha", 1.0)
+        kwargs.setdefault("fill", False)
+        plot_polygon([v + self.ox[(xi, yi),] for v in V], **kwargs)
         # plot_polygon(V, **kwargs)
-    
-    def one_d_proj (self, yi=0, rescale=False, **kwargs) :
+
+    def one_d_proj(self, yi=0, rescale=False, **kwargs):
         # 1D projection onto xi, time. Plotted as a tube
         Hi = onp.vstack((-self.H, self.H))
         bi = onp.hstack((-self.ly, self.uy))
@@ -72,32 +80,41 @@ class Polytope (hParametope) :
         return project_polytope((E, jnp.zeros(1)), (Hi, bi))
 
     @classmethod
-    def from_Hpolytope (cls, H, uy, ox=jnp.zeros(2)) :
-        return Polytope(ox, H, jnp.hstack((jnp.inf*jnp.ones_like(uy), uy)))
+    def from_Hpolytope(cls, H, uy, ox=jnp.zeros(2)):
+        return Polytope(ox, H, jnp.hstack((jnp.inf * jnp.ones_like(uy), uy)))
 
     @classmethod
-    def from_interval (cls, *args) :
+    def from_interval(cls, *args):
         cent, pert = i2centpert(interval(*args))
         return Polytope(cent, jnp.eye(len(cent)), jnp.concatenate((pert, pert)))
 
-    def add_rows (self, Haug, Hp) :
-        yaug = interval(Haug@Hp)@self.hinv(self.y)
-        return Polytope(self.ox, jnp.vstack((self.H, Haug)), _lu2y(
-                        jnp.concatenate((self.ly, yaug.lower)),
-                        jnp.concatenate((self.uy, yaug.upper))))
+    def add_rows(self, Haug, Hp):
+        yaug = interval(Haug @ Hp) @ self.hinv(self.y)
+        return Polytope(
+            self.ox,
+            jnp.vstack((self.H, Haug)),
+            _lu2y(
+                jnp.concatenate((self.ly, yaug.lower)),
+                jnp.concatenate((self.uy, yaug.upper)),
+            ),
+        )
 
-    def to_Hpolytope (self) :
+    def to_Hpolytope(self):
         Hox = self.alpha @ self.ox
-        return (jnp.vstack((-self.H, self.H)), jnp.hstack((-self.ly - Hox, self.uy + Hox)))
+        return (
+            jnp.vstack((-self.H, self.H)),
+            jnp.hstack((-self.ly - Hox, self.uy + Hox)),
+        )
 
     # Override in subclasses to unpack the flattened data
     @classmethod
-    def from_parametope (cls, pt:'hParametope') :
+    def from_parametope(cls, pt: "hParametope"):
         return Polytope(pt.ox, pt.alpha, pt.y)
-    
+
     # @classmethod
     # def tree_unflatten (cls, aux_data, children) :
     #     return cls.from_parametope(hParametope(*children))
+
 
 # @register_pytree_node_class
 # class IntervalDualStar (Polytope) :
@@ -118,4 +135,3 @@ class Polytope (hParametope) :
 #     ids = IntervalDualStar(ds.iover(), ds.ox)
 #     # List addition here
 #     return DualStar(ds.ox, ds.H + ids.H, ds.ly + ids.ly, ds.uy + ids.uy)
-    
