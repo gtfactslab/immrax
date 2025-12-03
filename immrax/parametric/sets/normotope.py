@@ -17,7 +17,6 @@ from math import sqrt
 from itertools import product
 
 
-
 @register_pytree_node_class
 class Normotope(Parametope):
     r"""Defines the set

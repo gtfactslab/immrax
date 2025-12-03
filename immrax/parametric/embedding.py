@@ -7,6 +7,7 @@ from ..system import System
 from .parametope import Parametope
 from immutabledict import immutabledict
 from diffrax import AbstractSolver, ODETerm, Euler, Dopri5, Tsit5, SaveAt, diffeqsolve
+import warnings
 
 
 class ParametricEmbedding(ABC):
@@ -79,4 +80,12 @@ class ParametricEmbedding(ABC):
         )
 
 
-ParametopeEmbedding = ParametricEmbedding
+# Define A as a subclass of B
+class ParametopeEmbedding(ParametricEmbedding):
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            "Class 'ParametopeEmbedding' is deprecated. Use 'ParametricEmbedding' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(*args, **kwargs)

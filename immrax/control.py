@@ -87,7 +87,6 @@ class ControlledSystem(System):
         return self.olsystem.f(t, x, self.control.u(t, x), *args)
 
 
-
 # class FOHControlledSystem (ControlledSystem) :
 #     """FOHControlledSystem
 #     A system in closed-loop with a First Order Hold Controller of the form

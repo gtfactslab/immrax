@@ -13,7 +13,6 @@ from jax.tree_util import register_pytree_node_class
 from ...inclusion import icentpert
 
 
-
 @register_pytree_node_class
 class Ellipsoid(hParametope):
     def __init__(self, ox, alpha, y):

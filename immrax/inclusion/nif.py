@@ -542,7 +542,8 @@ def _inclusion_sqrt_p(x: Interval, accuracy=None) -> Interval:
 
 inclusion_registry[lax.sqrt_p] = _inclusion_sqrt_p
 
-def _inclusion_pow_p(x:Interval, y: Interval) -> Interval :
+
+def _inclusion_pow_p(x: Interval, y: Interval) -> Interval:
     # if isinstance (y, Interval) :
     #     # if y.lower == y.upper :
     #     if True :
@@ -553,26 +554,26 @@ def _inclusion_pow_p(x:Interval, y: Interval) -> Interval :
     x = interval(x)
     y = interval(y)
 
-    def _inclusion_pow_impl (xl, xu, yl, yu) -> Interval :
+    def _inclusion_pow_impl(xl, xu, yl, yu) -> Interval:
         # caluclate corners
-        corners = jnp.array([lax.pow(xl, yl),
-                lax.pow(xl, yu),
-                lax.pow(xu, yl),
-                lax.pow(xu, yu)])
+        corners = jnp.array(
+            [lax.pow(xl, yl), lax.pow(xl, yu), lax.pow(xu, yl), lax.pow(xu, yu)]
+        )
         # calculate the minimum and maximum of the corners
         cond = jnp.logical_and(x.lower >= 0, x.upper >= 0)
         ol = jnp.where(cond, jnp.min(corners), -jnp.inf)
         ou = jnp.where(cond, jnp.max(corners), jnp.inf)
         return ol, ou
-    
+
     xl, yl = jnp.broadcast_arrays(x.lower, y.lower)
     xu, yu = jnp.broadcast_arrays(x.upper, y.upper)
     xsh = jnp.shape(xl)
 
-    resl, resu = jax.vmap(_inclusion_pow_impl, (0,0,0,0))(
-        xl.reshape(-1), xu.reshape(-1),
-        yl.reshape(-1), yu.reshape(-1))
+    resl, resu = jax.vmap(_inclusion_pow_impl, (0, 0, 0, 0))(
+        xl.reshape(-1), xu.reshape(-1), yl.reshape(-1), yu.reshape(-1)
+    )
     return Interval(resl.reshape(xsh), resu.reshape(xsh))
+
 
 inclusion_registry[lax.pow_p] = _inclusion_pow_p
 
