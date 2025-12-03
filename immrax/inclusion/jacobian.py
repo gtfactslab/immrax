@@ -255,22 +255,6 @@ def get_corners(M: Interval, cs: Tuple[Corner] | None = None):
     # return [(Mc := get_corner(M, c)) for c in cs if not jnp.allclose(Mc, 0)]
 
 
-def get_sparse_corners(M: Interval):
-    """Gets the corners of the interval M that are not the same. Will"""
-    sh = M.shape
-    M = M.reshape(-1)
-    ic = jnp.isclose(M.lower, M.upper)
-    cs = [
-        Corner(p) for p in product(*[(0,) if ic[i] else (0, 1) for i in range(len(ic))])
-    ]
-    return [
-        jnp.array(
-            [M.lower[i] if ci == 0 else M.upper[i] for i, ci in enumerate(c)]
-        ).reshape(sh)
-        for c in cs
-    ]
-
-
 def mjacM(f: Callable[..., jax.Array], argnums=None) -> Callable:
     """Creates the M matrices for the Mixed Jacobian-based inclusion function.
 
@@ -408,7 +392,7 @@ def mjacM(f: Callable[..., jax.Array], argnums=None) -> Callable:
                     f"Not enough points {len(center)=} != {len(args)=} to center the Jacobian-based inclusion function around"
                 )
             # f0 = f(*center)
-            zc = arg2z(*center)
+            zc = arg2z(*[jnp.atleast_1d(c) for c in center])
             for sig in permutations:
                 Z = interval(
                     jnp.where(
@@ -440,7 +424,10 @@ def mjacM(f: Callable[..., jax.Array], argnums=None) -> Callable:
                 # Using vmap to build columns
                 for i in range(len(args)):
                     idx = np.logical_and(npsig >= _cumsum[i], npsig < _cumsum[i + 1])
-                    Mi = jax.vmap(df_func[i])(*natif(z2arg)(Z[idx]))
+                    iargs = (
+                        natif(z2arg)(Z[idx]) if len(args) > 1 else (Z[idx],)
+                    )  # fix unpacking issue for single argument
+                    Mi = jax.vmap(df_func[i])(*iargs)
                     # sig.arr[idx]-_cumsum[i] rearranges/extracts the columns of Mi
                     # retc.append(Mi[np.arange(leninputsfull[i]),:,npsig[idx]-_cumsum[i]].T)
                     retc.append(

@@ -1,5 +1,4 @@
 import jax
-from jax import core
 import jax.numpy as jnp
 from immrax.inclusion.interval import interval, Interval
 from immrax.inclusion import nif, custom_if

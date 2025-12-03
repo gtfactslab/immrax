@@ -1,4 +1,4 @@
-from ..parametope import hParametope
+from .affine import hParametope
 import jax.numpy as jnp
 from jaxtyping import ArrayLike
 from ...utils import null_space
@@ -61,6 +61,21 @@ class Ellipsoid(hParametope):
         )
         Q = Minv.T @ N.T @ P @ N @ Minv
         _plot_ellipse(Q, self.ox[(xi, yi),], ax, rescale, **kwargs)
+
+    @staticmethod
+    def get_projection_mtx(P, xi=0, yi=1):
+        n = P.shape[0]
+        if n == 2:
+            return P
+        ind = [k for k in range(n) if k not in [xi, yi]]
+        Phat = P[ind, :]
+        N = null_space(Phat)
+        M = N[(xi, yi), :]  # Since M is guaranteed 2x2,
+        Minv = (1 / (M[0, 0] * M[1, 1] - M[0, 1] * M[1, 0])) * jnp.array(
+            [[M[1, 1], -M[0, 1]], [-M[1, 0], M[0, 0]]]
+        )
+        Q = Minv.T @ N.T @ P @ N @ Minv
+        return Q
 
     # def __repr__(self) :
     #     return f'Ellipsoid(ox={self.ox}, H={self.H}, uy={self.uy})'
