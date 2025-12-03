@@ -18,8 +18,11 @@ from jax._src.core import (
 )
 from jax._src.util import safe_map
 from jax.extend.core import Primitive
+from jax._src.lax import linalg as LA
 
-from immrax.inclusion.interval import Interval, interval
+# TODO: import only necessary things
+from immrax.inclusion.interval import *
+from functools import partial
 
 """
 This file implements the Natural Inclusion Function as an interpreter of Jaxprs.
@@ -52,7 +55,8 @@ def natif(
     @jit
     @wraps(f)
     def wrapped(*args, **kwargs):
-        """Natural inclusion function."""
+        f"""Natural inclusion function.
+        """
         # Traverse the args and kwargs, replacing intervals with lower bounds.
         # Convert args to at least jax.Array when they are not interval
         getlower = lambda x: x.lower if isinstance(x, Interval) else jnp.asarray(x)
@@ -515,16 +519,16 @@ def _inclusion_tan_p(x: Interval, accuracy=None) -> Interval:
 
 inclusion_registry[lax.tan_p] = _inclusion_tan_p
 
-
-def _inclusion_atan_p(x: Interval) -> Interval:
-    return Interval(jnp.arctan(x.lower), jnp.arctan(x.upper))
-
-
-inclusion_registry[lax.atan_p] = _inclusion_atan_p
+# def _inclusion_atan_p (x:Interval, accuracy=None) -> Interval :
+#     return Interval(lax.atan(x.lower), lax.atan(x.upper))
+# inclusion_registry[lax.atan_p] = _inclusion_atan_p
+_add_passthrough_to_registry(lax.atan_p)
 
 
-def _inclusion_asin_p(x: Interval) -> Interval:
-    return Interval(jnp.arcsin(x.lower), jnp.arcsin(x.upper))
+def _inclusion_asin_p(x: Interval, accuracy=None) -> Interval:
+    return Interval(
+        lax.arcsin(x.lower, accuracy=accuracy), lax.arcsin(x.upper, accuracy=accuracy)
+    )
 
 
 inclusion_registry[lax.asin_p] = _inclusion_asin_p
@@ -581,3 +585,127 @@ inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
 
 
 Interval.__matmul__ = jit(natif(jnp.matmul))
+
+# Some linear algebra routines
+
+
+# Cholesky decomposition
+def _manual_cholesky(A):
+    """
+    Computes the Cholesky decomposition of a symmetric positive definite matrix A using Python for loops.
+    Returns lower-triangular matrix L such that A = L @ L.T
+    """
+    n = A.shape[0]
+    L = jnp.zeros_like(A)
+    for i in range(n):
+        for j in range(i + 1):
+            s = jnp.sum(L[i, :j] * L[j, :j])
+            val = jnp.where(i == j, jnp.sqrt(A[i, i] - s), (A[i, j] - s) / L[j, j])
+            L = L.at[i, j].set(val)
+    return L
+
+
+inclusion_registry[LA.cholesky_p] = natif(_manual_cholesky)
+
+# Triangular solve
+
+
+def _manual_triangular_solve(
+    A,
+    b,
+    *,
+    left_side=True,
+    lower=True,
+    transpose_a=False,
+    conjugate_a=False,
+    unit_diagonal=False,
+):
+    # Apply transpose if needed
+    A = jnp.where(transpose_a, A.T, A)
+    # Apply conjugate if needed
+    A = jnp.where(conjugate_a, jnp.conj(A), A)
+    # # If unit_diagonal, set diagonal to 1
+    # if unit_diagonal:
+    #     A = A.at[jnp.diag_indices(A.shape[0])].set(1)
+
+    def lower_triangular_solve(A, b):
+        n = A.shape[0]
+        x = jnp.zeros_like(b)
+        for i in range(n):
+            s = jnp.sum(A[i, :i] * x[:i])
+            xi = (b[i] - s) / A[i, i]
+            x = x.at[i].set(xi)
+        return x
+
+    def upper_triangular_solve(A, b):
+        n = A.shape[0]
+        x = jnp.zeros_like(b)
+        for i in range(n - 1, -1, -1):
+            s = jnp.sum(A[i, i + 1 :] * x[i + 1 :])
+            x = x.at[i].set((b[i] - s) / A[i, i])
+        return x
+
+    # # Choose lower or upper triangular solve
+    # x = lax.cond(lower,
+    #              lambda _: lower_triangular_solve(A, b),
+    #              lambda _: upper_triangular_solve(A, b),
+    #              operand=None)
+
+    # # If not left_side, solve xA = b instead of Ax = b
+    # x = lax.cond(left_side,
+    #              lambda x: x,
+    #              lambda _: jnp.linalg.solve(A.T, b.T).T,
+    #              x)
+
+    if lower:
+        if left_side:
+            x = lower_triangular_solve(A, b)
+        else:
+            x = lower_triangular_solve(A.T, b.T).T
+    else:
+        if left_side:
+            x = upper_triangular_solve(A, b)
+        else:
+            x = upper_triangular_solve(A.T, b.T).T
+
+    # return lower_triangular_solve(A, b)
+    return x
+
+
+@partial(
+    jit,
+    static_argnames=(
+        "left_side",
+        "lower",
+        "transpose_a",
+        "conjugate_a",
+        "unit_diagonal",
+    ),
+)
+def _inclusion_triangular_solve(
+    A,
+    b,
+    *,
+    left_side=True,
+    lower=True,
+    transpose_a=False,
+    conjugate_a=False,
+    unit_diagonal=False,
+):
+    # return natif(partial(jax.vmap(_manual_triangular_solve, in_axes=()),
+    #                      left_side=left_side, lower=lower, transpose_a=transpose_a, conjugate_a=conjugate_a, unit_diagonal=unit_diagonal))(A, b)
+    return natif(
+        partial(
+            jax.vmap(_manual_triangular_solve, in_axes=()),
+            left_side=left_side,
+            lower=lower,
+            transpose_a=transpose_a,
+            conjugate_a=conjugate_a,
+            unit_diagonal=unit_diagonal,
+        )
+    )(A, b)
+
+
+inclusion_registry[LA.triangular_solve_p] = _inclusion_triangular_solve
+
+# natif(lambda A, b, left_side=True, lower=True, transpose_a=False, conjugate_a=False, unit_diagonal=False: _manual_triangular_solve(A, b, left_side=left_side, lower=lower, transpose_a=transpose_a, conjugate_a=conjugate_a, unit_diagonal=unit_diagonal))

@@ -1,100 +1,108 @@
+from abc import ABC, abstractmethod
+from functools import partial
+from typing import Callable, Iterable, List, Literal, Mapping, Tuple, Union
+
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-from ..system import System
-from .parametope import Parametope, hParametope
-from abc import ABC, abstractmethod
+import numpy as onp
+from diffrax import AbstractSolver, Dopri5, Euler, ODETerm, SaveAt, Tsit5, diffeqsolve
 from immutabledict import immutabledict
-from jaxtyping import Integer, Float, ArrayLike
-from typing import Tuple, Union, List, Callable, Literal
-from diffrax import AbstractSolver, ODETerm, Euler, Dopri5, Tsit5, SaveAt, diffeqsolve
-from ..inclusion import (
-    Interval,
-    standard_permutation,
-    mjacM,
-    interval,
-    i2ut,
-    natif,
-    jacM,
-    icopy,
-)
-from ..embedding import embed
-from ..neural import fastlin
 from jax.experimental.jet import jet
+from jax.tree_util import register_pytree_node_class
+from jaxtyping import ArrayLike, Float, Integer
+
+from ...embedding import embed
+from ...inclusion import (
+    Interval,
+    Permutation,
+    icentpert,
+    icopy,
+    i2lu,
+    i2ut,
+    interval,
+    jacM,
+    lu2i,
+    mjacM,
+    natif,
+    standard_permutation,
+    ut2i,
+)
+from ...neural import fastlin
+from ...refinement import SampleRefinement
+from ...system import System
+from ...utils import null_space
+from ..parametope import Parametope
+from ..embedding import ParametricEmbedding
 
 
-class ParametopeEmbedding(ABC):
-    sys: System
+@register_pytree_node_class
+class AffineParametope(Parametope):
+    r"""Defines a parametope with the particular structured nonlinearity
 
-    def __init__(self, sys: System):
-        self.sys = sys
+    .. math::
+        g(\alpha, x - \mathring{x}) = (-h(\alpha (x - \mathring{x})), h(\alpha (x - \mathring{x})))
 
-    @abstractmethod
-    def _initialize(self, pt0: Parametope) -> ArrayLike:
-        """Initialize the Embedding System for a particular initial set pt0
+    and y split into lower and upper bounds y = (ly, uy).
+    """
+
+    def h(self, z: ArrayLike):
+        """Evaluates the nonlinearity h at z
 
         Parameters
         ----------
-        pt0 : hParametope
-            _description_
-
-        Returns
-        -------
-        ArrayLike
-            aux0: Auxilliary states to evolve with the embedding system
+        z : ArrayLike
+            Input to the nonlinearity
         """
+        pass
 
-    @abstractmethod
-    def _dynamics(self, t, state, *args):
-        """Embedding dynamics
+    def g(self, x: ArrayLike):
+        """Evaluates the nonlinearity g at alpha, x
 
         Parameters
         ----------
-        t : _type_
-            _description_
-        state : _type_
+        z : ArrayLike
+            Input to the nonlinearity
+        """
+        return self.h(jnp.dot(self.alpha, x - self.ox))
+
+    def hinv(self, iy: Interval):
+        """Overapproximating inverse image of the nonlinearity h
+
+        Parameters
+        ----------
+        iy : ArrayLike
             _description_
         """
+        pass
 
-    # @partial(jax.jit, static_argnums=(0, 4), static_argnames=("solver", "f_kwargs"))
-    def compute_reachset(
+    def k_face(self, k: int) -> Interval:
+        """Overapproximate the k-face of the hParametope"""
+        pass
+
+    # Override in subclasses to unpack the flattened data
+    @classmethod
+    def from_parametope(cls, pt: "hParametope"):
+        return pt
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls.from_parametope(hParametope(*children))
+
+
+hParametope = AffineParametope
+
+
+class AdjointEmbedding(ParametricEmbedding):
+    def __init__(
         self,
-        t0: Union[Integer, Float],
-        tf: Union[Integer, Float],
-        pt0: Parametope,
-        inputs: List[Callable[[int, jax.Array], jax.Array]] = [],
-        dt: float = 0.01,
-        *,
-        solver: Union[Literal["euler", "rk45", "tsit5"], AbstractSolver] = "tsit5",
-        f_kwargs: immutabledict = immutabledict({}),
-        **kwargs,
+        sys,
+        alpha_p0,
+        N0,
+        kap: float = 0.1,
+        permutation=None,
+        disable_adjoint=False,
     ):
-        def func(t, x, args):
-            # Unpack the inputs
-            return self._dynamics(t, x, *[u(t, x) for u in inputs], **f_kwargs)
-
-        term = ODETerm(func)
-        if solver == "euler":
-            solver = Euler()
-
-        elif solver == "rk45":
-            solver = Dopri5()
-        elif solver == "tsit5":
-            solver = Tsit5()
-        elif isinstance(solver, AbstractSolver):
-            pass
-        else:
-            raise Exception(f"{solver=} is not a valid solver")
-
-        aux0 = self._initialize(pt0)
-
-        saveat = SaveAt(t0=True, t1=True, steps=True)
-        return diffeqsolve(
-            term, solver, t0, tf, dt, (pt0, aux0), saveat=saveat, **kwargs
-        )
-
-
-class AdjointEmbedding(ParametopeEmbedding):
-    def __init__(self, sys, alpha_p0, N0, kap: float = 0.1, permutation=None):
         #  refine_factory:Callable[[ArrayLike], Callable]=partial(SampleRefinement, num_samples=10)):
         super().__init__(sys)
         self.Jf_x = jax.jacfwd(sys.f, 1)
@@ -104,6 +112,7 @@ class AdjointEmbedding(ParametopeEmbedding):
         self.alpha_p0 = alpha_p0
         self.N0 = N0
         self.permutation = permutation
+        self.disable_adjoint = disable_adjoint
 
     def _initialize(self, pt0: hParametope) -> ArrayLike:
         if not isinstance(pt0, hParametope):
@@ -123,6 +132,8 @@ class AdjointEmbedding(ParametopeEmbedding):
         pt, aux = state
         ox = pt.ox
 
+        # jax.debug.print('args={args}', args=args)
+
         K = len(pt.y) // 2
         # ly = -pt.y[:K] # negative for lower bound
         # uy = pt.y[K:]
@@ -131,18 +142,24 @@ class AdjointEmbedding(ParametopeEmbedding):
         alpha = pt.alpha
         alpha_p, N = aux
 
+        # alpha_p = jnp.linalg.inv(alpha)
+
         ## Adjoint dynamics + LICQ CBF
 
-        args_centers = (arg.center for arg in args)
-        centers = (jnp.array([t]), ox) + tuple(args_centers)
+        args_centers = tuple(arg.center for arg in args)
+        centers = (jnp.array([t]), ox) + args_centers
 
         J = self.Jf_x(*centers)
-        u0 = -alpha @ J
+        if not self.disable_adjoint:
+            u0 = -alpha @ J
+        else:
+            u0 = jnp.zeros_like(-alpha @ J)
+
         u0flat = u0.reshape(-1)
 
         # CBF: Enforce pairwise independence on the rows of alpha
 
-        PENALTY = 1
+        PENALTY = 0
 
         if PENALTY == 0:
             ustar = jnp.zeros_like(u0)
@@ -217,11 +234,16 @@ class AdjointEmbedding(ParametopeEmbedding):
             )[0]
             ls = []
             us = []
-            for M, arg in zip(MM[2:], args):
-                term = interval(M) @ arg
+
+            # jax.debug.print('{a}, {b}, {c}', a=len(MM[2:]), b=len(args), c=len(args_centers))
+            # jax.debug.print('{a}', a=len(args_centers))
+            for M, arg, cent in zip(MM[2:], args, args_centers):
+                term = interval(M) @ (arg - cent)
                 ls.append(term.lower)
                 us.append(term.upper)
+
             dist = interval(jnp.sum(jnp.asarray(ls)), jnp.sum(jnp.asarray(us)))
+            # jax.debug.print('dist={dist}', dist=dist)
 
             def F(t, iy, *args):
                 iy = refine(iy)
@@ -232,7 +254,9 @@ class AdjointEmbedding(ParametopeEmbedding):
                 #             centers=(centers,), permutations=self.permutation)[0]
                 Mx = MM[1]
 
-                empty = jnp.any(iy.lower > iy.upper)
+                # empty = jnp.any(iy.lower > iy.upper)
+                # empty = jnp.ones_like(iy.lower).astype(bool)
+                empty = False
 
                 def _zero():
                     return interval(jnp.zeros_like(iz.lower))
@@ -240,10 +264,17 @@ class AdjointEmbedding(ParametopeEmbedding):
                 def _ret():
                     # Post first order cancellation
                     PH = Jh(iz)
-                    return interval(PH[len(PH) // 2 :, :]) @ (
-                        (interval(alpha) @ (Mx - J) + ustar) @ (interval(alpha_p) @ iz)
-                        + dist
-                    )
+                    if not self.disable_adjoint:
+                        return interval(PH[len(PH) // 2 :, :]) @ (
+                            (interval(alpha) @ (Mx - J) + ustar)
+                            @ (interval(alpha_p) @ iz)
+                            + dist
+                        )
+                    else:
+                        return interval(PH[len(PH) // 2 :, :]) @ (
+                            (interval(alpha) @ (Mx) + ustar) @ (interval(alpha_p) @ iz)
+                            + dist
+                        )
 
                 return jax.lax.cond(empty, _zero, _ret)
 
@@ -302,7 +333,7 @@ class AdjointEmbedding(ParametopeEmbedding):
         return (pt_dot, (alpha_p_dot, N_dot))
 
 
-class FastlinAdjointEmbedding(ParametopeEmbedding):
+class FastlinAdjointEmbedding(ParametricEmbedding):
     def __init__(
         self, sys, alpha_p0, N0, permutation=None, ustars=None, tt=None, kap=None
     ):
