@@ -7,7 +7,7 @@ from functools import partial
 from itertools import accumulate, product
 from itertools import permutations as perms
 from jax._src.api import api_boundary
-from .interval import *
+from .interval import Interval, interval
 from .nif import natif
 
 
@@ -140,7 +140,7 @@ def jacif(f: Callable[..., jax.Array]) -> Callable[..., Interval]:
             sum = interval(f0)
             for i in range(len(args)):
                 # sum = natif(jnp.add)(sum, natif(jnp.matmul)(df[i], (interval(args[i].lower - center[i], args[i].upper - center[i]))))
-                sum = sum + df[i] @ (
+                sum = sum + interval(df[i]) @ (
                     interval(args[i].lower - center[i], args[i].upper - center[i])
                 )
             retl.append(sum.lower)

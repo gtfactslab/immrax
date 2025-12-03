@@ -24,24 +24,40 @@ from immrax.inclusion import (
 from immrax.system import OpenLoopSystem
 from immrax.utils import d_positive, set_columns_from_corner
 
+__all__ = [
+    "NeuralNetwork",
+    "CROWNResult",
+    "FastlinResult",
+    "crown",
+    "fastlin",
+    "NNCSystem",
+    "NNCEmbeddingSystem",
+]
 
-class NeuralNetwork (eqx.Module, Control) :
+
+class NeuralNetwork(eqx.Module, Control):
     """NeuralNetwork
-    
+
     A fully connected neural network, that extends immrax.Control and eqx.Module. Loads from a directory.
-    
+
     Expects the following in the directory inputted:
-    
+
     - arch.txt file in the format:
         inputlen numneurons activation numneurons activation ... numneurons outputlen
-    
+
     - if load is True, also expects a model.eqx file, for the weights and biases.
     """
-    seq:nn.Sequential
-    dir:Path = eqx.field(static=True)
-    out_len:int = eqx.field(static=True)
 
-    def __init__ (self, dir:Path=None, load:bool|Path=True, key:jax.random.PRNGKey=jax.random.PRNGKey(0)) :
+    seq: nn.Sequential
+    dir: Path = eqx.field(static=True)
+    out_len: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        dir: Path = None,
+        load: bool | Path = True,
+        key: jax.random.PRNGKey = jax.random.PRNGKey(0),
+    ):
         """Initialize a NeuralNetwork using a directory, of the following form
 
         Parameters
@@ -59,41 +75,45 @@ class NeuralNetwork (eqx.Module, Control) :
         self.dir = Path(dir)
         mods = []
         self.out_len = None
-        with open(self.dir.joinpath('arch.txt')) as f :
+        with open(self.dir.joinpath("arch.txt")) as f:
             arch = f.read().split()
 
         inputlen = int(arch[0])
 
-        for a in arch[1:] :
-            if a.isdigit() :
-                mods.append(nn.Linear(inputlen,int(a),key=key))
+        for a in arch[1:]:
+            if a.isdigit():
+                mods.append(nn.Linear(inputlen, int(a), key=key))
                 inputlen = int(a)
                 self.out_len = int(a)
-            else :
-                if a.lower() == 'relu' :
+            else:
+                if a.lower() == "relu":
                     mods.append(nn.Lambda(jax.nn.relu))
-                elif a.lower() == 'sigmoid' :
+                elif a.lower() == "sigmoid":
                     mods.append(nn.Lambda(jax.nn.sigmoid))
-                elif a.lower() == 'tanh' :
-                    mods.append(nn.Lambda(jax.nn.tanh))
+                elif a.lower() == "tanh":
+                    # Fixes NaN bug with tanh
+                    # mods.append(nn.Lambda(jax.nn.tanh))
+                    mods.append(nn.Lambda(lambda x: 2 * jax.nn.sigmoid(2 * x) - 1))
+                elif a.lower() == "logsig":
+                    mods.append(nn.Lambda(jax.nn.log_sigmoid))
 
         self.seq = nn.Sequential(mods)
 
-        if isinstance(load, bool) :
-            if load :
-                loadpath = self.dir.joinpath('model.eqx')
+        if isinstance(load, bool):
+            if load:
+                loadpath = self.dir.joinpath("model.eqx")
                 self.seq = eqx.tree_deserialise_leaves(loadpath, self.seq)
-                print(f'Successfully loaded model from {loadpath}')
-        elif isinstance(load, str) or isinstance(load, Path) :
-            loadpath = Path(load).joinpath('model.eqx')
+                print(f"Successfully loaded model from {loadpath}")
+        elif isinstance(load, str) or isinstance(load, Path):
+            loadpath = Path(load).joinpath("model.eqx")
             self.seq = eqx.tree_deserialise_leaves(loadpath, self.seq)
-            print(f'Successfully loaded model from {loadpath}')
+            print(f"Successfully loaded model from {loadpath}")
 
-    def save (self) :
-        savepath = self.dir.joinpath('model.eqx')
-        print(f'Saving model to {savepath}...', end='')
+    def save(self):
+        savepath = self.dir.joinpath("model.eqx")
+        print(f"Saving model to {savepath}...", end="")
         eqx.tree_serialise_leaves(savepath, self.seq)
-        print(f' done.')
+        print(" done.")
 
     # def load (self, path) :
     #     loadpath = Path(path).joinpath('model.eqx')
@@ -103,35 +123,52 @@ class NeuralNetwork (eqx.Module, Control) :
     # def set_dir (self, dir:Path) :
     #     self.dir = Path(dir)
 
-    def loadnpy (self) :
+    def loadnpy(self):
         import numpy as np
 
-        Ws, bs = np.load(self.dir.joinpath('model.npy'), allow_pickle=True)
+        Ws, bs = np.load(self.dir.joinpath("model.npy"), allow_pickle=True)
         new_leaves = jax.tree_util.tree_leaves(self.seq)
         new_leaves[0] = jnp.array(Ws[0])
 
-        seq = self.seq 
+        seq = self.seq
         j = 0
-        for i, layer in enumerate(self.seq) :
-            if isinstance(layer, nn.Linear) :
+        for i, layer in enumerate(self.seq):
+            if isinstance(layer, nn.Linear):
                 seq = eqx.tree_at(lambda seq: seq[i].weight, seq, Ws[j])
                 seq = eqx.tree_at(lambda seq: seq[i].bias, seq, bs[j])
                 j += 1
-        
-        savepath = self.dir.joinpath('model.eqx')
-        print(f'Saving model to {savepath}')
+
+        savepath = self.dir.joinpath("model.eqx")
+        print(f"Saving model to {savepath}")
         eqx.tree_serialise_leaves(savepath, seq)
 
-    def __call__ (self, x:jax.Array) -> jax.Array :
+    def loadzeros(self):
+        """Initialize the weights and biases to zero."""
+        seq = self.seq
+        for i, layer in enumerate(self.seq):
+            if isinstance(layer, nn.Linear):
+                seq = eqx.tree_at(
+                    lambda seq: seq[i].weight, seq, jnp.zeros_like(seq[i].weight)
+                )
+                seq = eqx.tree_at(
+                    lambda seq: seq[i].bias, seq, jnp.zeros_like(seq[i].bias)
+                )
+        savepath = self.dir.joinpath("model.eqx")
+        eqx.tree_serialise_leaves(savepath, seq)
+        # self.seq = eqx.tree_deserialise_leaves(savepath, self.seq)
+        # self = NeuralNetwork(self.dir, load=True)
+        # print(f'Successfully zero initialized model and saved to {savepath}')
+
+    def __call__(self, x: jax.Array) -> jax.Array:
         return self.seq(x)
 
-    def u(self, t:Union[Integer,Float], x: jax.Array) -> jax.Array :
+    def u(self, t: Union[Integer, Float], x: jax.Array) -> jax.Array:
         """Feedback Control Output of the Neural Network evaluated at x: N(x).
 
         Parameters
         ----------
         t : Union[Integer, Float] :
-            
+
         x : jax.Array :
 
         Returns
@@ -140,29 +177,28 @@ class NeuralNetwork (eqx.Module, Control) :
         """
         return self(x)
 
- 
- 
 
 """
 The following code was adapted from ________.
 """
 
-import jax_verify as jv
-from jax_verify.src import (
-    bound_propagation,
-    bound_utils,
-    concretization,
-    synthetic_primitives,
-)
-from jax_verify.src.linear import backward_crown, linear_relaxations
+from . import jax_verify as jv
+
+bound_propagation = jv.src.bound_propagation
+bound_utils = jv.src.bound_utils
+concretization = jv.src.concretization
+synthetic_primitives = jv.src.synthetic_primitives
+backward_crown = jv.src.linear.backward_crown
+linear_relaxations = jv.src.linear.linear_relaxations
 
 
-def to_jv_interval (x:Interval) -> jv.IntervalBound :
+def to_jv_interval(x: Interval) -> jv.IntervalBound:
     return jv.IntervalBound(x.lower, x.upper)
+
 
 class LinFunExtractionConcretizer(concretization.BackwardConcretizer):
     """Linear function extractor.
-    
+
     Given an objective over an output, extract the corresponding linear
     function over a target node.
     The relation between the output node and the target node are obtained by
@@ -192,51 +228,56 @@ class LinFunExtractionConcretizer(concretization.BackwardConcretizer):
         )
         return target_linfun
 
+
 """ 
 End of adapted code from ________.
 """
 
 
-class CROWNResult (namedtuple('CROWNResult', ['lC', 'uC', 'ld', 'ud'])) :
-    def __call__(self, x:Union[jax.Array, Interval]) -> Interval:
-        if isinstance(x, Interval) :
+class CROWNResult(namedtuple("CROWNResult", ["lC", "uC", "ld", "ud"])):
+    def __call__(self, x: Union[jax.Array, Interval]) -> Interval:
+        if isinstance(x, Interval):
             lCp = jnp.clip(self.lC, 0, jnp.inf)
             lCn = jnp.clip(self.lC, -jnp.inf, 0)
             uCp = jnp.clip(self.uC, 0, jnp.inf)
             uCn = jnp.clip(self.uC, -jnp.inf, 0)
             return interval(
-                lCp@x.lower + lCn@x.upper + self.ld,
-                uCn@x.lower + uCp@x.upper + self.ud
+                lCp @ x.lower + lCn @ x.upper + self.ld,
+                uCn @ x.lower + uCp @ x.upper + self.ud,
             )
-        elif isinstance(x, jax.Array) :
-            return interval(self.lC@x + self.ld, self.uC@x + self.ud)
+        elif isinstance(x, jax.Array):
+            return interval(self.lC @ x + self.ld, self.uC @ x + self.ud)
 
 
-def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROWNResult] :
-    if out_len is None :
-        try :
+def crown(
+    f: Callable[..., jax.Array], out_len: int = None
+) -> Callable[..., CROWNResult]:
+    if out_len is None:
+        try:
             # If f is a NeuralNetwork object, has this property.
             out_len = f.out_len
-        except :
+        except:
             # raise Exception('need obj or out_len')
             pass
-    
-    obj = jnp.vstack([jnp.eye(out_len), -jnp.eye(out_len)]) if out_len is not None else None
 
-    def F (
-        bound
-    ):
+    obj = (
+        jnp.vstack([jnp.eye(out_len), -jnp.eye(out_len)])
+        if out_len is not None
+        else None
+    )
+
+    def F(bound):
         """Run CROWN but return linfuns rather than concretized IntervalBounds.
 
         Parameters
         ----------
-        bound : 
+        bound :
             Bounds on the inputs of the function.
 
         Returns
         -------
 
-        
+
         """
 
         bound = to_jv_interval(bound)
@@ -255,7 +296,7 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
         bound_retriever_algorithm = bound_utils.BoundRetrieverAlgorithm(
             concretization.BackwardConcretizingAlgorithm(
                 backward_crown.backward_crown_concretizer
-            ) 
+            )
         )
         # BoundRetrieverAlgorithm wraps an existing algorithm and captures all of
         # the intermediate bound it generates.
@@ -307,14 +348,15 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
         )
 
         return CROWNResult(
-            lC = target_linfuns[0].lin_coeffs[:out_len,:],
-            uC = -target_linfuns[0].lin_coeffs[out_len:,:],
-            ld = target_linfuns[0].offset[:out_len],
-            ud = -target_linfuns[0].offset[out_len:],
+            lC=target_linfuns[0].lin_coeffs[:out_len, :],
+            uC=-target_linfuns[0].lin_coeffs[out_len:, :],
+            ld=target_linfuns[0].offset[:out_len],
+            ud=-target_linfuns[0].offset[out_len:],
         )
         # return target_linfuns
 
     return F
+
 
 # def crown (net) :
 #     def _relu_linprop (l, u) :
@@ -323,7 +365,7 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
 #         # case1 = lambda : (0., 0., 0., 0.) # l < 0, u < 0, ReLU is inactive
 #         # case2 = lambda : (1., 1., 0., 0.) # l < 0, u > 0, ReLU is active
 #         # ola = u/(u - l)
-#         # case3 = lambda : (ola, 0., -ola*l, 0.) # l < 0, u > 0, ReLU is active. 
+#         # case3 = lambda : (ola, 0., -ola*l, 0.) # l < 0, u > 0, ReLU is active.
 #         # return lax.switch (branch, (case0, case1, case2, case3))
 #         on = l >= 0.
 #         active = jnp.logical_and(l < 0., u >= 0.)
@@ -335,7 +377,7 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
 #     def newcrown (ix) :
 #         lx = [ix.lower]
 #         ux = [ix.upper]
-        
+
 #         # # IBP forward pass
 
 #         # for i, layer in enumerate(net.seq) :
@@ -382,8 +424,8 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
 #                     uCp = jnp.clip(uC, 0, jnp.inf); uCn = jnp.clip(uC, -jnp.inf, 0)
 #                     u_con = jnp.minimum(uCp @ ix.upper + uCn @ ix.lower + ud, ux[i])
 #                     la, ua, lb, ub = _relu_linprop(l_con, u_con)
-#                     lC = (lC.T * la).T 
-#                     uC = (uC.T * ua).T 
+#                     lC = (lC.T * la).T
+#                     uC = (uC.T * ua).T
 #                     ld = lb + la*ld
 #                     ud = ub + ua*ud
 #                     lx.append(jnp.minimum(lx[i], 0))
@@ -406,7 +448,7 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
 #                 _ld = lC @ b + ld
 #                 _ud = uC @ b + ud
 #                 lC, uC, ld, ud = _lC, _uC, _ld, _ud
-            
+
 #             elif isinstance (layer, nn.Lambda) :
 #                 if layer.fn == jax.nn.relu :
 #                     la, ua, lb, ub = _relu_linprop(lx[i], ux[i])
@@ -419,45 +461,54 @@ def crown (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., CROW
 #                     lC, uC, ld, ud = _lC, _uC, _ld, _ud
 
 #         return CROWNResult(lC, uC, ld, ud)
-    # return newcrown
+# return newcrown
 
 
-class FastlinResult (namedtuple('FastlinResult', ['C', 'ld', 'ud'])) :
-    def __call__(self, x:Union[jax.Array, Interval]) -> Interval :
-        if isinstance(x, Interval) :
+class FastlinResult(namedtuple("FastlinResult", ["C", "ld", "ud"])):
+    def __call__(self, x: Union[jax.Array, Interval]) -> Interval:
+        if isinstance(x, Interval):
             Cp = jnp.clip(self.C, 0, jnp.inf)
             Cn = jnp.clip(self.C, -jnp.inf, 0)
             return interval(
-                Cp@x.lower + Cn@x.upper + self.ld,
-                Cn@x.lower + Cp@x.upper + self.ud
+                Cp @ x.lower + Cn @ x.upper + self.ld,
+                Cn @ x.lower + Cp @ x.upper + self.ud,
             )
-        elif isinstance(x, jax.Array) :
-            c = self.C@x
+        elif isinstance(x, jax.Array):
+            c = self.C @ x
             return interval(c + self.ld, c + self.ud)
 
-def fastlin (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., FastlinResult] :
-    if out_len is None :
-        try :
+    @property
+    def lud(self):
+        return interval(self.ld, self.ud)
+
+
+def fastlin(
+    f: Callable[..., jax.Array], out_len: int = None
+) -> Callable[..., FastlinResult]:
+    if out_len is None:
+        try:
             # If f is a NeuralNetwork object, has this property.
             out_len = f.out_len
-        except :
+        except:
             # raise Exception('need obj or out_len')
             pass
-    
-    obj = jnp.vstack([jnp.eye(out_len), -jnp.eye(out_len)]) if out_len is not None else None
+
+    obj = (
+        jnp.vstack([jnp.eye(out_len), -jnp.eye(out_len)])
+        if out_len is not None
+        else None
+    )
 
     @jit
     @api_boundary
-    def F (
-        bound
-    ):
+    def F(bound):
         """Run CROWN but return linfuns rather than concretized IntervalBounds.
 
         Parameters
         ----------
-        bound : 
+        bound :
             bounds on the inputs of the function.
-        
+
         """
 
         bound = to_jv_interval(bound)
@@ -476,7 +527,7 @@ def fastlin (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., Fa
         bound_retriever_algorithm = bound_utils.BoundRetrieverAlgorithm(
             concretization.BackwardConcretizingAlgorithm(
                 backward_crown.backward_fastlin_concretizer
-            ) 
+            )
         )
 
         # BoundRetrieverAlgorithm wraps an existing algorithm and captures all of
@@ -529,31 +580,37 @@ def fastlin (f:Callable[..., jax.Array], out_len:int = None) -> Callable[..., Fa
         )
 
         return FastlinResult(
-            C  = target_linfuns[0].lin_coeffs[:out_len,:],
-            ld = target_linfuns[0].offset[:out_len],
-            ud = -target_linfuns[0].offset[out_len:],
+            C=target_linfuns[0].lin_coeffs[:out_len, :],
+            ld=target_linfuns[0].offset[:out_len],
+            ud=-target_linfuns[0].offset[out_len:],
         )
 
         # return target_linfuns
 
     return F
 
-class NNCSystem (ControlledSystem) :
+
+class NNCSystem(ControlledSystem):
     def __init__(self, olsystem: OpenLoopSystem, control: NeuralNetwork) -> None:
         super().__init__(olsystem, control)
 
-class NNCEmbeddingSystem (EmbeddingSystem) :
-    sys:NNCSystem
-    sys_mjacM:Callable
-    verifier:Callable
-    nn_verifier:Literal['crown', 'fastlin']
-    nn_locality:Literal['local', 'hybrid']
-    M_locality: Literal['local', 'hybrid']
 
-    def __init__(self, sys:NNCSystem, nn_verifier:Literal['crown', 'fastlin'] = 'crown',
-                 nn_locality:Literal['local', 'hybrid'] = 'local',
-                 M_locality: Literal['local', 'hybrid'] = 'local',
-                 sys_mjacM:None|Callable = None) -> None:
+class NNCEmbeddingSystem(EmbeddingSystem):
+    sys: NNCSystem
+    sys_mjacM: Callable
+    verifier: Callable
+    nn_verifier: Literal["crown", "fastlin"]
+    nn_locality: Literal["local", "hybrid"]
+    M_locality: Literal["local", "hybrid"]
+
+    def __init__(
+        self,
+        sys: NNCSystem,
+        nn_verifier: Literal["crown", "fastlin"] = "crown",
+        nn_locality: Literal["local", "hybrid"] = "local",
+        M_locality: Literal["local", "hybrid"] = "local",
+        sys_mjacM: None | Callable = None,
+    ) -> None:
         self.sys = sys
         self.evolution = sys.evolution
         self.xlen = sys.xlen * 2
@@ -566,22 +623,29 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
         self.M_locality = M_locality
 
         # NN Verifier Transform
-        if nn_verifier == 'crown' :
+        if nn_verifier == "crown":
             self.verifier = crown(sys.control)
-        elif nn_verifier == 'fastlin' :
+        elif nn_verifier == "fastlin":
             self.verifier = fastlin(sys.control)
-        else :
-            raise NotImplementedError(f'nn_verifier must be one of "crown" or "fastlin", {self.nn_verifier} not supported')
+        else:
+            raise NotImplementedError(
+                f'nn_verifier must be one of "crown" or "fastlin", {self.nn_verifier} not supported'
+            )
 
-    def E (self, t:Interval, x:jax.Array, w:Interval,
-           permutations:Tuple[Permutation] = None, 
-           centers:jax.Array|Sequence[jax.Array]|None = None,
-           corners:Tuple[Corner]|None = None,
-           refine:Callable[[Interval], Interval]|None = None,
-           T:Union[jax.Array, None] = None, **kwargs) :
-
-        if refine is None :
-            refine = lambda x : x
+    def E(
+        self,
+        t: Interval,
+        x: jax.Array,
+        w: Interval,
+        permutations: Tuple[Permutation] = None,
+        centers: jax.Array | Sequence[jax.Array] | None = None,
+        corners: Tuple[Corner] | None = None,
+        refine: Callable[[Interval], Interval] | None = None,
+        T: Union[jax.Array, None] = None,
+        **kwargs,
+    ):
+        if refine is None:
+            refine = lambda x: x
 
         t = interval(t).atleast_1d()
         ix = refine(ut2i(x))
@@ -609,8 +673,6 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
 
         #             return (Jx + Ju@)
 
-
-
         # TODO: Default permutations
         # leninputsfull = tuple([len(x) for x in args])
         # leninputs = sum(leninputsfull)
@@ -629,170 +691,250 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
         n = self.sys.xlen
         p = len(uglobal)
         q = len(w)
-        
-        if self.nn_verifier == 'crown' :
+
+        if self.nn_verifier == "crown":
             """ Embedding System induced by Closed-Loop Mixed Cornered Inclusion Function
                 For more information, see 'Efficient Interaction-Aware Interval Analysis of Neural Network Feedback Loops'
                 https://arxiv.org/pdf/2307.14938.pdf
             """
 
-            if centers is not None :
-                raise NotImplementedError('centers not supported for crown, use cornered mode')
-            if corners is None :
-                raise Exception('Must pass corners for crown, mixed cornered mode')
+            if centers is not None:
+                raise NotImplementedError(
+                    "centers not supported for crown, use cornered mode"
+                )
+            if corners is None:
+                raise Exception("Must pass corners for crown, mixed cornered mode")
             # x0_corners = [tuple([(x.lower if c[i] == 0 else x.upper) for i,x in enumerate(args)]) for c in corners]
             # print(x0_corners)
 
             txuw_corners = []
 
-            for c in corners :
+            for c in corners:
                 tc = t.lower if c[0] == 0 else t.upper
-                xc = jnp.array([ix[i].lower if c[i+1] == 0 else ix[i].upper for i in range(n)])
-                uc = jnp.array([uglobal[i].lower if c[i+1+n] == 0 else uglobal[i].upper for i in range(p)])
-                wc = jnp.array([w[i].lower if c[i+1+n+p] == 0 else w[i].upper for i in range(q)])
+                xc = jnp.array(
+                    [ix[i].lower if c[i + 1] == 0 else ix[i].upper for i in range(n)]
+                )
+                uc = jnp.array(
+                    [
+                        uglobal[i].lower if c[i + 1 + n] == 0 else uglobal[i].upper
+                        for i in range(p)
+                    ]
+                )
+                wc = jnp.array(
+                    [
+                        w[i].lower if c[i + 1 + n + p] == 0 else w[i].upper
+                        for i in range(q)
+                    ]
+                )
                 txuw_corners.append((tc, xc, uc, wc))
 
-            _x = x[:n]; x_ = x[n:]
+            _x = x[:n]
+            x_ = x[n:]
             _w, w_ = i2lu(w)
-            
+
             _ret, ret_ = [], []
 
-            for permutation in permutations :
-            
+            for permutation in permutations:
                 # Compute Hybrid M centerings once
-                if self.M_locality == 'hybrid' :
-                    Mpre = self.sys_mjacM(t, ix, uglobal, w, permutations=permutation, centers=txuw_corners)
+                if self.M_locality == "hybrid":
+                    Mpre = self.sys_mjacM(
+                        t,
+                        ix,
+                        uglobal,
+                        w,
+                        permutations=permutation,
+                        centers=txuw_corners,
+                    )
 
-                for c in corners :
-                # for j, (tc, xc, uc, wc) in enumerate(txuw_corners) :
-                # def body_fun_2 (_, a2) :
+                for c in corners:
+                    # for j, (tc, xc, uc, wc) in enumerate(txuw_corners) :
+                    # def body_fun_2 (_, a2) :
                     # tc, xc, uc, wc = txuw_corners[j]
                     # j = i2
                     # tc, xc, uc, wc, c = a2
                     # c = corners[j]
                     # print('here: ', tc, xc, uc, wc)
                     # def body_fun_3 (i3, a3) :
-                    def _F (t, x) :
+                    def _F(t, x):
                         # LOWER BOUND
                         # _xi = refine(ut2i(jnp.copy(x).at[i3+n].set(x[i3])))
                         _xi = refine(x)
 
                         # _xc = jnp.minimum(xc, _xi.upper)
-                        _xc = jnp.array([_xi.lower[i] if c[i+1] == 0 else _xi.upper[i] for i in range(n)])
+                        _xc = jnp.array(
+                            [
+                                _xi.lower[i] if c[i + 1] == 0 else _xi.upper[i]
+                                for i in range(n)
+                            ]
+                        )
 
                         # Compute Local NN verification step, otherwise use global
-                        if self.nn_locality == 'local' :
+                        if self.nn_locality == "local":
                             verifier_res = self.verifier(_xi)
-                        
+
                         _C, C_ = verifier_res.lC, verifier_res.uC
                         _d, d_ = verifier_res.ld, verifier_res.ud
                         _x, x_ = i2lu(_xi)
 
                         # Compute Local M centerings, otherwise use precomputed
                         _ui = verifier_res(_xi)
-                        _uc = jnp.array([_ui[k].lower if c[k+1+n] == 0 else _ui[k].upper for k in range(p)])
+                        _uc = jnp.array(
+                            [
+                                _ui[k].lower if c[k + 1 + n] == 0 else _ui[k].upper
+                                for k in range(p)
+                            ]
+                        )
                         # uc = self.sys.control.u(t, _xc)
 
-                        if self.M_locality == 'local' :
-                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, _xi, _ui, w, permutations=permutation, centers=((tc, _xc, _uc, wc),))[0]
-                        else :
+                        if self.M_locality == "local":
+                            Jt, Jx, Ju, Jw = self.sys_mjacM(
+                                t,
+                                _xi,
+                                _ui,
+                                w,
+                                permutations=permutation,
+                                centers=((tc, _xc, _uc, wc),),
+                            )[0]
+                        else:
                             Jt, Jx, Ju, Jw = Mpre[j]
 
- 
-                        _Jx, J_x = set_columns_from_corner(c[1:n+1], interval(Jx))
-                        _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], interval(Ju))
-                        _Jw, J_w = set_columns_from_corner(c[n+1+p:], interval(Jw))
+                        _Jx, J_x = set_columns_from_corner(c[1 : n + 1], interval(Jx))
+                        _Ju, J_u = set_columns_from_corner(
+                            c[n + 1 : n + 1 + p], interval(Ju)
+                        )
+                        _Jw, J_w = set_columns_from_corner(c[n + 1 + p :], interval(Jw))
 
                         fc = self.sys.olsystem.f(tc, _xc, _uc, wc)
 
                         _Bp, _Bn = d_positive(_Ju)
                         B_p, B_n = d_positive(J_u)
 
-                        _K = _Bp@_C + _Bn@C_
-                        K_ = B_p@C_ + B_n@_C
+                        _K = _Bp @ _C + _Bn @ C_
+                        K_ = B_p @ C_ + B_n @ _C
                         # _Dp, _Dn = d_positive(_Jw); D_p, D_n = d_positive(J_w)
                         _Dp = jnp.clip(_Jw, 0, jnp.inf)
 
                         _H = _Jx + _K
                         H_ = J_x + K_
-                        _Hp, _Hn = d_positive(_H); 
+                        _Hp, _Hn = d_positive(_H)
                         # H_p, H_n = d_metzler(H_)
 
                         # _ret.append(_Hp@_x + _Hn@x_ - _Jx@xc - _Ju@uc + _Bp@_d + _Bn@d_
                         #             + _Dp@_w - _Dp@w_ + fc)
-                        return (_Hp@_x + _Hn@x_ - _Jx@_xc - _Ju@_uc + _Bp@_d + _Bn@d_
-                                    + _Dp@_w - _Dp@w_ + fc)
-                        
-                    def F_ (t, x) :
+                        return (
+                            _Hp @ _x
+                            + _Hn @ x_
+                            - _Jx @ _xc
+                            - _Ju @ _uc
+                            + _Bp @ _d
+                            + _Bn @ d_
+                            + _Dp @ _w
+                            - _Dp @ w_
+                            + fc
+                        )
+
+                    def F_(t, x):
                         # UPPER BOUND
                         # x_i = refine(ut2i(jnp.copy(x).at[i3].set(x[i3+n])))
                         x_i = refine(x)
 
                         # x_c = jnp.maximum(xc, x_i.lower)
-                        x_c = jnp.array([x_i.lower[i] if c[i+1] == 0 else x_i.upper[i] for i in range(n)])
+                        x_c = jnp.array(
+                            [
+                                x_i.lower[i] if c[i + 1] == 0 else x_i.upper[i]
+                                for i in range(n)
+                            ]
+                        )
 
                         # Compute Local NN verification step, otherwise use global
-                        if self.nn_locality == 'local' :
+                        if self.nn_locality == "local":
                             verifier_res = self.verifier(x_i)
-                        
+
                         _C, C_ = verifier_res.lC, verifier_res.uC
                         _d, d_ = verifier_res.ld, verifier_res.ud
                         _x, x_ = i2lu(x_i)
 
                         # Compute Local M centerings, otherwise use precomputed
                         u_i = verifier_res(x_i)
-                        u_c = jnp.array([u_i[k].lower if c[k+1+n] == 0 else u_i[k].upper for k in range(p)])
+                        u_c = jnp.array(
+                            [
+                                u_i[k].lower if c[k + 1 + n] == 0 else u_i[k].upper
+                                for k in range(p)
+                            ]
+                        )
                         # uc = self.sys.control.u(t, x_c)
-                        if self.M_locality == 'local' :
-                            Jt, Jx, Ju, Jw = self.sys_mjacM(t, x_i, u_i, w, permutations=permutation, centers=((tc, x_c, u_c, wc),))[0]
-                        else :
+                        if self.M_locality == "local":
+                            Jt, Jx, Ju, Jw = self.sys_mjacM(
+                                t,
+                                x_i,
+                                u_i,
+                                w,
+                                permutations=permutation,
+                                centers=((tc, x_c, u_c, wc),),
+                            )[0]
+                        else:
                             Jt, Jx, Ju, Jw = Mpre[j]
 
                         # _Jx, J_x = i2lu(Jx)
                         # _Ju, J_u = i2lu(Ju)
                         # _Jw, J_w = i2lu(Jw)
 
-                        _Jx, J_x = set_columns_from_corner(c[1:n+1], interval(Jx))
-                        _Ju, J_u = set_columns_from_corner(c[n+1:n+1+p], interval(Ju))
-                        _Jw, J_w = set_columns_from_corner(c[n+1+p:], interval(Jw))
+                        _Jx, J_x = set_columns_from_corner(c[1 : n + 1], interval(Jx))
+                        _Ju, J_u = set_columns_from_corner(
+                            c[n + 1 : n + 1 + p], interval(Ju)
+                        )
+                        _Jw, J_w = set_columns_from_corner(c[n + 1 + p :], interval(Jw))
 
                         fc = self.sys.olsystem.f(tc, x_c, u_c, wc)
 
                         _Bp, _Bn = d_positive(_Ju)
                         B_p, B_n = d_positive(J_u)
 
-                        _K = _Bp@_C + _Bn@C_
-                        K_ = B_p@C_ + B_n@_C
-                        # _Dp, _Dn = d_positive(_Jw); 
+                        _K = _Bp @ _C + _Bn @ C_
+                        K_ = B_p @ C_ + B_n @ _C
+                        # _Dp, _Dn = d_positive(_Jw);
                         # D_p, D_n = d_positive(J_w)
                         D_p = jnp.clip(J_w, 0, jnp.inf)
 
                         _H = _Jx + _K
                         H_ = J_x + K_
-                        # _Hp, _Hn = d_metzler(_H); 
+                        # _Hp, _Hn = d_metzler(_H);
                         H_p, H_n = d_positive(H_)
 
-                        # ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_ 
+                        # ret_.append(H_n@_x + H_p@x_ - J_x@xc - J_u@uc + B_n@_d + B_p@d_
                         #             - D_p@_w + D_p@w_ + fc)
-                        return (H_n@_x + H_p@x_ - J_x@x_c - J_u@u_c + B_n@_d + B_p@d_ 
-                                    - D_p@_w + D_p@w_ + fc)
+                        return (
+                            H_n @ _x
+                            + H_p @ x_
+                            - J_x @ x_c
+                            - J_u @ u_c
+                            + B_n @ _d
+                            + B_p @ d_
+                            - D_p @ _w
+                            + D_p @ w_
+                            + fc
+                        )
 
                     # Computing F on the faces of the hyperrectangle
-                    _X = interval(jnp.tile(_x, (n,1)), jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n,1))))
+                    _X = interval(
+                        jnp.tile(_x, (n, 1)),
+                        jnp.where(jnp.eye(n), _x, jnp.tile(x_, (n, 1))),
+                    )
                     _E = jax.vmap(_F, (None, 0))(t, _X)
 
-                    X_ = interval(jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n,1))), jnp.tile(x_, (n,1)))
+                    X_ = interval(
+                        jnp.where(jnp.eye(n), x_, jnp.tile(_x, (n, 1))),
+                        jnp.tile(x_, (n, 1)),
+                    )
                     E_ = jax.vmap(F_, (None, 0))(t, X_)
 
                     # return jnp.concatenate((jnp.diag(_E), jnp.diag(E_)))
                     _ret.append(jnp.diag(_E))
                     ret_.append(jnp.diag(E_))
-            
+
             _ret, ret_ = jnp.array(_ret), jnp.array(ret_)
 
-
-            return jnp.concatenate((jnp.max(_ret,axis=0), jnp.min(ret_, axis=0)))
-
+            return jnp.concatenate((jnp.max(_ret, axis=0), jnp.min(ret_, axis=0)))
 
         # elif self.nn_verifier == 'fastlin' :
         #     """ Embedding System induced by Closed-Loop Mixed Centered Inclusion Function
@@ -826,6 +968,5 @@ class NNCEmbeddingSystem (EmbeddingSystem) :
         #     #         Mpre = self.sys_mjacM(t, ix, uglobal, w, permutations=permutation, centers=txuw_corners)
 
         #     #     if T == 'automatic' :
-
 
         #     #     for i, (tc, xc, uc, wc) in enumerate(centers) :

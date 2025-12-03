@@ -150,7 +150,9 @@ def draw_refined_trajectory_2d(traj: Trajectory, H: jnp.ndarray, vars=(0, 1), **
         #     print(bound.lower[0 : H.shape[1]], H @ x, bound.upper[0 : H.shape[1]])
 
         vertices = hs.intersections[:, 0:2]
-        vertices = onp.vstack((hs.intersections[:, vars[0]], hs.intersections[:, vars[1]])).T
+        vertices = onp.vstack(
+            (hs.intersections[:, vars[0]], hs.intersections[:, vars[1]])
+        ).T
 
         plot_polygon(vertices, fill=False, resize=True, color=color, **kwargs)
 
@@ -231,15 +233,18 @@ def get_corners(x: Interval, corners: Tuple[Corner] | None = None):
     )
 
 
-def null_space(A, rcond=None):
+def null_space(A, rcond=None, dim_null: int | None = None):
     """Taken from scipy, with some modifications to use jax.numpy"""
     u, s, vh = jnp.linalg.svd(A, full_matrices=True)
     M, N = u.shape[0], vh.shape[1]
     if rcond is None:
         rcond = jnp.finfo(s.dtype).eps * max(M, N)
     tol = jnp.amax(s) * rcond
-    num = jnp.sum(s > tol, dtype=int)
+    num = jnp.sum(s > tol, dtype=int) if dim_null is None else len(s) - dim_null + 1
+    # num = jnp.sum(s > tol, dtype=int)
+    # print(num)
     Q = vh[num:, :].T.conj()
+
     return Q
 
 
@@ -260,6 +265,25 @@ def angular_sweep(N: int):
             for n in range(1, N + 1)
         ]
     )
+
+
+def check_containment(x, y):
+    """Checks if the interval x is contained in the interval y.
+
+    Returns
+    -------
+    int
+        1 if x is fully contained in y
+        -1 if x is fully outside of y
+        0 if x is partially contained in y
+    """
+    fully_contained = jnp.logical_and(
+        jnp.all(x.lower >= y.lower), jnp.all(x.upper <= y.upper)
+    ).astype(int)
+    fully_outside = jnp.logical_or(
+        jnp.any(x.lower > y.upper), jnp.any(x.upper < y.lower)
+    ).astype(int)
+    return fully_contained - fully_outside
 
 
 def d_metzler(A):

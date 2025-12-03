@@ -30,7 +30,7 @@ class CVDP(irx.System):
 x0 = irx.interval(
     jnp.array([1.25, 2.35, 1.25, 2.35, 1]), jnp.array([1.55, 2.45, 1.55, 2.45, 3])
 )
-N = 10 # WARN: don't choose odd numbers here, makes redundant aux vars
+N = 2  # WARN: don't choose odd numbers here, makes redundant aux vars
 sweep = angular_sweep(N)
 couplings = [(0, 1), (2, 3), (1, 2), (0, 4)]
 H = jnp.eye(5)
@@ -51,8 +51,9 @@ print("Compiling...")
 traj = embsys.compute_trajectory(t0, 0.01, irx.i2ut(x0_lifted))
 print("Compiled.\nComputing trajectory...")
 traj, time = run_times(1, embsys.compute_trajectory, t0, tf, irx.i2ut(x0_lifted))
+traj = traj.to_convenience()
 print(
-    f"Computing trajectory took {time.item():.4g} s, {((tf - t0)/0.01/time).item():.4g} it/s"
+    f"Computing trajectory took {time.item():.4g} s, {((tf - t0) / 0.01 / time).item():.4g} it/s"
 )
 ys_int = [irx.ut2i(y) for y in traj.ys]
 print(f"Final bound:\n{ys_int[-1][:5]}")
@@ -62,8 +63,8 @@ axs = []
 for var_pair in range(2):
     plt.figure()
     plt.axhline(y=2.75, color="red", linestyle="--")
-    plt.xlabel(f"x{var_pair+1}")
-    plt.ylabel(f"y{var_pair+1}")
+    plt.xlabel(f"x{var_pair + 1}")
+    plt.ylabel(f"y{var_pair + 1}")
     axs.append(plt.gca())
 
 for bound in ys_int:
