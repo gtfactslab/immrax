@@ -616,7 +616,7 @@ class NNCEmbeddingSystem(EmbeddingSystem):
         self.xlen = sys.xlen * 2
 
         # mjacM Transform on open-loop dynamics
-        self.sys_mjacM = mjacM(sys.olsystem.f) if sys_mjacM is None else sys_mjacM
+        self.sys_mjacM = mjacM(sys.olsystem.f, argnums=(0, 1, 2, 3)) if sys_mjacM is None else sys_mjacM
 
         self.nn_verifier = nn_verifier
         self.nn_locality = nn_locality
@@ -737,16 +737,19 @@ class NNCEmbeddingSystem(EmbeddingSystem):
             for permutation in permutations:
                 # Compute Hybrid M centerings once
                 if self.M_locality == "hybrid":
-                    Mpre = self.sys_mjacM(
-                        t,
-                        ix,
-                        uglobal,
-                        w,
-                        permutations=permutation,
-                        centers=txuw_corners,
-                    )
+                    Mpre = [
+                        self.sys_mjacM(
+                            t,
+                            ix,
+                            uglobal,
+                            w,
+                            permutation=permutation,
+                            center=center,
+                        )
+                        for center in txuw_corners
+                    ]
 
-                for c in corners:
+                for j, c in enumerate(corners):
                     # for j, (tc, xc, uc, wc) in enumerate(txuw_corners) :
                     # def body_fun_2 (_, a2) :
                     # tc, xc, uc, wc = txuw_corners[j]
@@ -792,9 +795,9 @@ class NNCEmbeddingSystem(EmbeddingSystem):
                                 _xi,
                                 _ui,
                                 w,
-                                permutations=permutation,
-                                centers=((tc, _xc, _uc, wc),),
-                            )[0]
+                                permutation=permutation,
+                                center=(tc, _xc, _uc, wc),
+                            )
                         else:
                             Jt, Jx, Ju, Jw = Mpre[j]
 
@@ -869,9 +872,9 @@ class NNCEmbeddingSystem(EmbeddingSystem):
                                 x_i,
                                 u_i,
                                 w,
-                                permutations=permutation,
-                                centers=((tc, x_c, u_c, wc),),
-                            )[0]
+                                permutation=permutation,
+                                center=(tc, x_c, u_c, wc),
+                            )
                         else:
                             Jt, Jx, Ju, Jw = Mpre[j]
 
