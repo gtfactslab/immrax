@@ -96,6 +96,11 @@ class NeuralNetwork(eqx.Module, Control):
                     mods.append(nn.Lambda(lambda x: 2 * jax.nn.sigmoid(2 * x) - 1))
                 elif a.lower() == "logsig":
                     mods.append(nn.Lambda(jax.nn.log_sigmoid))
+                elif a.lower() == 'softplus' :
+                    # jax.nn.softplus uses a custom jvp call
+                    # mods.append(nn.Lambda(jax.nn.softplus))
+                    # mods.append(nn.Lambda(lambda x : jnp.log(1 + jnp.exp(x))))
+                    mods.append(nn.Lambda(lambda x : jnp.log1p(jnp.exp(x))))
 
         self.seq = nn.Sequential(mods)
 
@@ -109,11 +114,13 @@ class NeuralNetwork(eqx.Module, Control):
             self.seq = eqx.tree_deserialise_leaves(loadpath, self.seq)
             print(f"Successfully loaded model from {loadpath}")
 
-    def save(self):
+    def save(self, verbose=True):
         savepath = self.dir.joinpath("model.eqx")
-        print(f"Saving model to {savepath}...", end="")
+        if verbose :
+            print(f"Saving model to {savepath}...", end="")
         eqx.tree_serialise_leaves(savepath, self.seq)
-        print(" done.")
+        if verbose :
+            print(" done.")
 
     # def load (self, path) :
     #     loadpath = Path(path).joinpath('model.eqx')

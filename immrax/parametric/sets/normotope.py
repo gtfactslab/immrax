@@ -10,7 +10,7 @@ from ..parametope import Parametope
 from ..embedding import ParametricEmbedding
 from .polytope import Polytope
 from .ellipsoid import Ellipsoid
-from ...utils import get_corners, get_sparse_corners
+from ...utils import get_corners, get_sparse_corners, get_rohn_corners
 
 from functools import partial
 from math import sqrt
@@ -137,7 +137,9 @@ class NormotopeEmbedding(ParametricEmbedding):
 
         self.NT = nt0.__class__
 
-        if not no_gsc:
+        if isinstance(nt0, L2Normotope) :
+            self.gsc = partial(get_rohn_corners, sign='+')
+        elif not no_gsc:
             ix0 = nt0.iover()
             M = self.Mf(0.0, ix0, centers=((jnp.zeros(1), nt0.ox),))[0][1]
             self.gsc = get_sparse_corners(interval(M))

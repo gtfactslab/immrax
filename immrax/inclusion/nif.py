@@ -536,7 +536,7 @@ inclusion_registry[lax.asin_p] = _inclusion_asin_p
 
 def _inclusion_sqrt_p(x: Interval, accuracy=None) -> Interval:
     ol = jnp.where((x.lower < 0), -jnp.inf, jnp.sqrt(x.lower))
-    ou = jnp.where((x.lower < 0), jnp.inf, jnp.sqrt(x.upper))
+    ou = jnp.where((x.lower < 0), -jnp.inf, jnp.sqrt(x.upper))
     return Interval(ol, ou)
 
 
@@ -578,12 +578,25 @@ def _inclusion_pow_p(x: Interval, y: Interval) -> Interval:
 inclusion_registry[lax.pow_p] = _inclusion_pow_p
 
 
-def _inclusion_tanh_p(x: Interval) -> Interval:
-    return Interval(jnp.tanh(x.lower), jnp.tanh(x.upper))
+# def _inclusion_tanh_p(x: Interval, accuracy=None) -> Interval:
+#     return Interval(lax.tanh(x.lower, accuracy=accuracy), lax.tanh(x.upper, accuracy=accuracy))
 
+# inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
+_add_passthrough_to_registry(lax.tanh_p)
 
-inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
+def _inclusion_log_p(x: Interval, accuracy=None) -> Interval :
+    ol = jnp.where((x.lower < 0), -jnp.inf, jnp.log(x.lower))
+    ou = jnp.where((x.lower < 0), -jnp.inf, jnp.log(x.upper))
+    return Interval(ol, ou)
 
+inclusion_registry[lax.log_p] = _inclusion_log_p
+
+def _inclusion_log1p_p(x: Interval, accuracy=None) -> Interval :
+    ol = jnp.where((x.lower < -1), -jnp.inf, jnp.log1p(x.lower))
+    ou = jnp.where((x.lower < -1), -jnp.inf, jnp.log1p(x.upper))
+    return Interval(ol, ou)
+
+inclusion_registry[lax.log1p_p] = _inclusion_log1p_p
 
 Interval.__matmul__ = jit(natif(jnp.matmul))
 

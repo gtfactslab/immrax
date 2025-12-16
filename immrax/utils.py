@@ -1,6 +1,6 @@
 from math import exp, floor, log
 import time
-from typing import Callable, Tuple
+from typing import Callable, Tuple, Literal
 
 import jax
 from jax._src.traceback_util import api_boundary
@@ -19,6 +19,7 @@ from immrax.inclusion import interval, Corner, Interval, all_corners, i2lu, i2ut
 from immrax.system import Trajectory
 
 from itertools import product
+from functools import partial
 
 # ================================================================================
 # Function wrappers
@@ -183,7 +184,6 @@ def get_half_intervals(x: Interval, N=1, ut=False):
 # Math
 # ================================================================================
 
-
 # @partial(jax.jit,static_argnums=(1,))
 def get_partitions_ut(x: jax.Array, N: int) -> jax.Array:
     n = len(x) // 2
@@ -202,7 +202,6 @@ def get_partitions_ut(x: jax.Array, N: int) -> jax.Array:
         part_ = jnp.array([xc[A[i, j] + 1][j] for j in range(n)])
         ret.append(jnp.concatenate((_part, part_)))
     return jnp.array(ret)
-
 
 def gen_ics(x0, N, key=jax.random.key(0)):
     # X = np.empty((N, len(x0)))
@@ -225,6 +224,7 @@ def set_columns_from_corner(corner: Corner, A: Interval):
 
 
 def get_corners(x: Interval, corners: Tuple[Corner] | None = None):
+    """Gets the specified corners of the interval x. Returns all corners if None."""
     corners = all_corners(len(x)) if corners is None else corners
     xut = i2ut(x)
     return jnp.array(
@@ -241,7 +241,7 @@ def get_sparse_corners(x: Interval, verbose=False, **kwargs):
     Parameters
     ----------
     x : Interval
-        Interval object to model the gsc off of---value of x is treated as static
+        Interval object to model the gsc off of---value of x should be static
     **kwargs : dict
         Additional keyword arguments to pass to jnp.isclose
 
@@ -275,6 +275,23 @@ def get_sparse_corners(x: Interval, verbose=False, **kwargs):
         ]
 
     return gsc
+
+@api_boundary
+@partial(jax.jit, static_argnums=(1,))
+def get_rohn_corners (A: Interval, sign: Literal['+', '-'] = '+') :
+    """Gets the 2^n corners of [A] which upper or lower bound x^T A x depending on the chosen sign (+/-)"""
+    if A.shape[0] != A.shape[1] or len(A.shape) != 2 :
+        raise Exception(f'A should be a square matrix, got {A.shape}')
+    n = A.shape[0]
+    Ac = A.center
+    Ap = A.pert
+
+    if sign == '+' :
+        return jnp.asarray([Ac + jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s)) for s in product(*[[-1, +1] for i in range(n)])])
+    elif sign == '-' :
+        return jnp.asarray([Ac - jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s)) for s in product(*[[-1, +1] for i in range(n)])])
+    else :
+        raise Exception("pm should be '+' or '-'.")
 
 
 def null_space(A, rcond=None, dim_null: int | None = None):
