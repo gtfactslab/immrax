@@ -27,6 +27,7 @@ from .sets.normotope import (
     LinfNormotope,
     L1Normotope,
     L2Normotope,
+    NormotopeEmbedding,
 )
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "LinfNormotope",
     "L1Normotope",
     "L2Normotope",
+    "NormotopeEmbedding",
 ]

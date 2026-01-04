@@ -20,7 +20,7 @@ from ...inclusion import (
 from ...neural import fastlin
 from ..parametope import Parametope
 from ..embedding import ParametricEmbedding
-
+from functools import partial
 
 @register_pytree_node_class
 class AffineParametope(Parametope):
@@ -70,10 +70,6 @@ class AffineParametope(Parametope):
     @classmethod
     def from_parametope(cls, pt: "hParametope"):
         return pt
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls.from_parametope(hParametope(*children))
 
 
 hParametope = AffineParametope

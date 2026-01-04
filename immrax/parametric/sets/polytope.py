@@ -103,30 +103,5 @@ class Polytope(hParametope):
 
     # Override in subclasses to unpack the flattened data
     @classmethod
-    def from_parametope(cls, pt: "hParametope"):
+    def from_parametope(cls, pt):
         return Polytope(pt.ox, pt.alpha, pt.y)
-
-    # @classmethod
-    # def tree_unflatten (cls, aux_data, children) :
-    #     return cls.from_parametope(hParametope(*children))
-
-
-# @register_pytree_node_class
-# class IntervalDualStar (Polytope) :
-#     def __init__ (self, I:Interval, ox=None) :
-#         ox = (I.upper + I.lower) / 2 if ox is None else ox
-#         super().__init__(ox, jnp.eye(len(ox)), I.lower - ox, I.upper - ox)
-
-# def ds_add_interval (ds:DualStar) :
-#     """Add an interval to the DualStar
-
-#     Parameters
-#     ----------
-#     ds : DualStar
-#         The DualStar to add the interval to
-#     iy : Interval
-#         The interval to add
-#     """
-#     ids = IntervalDualStar(ds.iover(), ds.ox)
-#     # List addition here
-#     return DualStar(ds.ox, ds.H + ids.H, ds.ly + ids.ly, ds.uy + ids.uy)

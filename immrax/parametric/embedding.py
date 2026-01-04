@@ -7,6 +7,7 @@ from .parametope import Parametope
 from immutabledict import immutabledict
 from diffrax import AbstractSolver, ODETerm, Euler, Dopri5, Tsit5, SaveAt, diffeqsolve
 import warnings
+from functools import partial
 
 
 class ParametricEmbedding(ABC):
@@ -42,7 +43,7 @@ class ParametricEmbedding(ABC):
             _description_
         """
 
-    # @partial(jax.jit, static_argnums=(0, 4), static_argnames=("solver", "f_kwargs"))
+    @partial(jax.jit, static_argnums=(0, 4), static_argnames=("solver", "f_kwargs", "inputs"))
     def compute_reachset(
         self,
         t0: Union[Integer, Float],
@@ -77,9 +78,9 @@ class ParametricEmbedding(ABC):
         return diffeqsolve(
             term, solver, t0, tf, dt, (pt0, aux0), saveat=saveat, **kwargs
         )
+        # return func(t0, (pt0, aux0), None)
 
 
-# Define A as a subclass of B
 class ParametopeEmbedding(ParametricEmbedding):
     def __init__(self, *args, **kwargs):
         warnings.warn(

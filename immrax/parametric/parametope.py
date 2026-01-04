@@ -23,9 +23,12 @@ class Parametope:
     y: ArrayLike  # Offset
 
     def __init__(self, ox: ArrayLike, alpha: ArrayLike, y: ArrayLike):
-        self.ox = jnp.asarray(ox)
-        self.alpha = jnp.asarray(alpha)
-        self.y = jnp.asarray(y)
+        # self.ox = jnp.asarray(ox)
+        # self.alpha = jnp.asarray(alpha)
+        # self.y = jnp.asarray(y)
+        self.ox = ox
+        self.alpha = alpha
+        self.y = y
 
     def g(self, x: Array) -> Array:
         r"""Evaluates the nonlinearity :math:`g(\alpha, x - \mathring{x})` at x
