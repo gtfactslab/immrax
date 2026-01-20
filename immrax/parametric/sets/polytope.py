@@ -1,4 +1,4 @@
-from ..parametope import hParametope
+from .affine import hParametope
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from jax.tree_util import register_pytree_node_class
@@ -12,26 +12,11 @@ def _lu2y(l, u):
 
 
 def _y2lu(y):
-    print(y)
     return -y[: len(y) // 2], y[len(y) // 2 :]
 
 
 @register_pytree_node_class
 class Polytope(hParametope):
-    # def __init__ (self, ox, H, ) :
-    #     super().__init__(ox, H, _lu2y(ly, uy))
-    #     # m_ks = [H.shape[0], len(ly), len(uy)]
-    #     # if len(set(m_ks)) != 1 :
-    #     #     raise Exception(f"Dimension mismatch: {m_ks}")
-    #     # self.mk = m_ks[0]
-    #     # if len(ox) != H.shape[1] :
-    #     #     raise Exception(f"Dimension mismatch: {ox.shape=} {H.shape=}")
-
-    # @classmethod
-    # def from_parametope (cls, pt:hParametope) :
-    #     # print(ds.H)
-    #     return cls(pt.ox, pt.alpha, *_y2lu(pt.y))
-
     def h(self, z):
         # Identity nonlinearity
         return jnp.concatenate((-z, z))
@@ -89,9 +74,9 @@ class Polytope(hParametope):
         E[0, yi] = 1
         return project_polytope((E, jnp.zeros(1)), (Hi, bi))
 
-    # @classmethod
-    # def from_Hpolytope (H, uy, ox=jnp.zeros(2)) :
-    #     return Polytope(ox, H, -jnp.inf*jnp.ones_like(uy), uy)
+    @classmethod
+    def from_Hpolytope(cls, H, uy, ox=jnp.zeros(2)):
+        return Polytope(ox, H, jnp.hstack((jnp.inf * jnp.ones_like(uy), uy)))
 
     @classmethod
     def from_interval(cls, *args):
@@ -109,32 +94,14 @@ class Polytope(hParametope):
             ),
         )
 
+    def to_Hpolytope(self):
+        Hox = self.alpha @ self.ox
+        return (
+            jnp.vstack((-self.H, self.H)),
+            jnp.hstack((-self.ly - Hox, self.uy + Hox)),
+        )
+
     # Override in subclasses to unpack the flattened data
     @classmethod
-    def from_parametope(cls, pt: "hParametope"):
+    def from_parametope(cls, pt):
         return Polytope(pt.ox, pt.alpha, pt.y)
-
-    # @classmethod
-    # def tree_unflatten (cls, aux_data, children) :
-    #     return cls.from_parametope(hParametope(*children))
-
-
-# @register_pytree_node_class
-# class IntervalDualStar (Polytope) :
-#     def __init__ (self, I:Interval, ox=None) :
-#         ox = (I.upper + I.lower) / 2 if ox is None else ox
-#         super().__init__(ox, jnp.eye(len(ox)), I.lower - ox, I.upper - ox)
-
-# def ds_add_interval (ds:DualStar) :
-#     """Add an interval to the DualStar
-
-#     Parameters
-#     ----------
-#     ds : DualStar
-#         The DualStar to add the interval to
-#     iy : Interval
-#         The interval to add
-#     """
-#     ids = IntervalDualStar(ds.iover(), ds.ox)
-#     # List addition here
-#     return DualStar(ds.ox, ds.H + ids.H, ds.ly + ids.ly, ds.uy + ids.uy)

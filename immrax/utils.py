@@ -1,6 +1,6 @@
 from math import exp, floor, log
 import time
-from typing import Callable, Tuple
+from typing import Callable, Tuple, Literal
 
 import jax
 from jax._src.traceback_util import api_boundary
@@ -15,8 +15,11 @@ import shapely.geometry as sg
 import shapely.ops as so
 
 import immrax as irx
-from immrax.inclusion import Corner, Interval, all_corners, i2lu, i2ut, ut2i
+from immrax.inclusion import interval, Corner, Interval, all_corners, i2lu, i2ut, ut2i
 from immrax.system import Trajectory
+
+from itertools import product
+from functools import partial
 
 # ================================================================================
 # Function wrappers
@@ -181,7 +184,6 @@ def get_half_intervals(x: Interval, N=1, ut=False):
 # Math
 # ================================================================================
 
-
 # @partial(jax.jit,static_argnums=(1,))
 def get_partitions_ut(x: jax.Array, N: int) -> jax.Array:
     n = len(x) // 2
@@ -200,7 +202,6 @@ def get_partitions_ut(x: jax.Array, N: int) -> jax.Array:
         part_ = jnp.array([xc[A[i, j] + 1][j] for j in range(n)])
         ret.append(jnp.concatenate((_part, part_)))
     return jnp.array(ret)
-
 
 def gen_ics(x0, N, key=jax.random.key(0)):
     # X = np.empty((N, len(x0)))
@@ -223,6 +224,7 @@ def set_columns_from_corner(corner: Corner, A: Interval):
 
 
 def get_corners(x: Interval, corners: Tuple[Corner] | None = None):
+    """Gets the specified corners of the interval x. Returns all corners if None."""
     corners = all_corners(len(x)) if corners is None else corners
     xut = i2ut(x)
     return jnp.array(
@@ -231,6 +233,65 @@ def get_corners(x: Interval, corners: Tuple[Corner] | None = None):
             for c in corners
         ]
     )
+
+
+def get_sparse_corners(x: Interval, verbose=False, **kwargs):
+    """Returns a function returning the sparse corners of the interval
+
+    Parameters
+    ----------
+    x : Interval
+        Interval object to model the gsc off of---value of x should be static
+    **kwargs : dict
+        Additional keyword arguments to pass to jnp.isclose
+
+    Returns
+    -------
+    function
+        A function that takes an Interval object and returns the sparse corners based on
+        the entries that are not constant in the test x
+    """
+    sh = x.shape
+
+    # Static value usage here.
+    ic = onp.isclose(x.lower.reshape(-1), x.upper.reshape(-1), **kwargs)
+    cs = [
+        irx.Corner(p)
+        for p in product(*[(0,) if ic[i] else (0, 1) for i in range(len(ic))])
+    ]
+    if verbose:
+        print(
+            f"Found {len(cs)} corners, from {jnp.sum(jnp.logical_not(ic))} nonconstant entries."
+        )
+
+    @jax.jit
+    def gsc(x: Interval):
+        x = x.reshape(-1)
+        return [
+            jnp.array(
+                [x.lower[i] if ci == 0 else x.upper[i] for i, ci in enumerate(c)]
+            ).reshape(sh)
+            for c in cs
+        ]
+
+    return gsc
+
+@api_boundary
+@partial(jax.jit, static_argnums=(1,))
+def get_rohn_corners (A: Interval, sign: Literal['+', '-'] = '+') :
+    """Gets the 2^n corners of [A] which upper or lower bound x^T A x depending on the chosen sign (+/-)"""
+    if A.shape[0] != A.shape[1] or len(A.shape) != 2 :
+        raise Exception(f'A should be a square matrix, got {A.shape}')
+    n = A.shape[0]
+    Ac = A.center
+    Ap = A.pert
+
+    if sign == '+' :
+        return jnp.asarray([Ac + jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s)) for s in product(*[[-1, +1] for i in range(n)])])
+    elif sign == '-' :
+        return jnp.asarray([Ac - jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s)) for s in product(*[[-1, +1] for i in range(n)])])
+    else :
+        raise Exception("pm should be '+' or '-'.")
 
 
 def null_space(A, rcond=None, dim_null: int | None = None):
@@ -277,6 +338,8 @@ def check_containment(x, y):
         -1 if x is fully outside of y
         0 if x is partially contained in y
     """
+    x = interval(x)
+    y = interval(y)
     fully_contained = jnp.logical_and(
         jnp.all(x.lower >= y.lower), jnp.all(x.upper <= y.upper)
     ).astype(int)
