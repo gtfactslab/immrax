@@ -10,7 +10,7 @@ from ..parametope import Parametope
 from ..embedding import ParametricEmbedding
 from .polytope import Polytope
 from .ellipsoid import Ellipsoid
-from ...utils import get_corners, get_sparse_corners
+from ...utils import get_corners, get_sparse_corners, get_rohn_corners
 
 from functools import partial
 from math import sqrt
@@ -137,18 +137,24 @@ class NormotopeEmbedding(ParametricEmbedding):
 
         self.NT = nt0.__class__
 
-        if not no_gsc:
+        if isinstance(nt0, L2Normotope) :
+            self.gsc = partial(get_rohn_corners, sign='+')
+        elif not no_gsc:
             ix0 = nt0.iover()
             M = self.Mf(0.0, ix0, centers=((jnp.zeros(1), nt0.ox),))[0][1]
             self.gsc = get_sparse_corners(interval(M))
         else:
             self.gsc = get_corners
+        
+        return None
 
-    @partial(jax.jit, static_argnames=("perm", "adjoint"))
-    def _dynamics(self, t, state, U, *, perm=None, adjoint=True):
-        Ut = U.reshape(self.Ush)
+    # @partial(jax.jit, static_argnums=(0,), static_argnames=("perm", "adjoint"))
+    def _dynamics(self, t, state, U=None, *, perm=None, adjoint=True):
+        # nt = self.NT.from_normotope(state[0])
+        nt, aux = state
+        Ut = U.reshape(nt.alpha.shape) if U is not None else jnp.zeros_like(nt.alpha)
 
-        nt = self.NT.unvec(state)
+        aux = state[1]
         H = nt.alpha
         Hp = nt.alpha_inv
         y = nt.y
@@ -168,9 +174,7 @@ class NormotopeEmbedding(ParametricEmbedding):
         mus = [nt.mu(H_dot @ Hp + H @ M @ Hp) for M in self.gsc(interval(Mx))]
         c = jnp.max(jnp.asarray(mus))
 
-        return jnp.concatenate(
-            (self.sys.f(0.0, nt.ox), H_dot.reshape(-1), jnp.atleast_1d(c * y))
-        )
+        return nt.__class__(self.sys.f(0.0, nt.ox), H_dot, c * y), None
 
 
 @register_pytree_node_class
@@ -214,6 +218,10 @@ class LinfNormotope(Normotope):
     def from_interval(cls, *args) -> "LinfNormotope":
         cent, pert = i2centpert(interval(*args))
         return LinfNormotope(cent, jnp.diag(1 / pert), 1.0)
+
+    @classmethod
+    def from_parametope(cls, pt: Parametope) -> "LinfNormotope":
+        return LinfNormotope(pt.ox, pt.alpha, pt.y)
 
     @classmethod
     def from_normotope(cls, nt: Normotope) -> "LinfNormotope":
@@ -265,6 +273,10 @@ class L1Normotope(Normotope):
     def from_interval(cls, *args) -> "L1Normotope":
         cent, pert = i2centpert(interval(*args))
         return L1Normotope(cent, jnp.diag(1 / pert), 1.0)
+
+    @classmethod
+    def from_parametope(cls, pt: Parametope) -> "L1Normotope":
+        return L1Normotope(pt.ox, pt.alpha, pt.y)
 
     @classmethod
     def from_normotope(cls, nt: Normotope) -> "L1Normotope":
@@ -324,6 +336,10 @@ class L2Normotope(Normotope):
         rn = jnp.sqrt(len(cent))
         # rn = 1.
         return L2Normotope(cent, jnp.diag(1 / (rn * pert)), 1.0)
+
+    @classmethod
+    def from_parametope(cls, pt: Parametope) -> "L2Normotope":
+        return L2Normotope(pt.ox, pt.alpha, pt.y)
 
     @classmethod
     def from_normotope(cls, nt: Normotope) -> "L2Normotope":
