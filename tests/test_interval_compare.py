@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import pytest
+from utils import validate_overapproximation_nd
 
 import immrax as irx
 from immrax.comparison import IntervalRelation, interval_compare
@@ -207,6 +208,7 @@ def test_natif_lt_with_precedes_mask():
     a_precedes = INTERVALS_1D["1_2"]
     b_precedes = INTERVALS_1D["3_4"]
     result_precedes = compare_lt_intervals(a_precedes, b_precedes)
+    # FIXME: type hinting is broken for natif compare
     assert jnp.all(result_precedes), (
         f"Expected True for [1,2] PRECEDES [3,4], got {result_precedes}"
     )
@@ -242,6 +244,124 @@ def test_natif_lt_with_precedes_mask():
     assert jnp.all(~result_preceded_by), (
         f"Expected False for [3,4] PRECEDES [1,2], got {result_preceded_by}"
     )
+
+
+# =============================================================================
+# Tests for gradients
+# =============================================================================
+
+
+@pytest.fixture(
+    params=[
+        pytest.param(jnp.array(0.5), id="JAX_scalar"),
+        pytest.param(jnp.array([-1.2]), id="1_array"),
+        pytest.param(jnp.array([3.9, -2.0, 1.5]), id="3_array"),
+    ]
+)
+def array_evals(request):
+    """Parametrized fixture for different Array test points."""
+    return request.param
+
+
+@pytest.fixture(
+    params=[
+        # pytest.param(jax.grad, id="grad"), # effectively subset of jacrev, only works for scalar output
+        pytest.param(jax.jacrev, id="jacrev"),
+        pytest.param(jax.jacfwd, id="jacfwd"),
+    ]
+)
+def grad_method(request):
+    """Parametrized fixture for the JAX differentiation transforms."""
+    return request.param
+
+
+@pytest.fixture(scope="module")
+def f_my_compare():
+    """Pytest fixture to create a piecewise test function."""
+
+    def true_branch(x):
+        return jnp.sin(x)
+
+    def false_branch(x):
+        return jnp.exp(x)
+
+    def f(x):
+        return jnp.where(irx.lt(x, jnp.array(0.0)), true_branch(x), false_branch(x))
+
+    return f, true_branch, false_branch
+
+
+@pytest.fixture(scope="module")
+def f_jax_compare():
+    """Pytest fixture to create a piecewise test function."""
+
+    def true_branch(x):
+        return jnp.sin(x)
+
+    def false_branch(x):
+        return jnp.exp(x)
+
+    def f(x):
+        return jnp.where(x < jnp.array(0.0), true_branch(x), false_branch(x))
+
+    return f, true_branch, false_branch
+
+
+@pytest.fixture(
+    params=[
+        pytest.param(irx.interval(-1.0, -0.5), id="PRECEDES"),
+        pytest.param(irx.interval(-2.0, 2.0), id="CONTAINS"),
+        pytest.param(irx.interval(1.0, 2.0), id="PRECEDED"),
+    ]
+)
+def interval_evals(request):
+    """Parametrized fixture for different Array test points."""
+    return request.param
+
+
+def test_array_gradients(array_evals, grad_method, f_my_compare, f_jax_compare):
+    my_cmp, _, _ = f_my_compare
+    jax_cmp, _, _ = f_jax_compare
+
+    grad_my_compare = grad_method(my_cmp)(array_evals)
+    grad_jax_compare = grad_method(jax_cmp)(array_evals)
+
+    assert jnp.allclose(grad_my_compare, grad_jax_compare), (
+        f"Expected gradients to match, got {grad_my_compare} and {grad_jax_compare}"
+    )
+
+
+def test_jax_comparison_natif_raises(interval_evals, grad_method, f_jax_compare):
+    f_int = irx.natif(f_jax_compare[0])
+    with pytest.raises(NotImplementedError):
+        f_int(interval_evals)
+
+    f_grad_int = irx.natif(grad_method(f_jax_compare[0]))
+    with pytest.raises(NotImplementedError):
+        f_grad_int(interval_evals)
+
+
+def test_my_comparison_natif_succeeds(interval_evals, grad_method, f_my_compare):
+    my_cmp, true_branch, false_branch = f_my_compare
+
+    f_int = irx.natif(my_cmp)
+    out = f_int(interval_evals)
+
+    f_grad_int = irx.natif(grad_method(my_cmp))
+    out_grad = f_grad_int(interval_evals)
+
+    # TODO: this condition should be linked to the actual comparison made in my_cmp - probably also
+    # Note the distinction between this and just validate_overapproximation on my_cmp
+    if irx.natif(irx.lt)(interval_evals, jnp.zeros_like(interval_evals.lower)):
+        validate_overapproximation_nd(true_branch, interval_evals, out)
+        validate_overapproximation_nd(
+            grad_method(true_branch), interval_evals, out_grad
+        )
+    else:
+        validate_overapproximation_nd(false_branch, interval_evals, out)
+        validate_overapproximation_nd(
+            grad_method(false_branch), interval_evals, out_grad
+        )
 
 
 # =============================================================================

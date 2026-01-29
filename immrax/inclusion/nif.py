@@ -1,9 +1,8 @@
-from functools import wraps
+from functools import partial, wraps
 from typing import Any, Callable, Sequence
 
 import equinox as eqx
 import jax
-from jax._src.debugging import debug_callback_p
 import jax.numpy as jnp
 from jax import jit, lax, vmap
 from jax._src import ad_util, config, source_info_util
@@ -16,13 +15,13 @@ from jax._src.core import (
     last_used,
     typecheck,
 )
+from jax._src.debugging import debug_callback_p
+from jax._src.lax import linalg as LA
 from jax._src.util import safe_map
 from jax.extend.core import Primitive
-from jax._src.lax import linalg as LA
 
 # TODO: import only necessary things
 from immrax.inclusion.interval import Interval, interval
-from functools import partial
 
 """
 This file implements the Natural Inclusion Function as an interpreter of Jaxprs.
@@ -55,8 +54,7 @@ def natif(
     @jit
     @wraps(f)
     def wrapped(*args, **kwargs):
-        """Natural inclusion function.
-        """
+        """Natural inclusion function."""
         # Traverse the args and kwargs, replacing intervals with lower bounds.
         # Convert args to at least jax.Array when they are not interval
         getlower = lambda x: x.lower if isinstance(x, Interval) else jnp.asarray(x)
@@ -166,9 +164,6 @@ _add_passthrough_to_registry(lax.min_p)
 _add_passthrough_to_registry(lax.exp_p)
 _add_passthrough_to_registry(lax.reduce_sum_p)
 _add_passthrough_to_registry(lax.pad_p)
-_add_passthrough_to_registry(lax.ne_p)
-_add_passthrough_to_registry(lax.lt_p)
-_add_passthrough_to_registry(lax.lt_to_p)
 _add_passthrough_to_registry(debug_callback_p)
 
 """
@@ -584,17 +579,21 @@ inclusion_registry[lax.pow_p] = _inclusion_pow_p
 # inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
 _add_passthrough_to_registry(lax.tanh_p)
 
-def _inclusion_log_p(x: Interval, accuracy=None) -> Interval :
+
+def _inclusion_log_p(x: Interval, accuracy=None) -> Interval:
     ol = jnp.where((x.lower < 0), -jnp.inf, jnp.log(x.lower))
     ou = jnp.where((x.lower < 0), -jnp.inf, jnp.log(x.upper))
     return Interval(ol, ou)
 
+
 inclusion_registry[lax.log_p] = _inclusion_log_p
 
-def _inclusion_log1p_p(x: Interval, accuracy=None) -> Interval :
+
+def _inclusion_log1p_p(x: Interval, accuracy=None) -> Interval:
     ol = jnp.where((x.lower < -1), -jnp.inf, jnp.log1p(x.lower))
     ou = jnp.where((x.lower < -1), -jnp.inf, jnp.log1p(x.upper))
     return Interval(ol, ou)
+
 
 inclusion_registry[lax.log1p_p] = _inclusion_log1p_p
 
