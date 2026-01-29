@@ -331,6 +331,11 @@ def angular_sweep(N: int):
 def check_containment(x, y):
     """Checks if the interval x is contained in the interval y.
 
+    Uses interval-aware comparison to determine the containment relation:
+    - Compares x against y using the new interval comparison operators
+    - x is contained in y if x.lower >= y.lower AND x.upper <= y.upper
+    - x is outside y if x.lower > y.upper OR x.upper < y.lower
+
     Returns
     -------
     int
@@ -338,14 +343,25 @@ def check_containment(x, y):
         -1 if x is fully outside of y
         0 if x is partially contained in y
     """
+    from immrax.comparison import IntervalRelation, interval_compare
+
     x = interval(x)
     y = interval(y)
-    fully_contained = jnp.logical_and(
-        jnp.all(x.lower >= y.lower), jnp.all(x.upper <= y.upper)
-    ).astype(int)
-    fully_outside = jnp.logical_or(
-        jnp.any(x.lower > y.upper), jnp.any(x.upper < y.lower)
-    ).astype(int)
+
+    # Use interval_compare to get Allen's relation
+    # x contained in y corresponds to: DURING, STARTS, FINISHES, or EQUAL
+    relation = interval_compare(x, y)
+    contained_mask = IntervalRelation.DURING | IntervalRelation.STARTS | \
+                     IntervalRelation.FINISHES | IntervalRelation.EQUAL
+    outside_mask = IntervalRelation.PRECEDES | IntervalRelation.PRECEDED_BY
+
+    # Check containment element-wise using the matches method
+    is_contained = relation.matches(contained_mask)
+    is_outside = relation.matches(outside_mask)
+
+    fully_contained = jnp.all(is_contained).astype(int)
+    fully_outside = jnp.any(is_outside).astype(int)
+
     return fully_contained - fully_outside
 
 

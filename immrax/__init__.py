@@ -1,6 +1,18 @@
 from . import inclusion as inclusion
 from .inclusion import *
 
+from . import comparison as comparison
+from .comparison import (
+    IntervalRelation,
+    interval_compare,
+    lt,
+    le,
+    eq,
+    gt,
+    ge,
+    ne,
+)
+
 from . import system as system
 from .system import *
 
