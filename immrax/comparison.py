@@ -5,19 +5,16 @@ JAX arrays and immrax Intervals, supporting the 13 relations of Allen's
 interval algebra.
 """
 
-from functools import partial
-from typing import Callable
-
 import jax
 import jax.numpy as jnp
 from jax import lax
-from jax.interpreters import ad, batching, mlir
 from jax.extend.core import Primitive
+from jax.interpreters import ad, batching, mlir
 from jax.tree_util import register_pytree_node_class
+from jaxtyping import Array, Bool, Int, Real
 
-from immrax.inclusion.interval import Interval, interval
 from immrax.inclusion import nif
-
+from immrax.inclusion.interval import Interval, interval
 
 # =============================================================================
 # IntervalRelation: JAX-compatible Allen's interval algebra relations
@@ -74,7 +71,7 @@ class IntervalRelation:
       PRECEDED_BY, MET_BY, OVERLAPPED_BY, STARTED_BY, CONTAINS, FINISHED_BY
     """
 
-    value: jax.Array
+    value: Int[Array, "*dims"]
 
     def __init__(self, value):
         """Create an IntervalRelation from an integer or array value."""
@@ -203,8 +200,17 @@ class IntervalRelation:
     @classmethod
     def OVERLAPPING(cls) -> "IntervalRelation":
         """A and B overlap (all except PRECEDES, PRECEDED_BY, MEETS, MET_BY)."""
-        return (cls.OVERLAPS | cls.STARTS | cls.DURING | cls.FINISHES | cls.EQUAL |
-                cls.OVERLAPPED_BY | cls.STARTED_BY | cls.CONTAINS | cls.FINISHED_BY)
+        return (
+            cls.OVERLAPS
+            | cls.STARTS
+            | cls.DURING
+            | cls.FINISHES
+            | cls.EQUAL
+            | cls.OVERLAPPED_BY
+            | cls.STARTED_BY
+            | cls.CONTAINS
+            | cls.FINISHED_BY
+        )
 
     @classmethod
     def SUBSET(cls) -> "IntervalRelation":
@@ -246,6 +252,7 @@ IntervalRelation.FINISHED_BY = IntervalRelation(_FINISHED_BY)
 # =============================================================================
 # interval_compare: Compute Allen relation between two intervals
 # =============================================================================
+
 
 def interval_compare(a: Interval, b: Interval) -> IntervalRelation:
     """Compare two intervals and return their Allen relation.
@@ -382,7 +389,9 @@ irx_lt_p.def_abstract_eval(_irx_lt_abstract_eval)
 # MLIR lowering for JIT compilation
 def _irx_lt_lowering(ctx, x, y, relation_mask):
     """Lower to standard < comparison for XLA."""
-    return mlir.lower_fun(_irx_lt_impl, multiple_results=False)(ctx, x, y, relation_mask)
+    return mlir.lower_fun(_irx_lt_impl, multiple_results=False)(
+        ctx, x, y, relation_mask
+    )
 
 
 mlir.register_lowering(irx_lt_p, _irx_lt_lowering)
@@ -399,12 +408,12 @@ def _irx_lt_batching(vector_arg_values, batch_axes):
         # relation_mask is not batched, replicate it
         result = jax.vmap(
             lambda xi, yi: irx_lt_p.bind(xi, yi, relation_mask),
-            in_axes=(x_bdim, y_bdim)
+            in_axes=(x_bdim, y_bdim),
         )(x, y)
     else:
         result = jax.vmap(
             lambda xi, yi, rmi: irx_lt_p.bind(xi, yi, rmi),
-            in_axes=(x_bdim, y_bdim, rm_bdim)
+            in_axes=(x_bdim, y_bdim, rm_bdim),
         )(x, y, relation_mask)
 
     return result, 0
@@ -469,11 +478,17 @@ _LT_MASK = IntervalRelation.PRECEDES
 _LE_MASK = IntervalRelation.PRECEDES | IntervalRelation.MEETS | IntervalRelation.EQUAL
 _EQ_MASK = IntervalRelation.EQUAL
 _GT_MASK = IntervalRelation.PRECEDED_BY
-_GE_MASK = IntervalRelation.PRECEDED_BY | IntervalRelation.MET_BY | IntervalRelation.EQUAL
+_GE_MASK = (
+    IntervalRelation.PRECEDED_BY | IntervalRelation.MET_BY | IntervalRelation.EQUAL
+)
 _NE_MASK = ~IntervalRelation.EQUAL & IntervalRelation.ALL()
 
 
-def lt(x, y, relation_mask: IntervalRelation | None = None) -> jax.Array:
+def lt(
+    x: Real[Array, "#*dims"],
+    y: Real[Array, "#*dims"],
+    relation_mask: IntervalRelation = IntervalRelation.PRECEDES,
+) -> Bool[Array, "#*dims"]:
     """Interval-aware less-than comparison.
 
     For JAX arrays, performs standard < comparison.
@@ -488,7 +503,7 @@ def lt(x, y, relation_mask: IntervalRelation | None = None) -> jax.Array:
         First comparand
     y : jax.Array | Interval
         Second comparand
-    relation_mask : IntervalRelation | None, optional
+    relation_mask : IntervalRelation, optional
         Relation mask to check against. Default is PRECEDES.
 
     Returns
@@ -496,177 +511,5 @@ def lt(x, y, relation_mask: IntervalRelation | None = None) -> jax.Array:
     jax.Array
         Boolean result of comparison
     """
-    if relation_mask is None:
-        relation_mask = _LT_MASK
-    mask_val = relation_mask.value if isinstance(relation_mask, IntervalRelation) else jnp.asarray(relation_mask, dtype=jnp.int32)
 
-    # Handle direct Interval comparison (not through natif)
-    if isinstance(x, Interval) or isinstance(y, Interval):
-        return _inclusion_irx_lt_p(x, y, mask_val)
-
-    return irx_lt_p.bind(jnp.asarray(x), jnp.asarray(y), mask_val)
-
-
-def le(x, y, relation_mask: IntervalRelation | None = None) -> jax.Array:
-    """Interval-aware less-than-or-equal comparison.
-
-    Parameters
-    ----------
-    x : jax.Array | Interval
-        First comparand
-    y : jax.Array | Interval
-        Second comparand
-    relation_mask : IntervalRelation | None, optional
-        Relation mask to check against. Default is PRECEDES | MEETS | EQUAL.
-
-    Returns
-    -------
-    jax.Array
-        Boolean result of comparison
-    """
-    if relation_mask is None:
-        relation_mask = _LE_MASK
-    mask_val = relation_mask.value if isinstance(relation_mask, IntervalRelation) else jnp.asarray(relation_mask, dtype=jnp.int32)
-
-    if isinstance(x, Interval) or isinstance(y, Interval):
-        return _inclusion_irx_lt_p(x, y, mask_val)
-
-    return irx_lt_p.bind(jnp.asarray(x), jnp.asarray(y), mask_val)
-
-
-def eq(x, y, relation_mask: IntervalRelation | None = None) -> jax.Array:
-    """Interval-aware equality comparison.
-
-    Parameters
-    ----------
-    x : jax.Array | Interval
-        First comparand
-    y : jax.Array | Interval
-        Second comparand
-    relation_mask : IntervalRelation | None, optional
-        Relation mask to check against. Default is EQUAL.
-
-    Returns
-    -------
-    jax.Array
-        Boolean result of comparison
-    """
-    if relation_mask is None:
-        relation_mask = _EQ_MASK
-    mask_val = relation_mask.value if isinstance(relation_mask, IntervalRelation) else jnp.asarray(relation_mask, dtype=jnp.int32)
-
-    if isinstance(x, Interval) or isinstance(y, Interval):
-        return _inclusion_irx_lt_p(x, y, mask_val)
-
-    return irx_lt_p.bind(jnp.asarray(x), jnp.asarray(y), mask_val)
-
-
-def gt(x, y, relation_mask: IntervalRelation | None = None) -> jax.Array:
-    """Interval-aware greater-than comparison.
-
-    Parameters
-    ----------
-    x : jax.Array | Interval
-        First comparand
-    y : jax.Array | Interval
-        Second comparand
-    relation_mask : IntervalRelation | None, optional
-        Relation mask to check against. Default is PRECEDED_BY.
-
-    Returns
-    -------
-    jax.Array
-        Boolean result of comparison
-    """
-    if relation_mask is None:
-        relation_mask = _GT_MASK
-    mask_val = relation_mask.value if isinstance(relation_mask, IntervalRelation) else jnp.asarray(relation_mask, dtype=jnp.int32)
-
-    if isinstance(x, Interval) or isinstance(y, Interval):
-        return _inclusion_irx_lt_p(x, y, mask_val)
-
-    return irx_lt_p.bind(jnp.asarray(x), jnp.asarray(y), mask_val)
-
-
-def ge(x, y, relation_mask: IntervalRelation | None = None) -> jax.Array:
-    """Interval-aware greater-than-or-equal comparison.
-
-    Parameters
-    ----------
-    x : jax.Array | Interval
-        First comparand
-    y : jax.Array | Interval
-        Second comparand
-    relation_mask : IntervalRelation | None, optional
-        Relation mask to check against. Default is PRECEDED_BY | MET_BY | EQUAL.
-
-    Returns
-    -------
-    jax.Array
-        Boolean result of comparison
-    """
-    if relation_mask is None:
-        relation_mask = _GE_MASK
-    mask_val = relation_mask.value if isinstance(relation_mask, IntervalRelation) else jnp.asarray(relation_mask, dtype=jnp.int32)
-
-    if isinstance(x, Interval) or isinstance(y, Interval):
-        return _inclusion_irx_lt_p(x, y, mask_val)
-
-    return irx_lt_p.bind(jnp.asarray(x), jnp.asarray(y), mask_val)
-
-
-def ne(x, y, relation_mask: IntervalRelation | None = None) -> jax.Array:
-    """Interval-aware not-equal comparison.
-
-    Parameters
-    ----------
-    x : jax.Array | Interval
-        First comparand
-    y : jax.Array | Interval
-        Second comparand
-    relation_mask : IntervalRelation | None, optional
-        Relation mask to check against. Default is all relations except EQUAL.
-
-    Returns
-    -------
-    jax.Array
-        Boolean result of comparison
-    """
-    if relation_mask is None:
-        relation_mask = _NE_MASK
-    mask_val = relation_mask.value if isinstance(relation_mask, IntervalRelation) else jnp.asarray(relation_mask, dtype=jnp.int32)
-
-    if isinstance(x, Interval) or isinstance(y, Interval):
-        return _inclusion_irx_lt_p(x, y, mask_val)
-
-    return irx_lt_p.bind(jnp.asarray(x), jnp.asarray(y), mask_val)
-
-
-# =============================================================================
-# Dunder methods for Interval class
-# =============================================================================
-
-def _interval_lt(self, other):
-    """Less-than comparison for Interval."""
-    return lt(self, other)
-
-
-def _interval_le(self, other):
-    """Less-than-or-equal comparison for Interval."""
-    return le(self, other)
-
-
-def _interval_gt(self, other):
-    """Greater-than comparison for Interval."""
-    return gt(self, other)
-
-
-def _interval_ge(self, other):
-    """Greater-than-or-equal comparison for Interval."""
-    return ge(self, other)
-
-
-Interval.__lt__ = _interval_lt
-Interval.__le__ = _interval_le
-Interval.__gt__ = _interval_gt
-Interval.__ge__ = _interval_ge
+    return irx_lt_p.bind(jnp.asarray(x), jnp.asarray(y), relation_mask.value)
