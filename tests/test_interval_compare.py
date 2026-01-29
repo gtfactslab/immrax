@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from utils import validate_overapproximation_nd
+from utils import validate_overapproximation_nd, validate_elementwise_overapproximation
 
 import immrax as irx
 from immrax.comparison import IntervalRelation, interval_compare
@@ -350,16 +350,18 @@ def test_my_comparison_natif_succeeds(interval_evals, grad_method, f_my_compare)
     f_grad_int = irx.natif(grad_method(my_cmp))
     out_grad = f_grad_int(interval_evals)
 
-    # TODO: this condition should be linked to the actual comparison made in my_cmp - probably also
+    # TODO: this condition should be linked to the actual comparison made in my_cmp
     # Note the distinction between this and just validate_overapproximation on my_cmp
     if irx.natif(irx.lt)(interval_evals, jnp.zeros_like(interval_evals.lower)):
         validate_overapproximation_nd(true_branch, interval_evals, out)
-        validate_overapproximation_nd(
+        # Use elementwise validation for gradient functions (they return Jacobians otherwise)
+        validate_elementwise_overapproximation(
             grad_method(true_branch), interval_evals, out_grad
         )
     else:
         validate_overapproximation_nd(false_branch, interval_evals, out)
-        validate_overapproximation_nd(
+        # Use elementwise validation for gradient functions (they return Jacobians otherwise)
+        validate_elementwise_overapproximation(
             grad_method(false_branch), interval_evals, out_grad
         )
 
