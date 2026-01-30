@@ -1,10 +1,121 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from utils import validate_overapproximation_nd, validate_elementwise_overapproximation
+from utils import validate_elementwise_overapproximation, validate_overapproximation_nd
 
 import immrax as irx
 from immrax.comparison import IntervalRelation, interval_compare
+
+# =============================================================================
+# Tests for IntervalRelation Type
+# =============================================================================
+
+
+class TestIntervalRelationType:
+    """Tests for the IntervalRelation class itself."""
+
+    def test_relation_constants_exist(self):
+        """Tests that all 13 relation constants are defined."""
+        relations = [
+            IntervalRelation.PRECEDES,
+            IntervalRelation.MEETS,
+            IntervalRelation.OVERLAPS,
+            IntervalRelation.STARTS,
+            IntervalRelation.DURING,
+            IntervalRelation.FINISHES,
+            IntervalRelation.EQUAL,
+            IntervalRelation.PRECEDED_BY,
+            IntervalRelation.MET_BY,
+            IntervalRelation.OVERLAPPED_BY,
+            IntervalRelation.STARTED_BY,
+            IntervalRelation.CONTAINS,
+            IntervalRelation.FINISHED_BY,
+        ]
+        for rel in relations:
+            assert isinstance(rel, IntervalRelation)
+
+    def test_relation_constants_unique(self):
+        """Tests that all 13 relation constants have unique values."""
+        relations = [
+            IntervalRelation.PRECEDES,
+            IntervalRelation.MEETS,
+            IntervalRelation.OVERLAPS,
+            IntervalRelation.STARTS,
+            IntervalRelation.DURING,
+            IntervalRelation.FINISHES,
+            IntervalRelation.EQUAL,
+            IntervalRelation.PRECEDED_BY,
+            IntervalRelation.MET_BY,
+            IntervalRelation.OVERLAPPED_BY,
+            IntervalRelation.STARTED_BY,
+            IntervalRelation.CONTAINS,
+            IntervalRelation.FINISHED_BY,
+        ]
+        values = [int(r) for r in relations]
+        assert len(values) == len(set(values))
+
+    def test_bitwise_or(self):
+        """Tests that bitwise OR combines relations correctly."""
+        combined = IntervalRelation.PRECEDES | IntervalRelation.MEETS
+        assert isinstance(combined, IntervalRelation)
+        assert IntervalRelation.PRECEDES in combined
+        assert IntervalRelation.MEETS in combined
+        assert IntervalRelation.EQUAL not in combined
+
+    def test_bitwise_and(self):
+        """Tests that bitwise AND intersects relations correctly."""
+        combined = IntervalRelation.PRECEDES | IntervalRelation.MEETS
+        result = combined & IntervalRelation.PRECEDES
+        assert isinstance(result, IntervalRelation)
+        assert int(result) == int(IntervalRelation.PRECEDES)
+
+    def test_matches_method(self):
+        """Tests the matches method for checking relation membership."""
+        mask = IntervalRelation.PRECEDES | IntervalRelation.MEETS
+        assert IntervalRelation.PRECEDES.matches(mask)
+        assert IntervalRelation.MEETS.matches(mask)
+        assert not IntervalRelation.EQUAL.matches(mask)
+
+    def test_composite_relations(self):
+        """Tests the composite relation class methods."""
+        before = IntervalRelation.BEFORE()
+        assert IntervalRelation.PRECEDES in before
+        assert IntervalRelation.MEETS in before
+
+        after = IntervalRelation.AFTER()
+        assert IntervalRelation.PRECEDED_BY in after
+        assert IntervalRelation.MET_BY in after
+
+        subset = IntervalRelation.SUBSET()
+        assert IntervalRelation.STARTS in subset
+        assert IntervalRelation.DURING in subset
+        assert IntervalRelation.FINISHES in subset
+        assert IntervalRelation.EQUAL in subset
+
+        superset = IntervalRelation.SUPERSET()
+        assert IntervalRelation.STARTED_BY in superset
+        assert IntervalRelation.CONTAINS in superset
+        assert IntervalRelation.FINISHED_BY in superset
+        assert IntervalRelation.EQUAL in superset
+
+    def test_shape_property(self):
+        """Tests that shape property works correctly."""
+        scalar_rel = IntervalRelation.EQUAL
+        assert scalar_rel.shape == ()
+
+        array_vals = jnp.array([1, 2, 4])
+        array_rel = IntervalRelation(array_vals)
+        assert array_rel.shape == (3,)
+
+    def test_pytree_registration(self):
+        """Tests that IntervalRelation works with JAX pytree operations."""
+        rel = IntervalRelation.PRECEDES
+        leaves, treedef = jax.tree_util.tree_flatten(rel)
+        reconstructed = jax.tree_util.tree_unflatten(treedef, leaves)
+
+        assert isinstance(reconstructed, IntervalRelation)
+        assert int(reconstructed) == int(rel)
+
 
 # =============================================================================
 # Interval Definitions
@@ -123,9 +234,62 @@ def test_interval_compare_allen_relations(allen_relation_pair):
     assert jnp.all(result == expected), f"Expected {expected}, got {result}"
 
 
-# =============================================================================
-# Test Functions: Broadcasting
-# =============================================================================
+@pytest.fixture(
+    params=[
+        # __lt__: True when PRECEDES
+        (INTERVALS_1D["1_2"], INTERVALS_1D["3_4"], "__lt__", True),  # PRECEDES
+        (INTERVALS_1D["1_2"], INTERVALS_1D["2_3"], "__lt__", False),  # MEETS
+        (INTERVALS_1D["1_2"], INTERVALS_1D["1_2"], "__lt__", False),  # EQUAL
+        (INTERVALS_1D["3_4"], INTERVALS_1D["1_2"], "__lt__", False),  # PRECEDED_BY
+        # __le__: True when PRECEDES, MEETS, or EQUAL
+        (INTERVALS_1D["1_2"], INTERVALS_1D["3_4"], "__le__", True),  # PRECEDES
+        (INTERVALS_1D["1_2"], INTERVALS_1D["2_3"], "__le__", True),  # MEETS
+        (INTERVALS_1D["1_2"], INTERVALS_1D["1_2"], "__le__", True),  # EQUAL
+        (INTERVALS_1D["1_3"], INTERVALS_1D["2_4"], "__le__", False),  # OVERLAPS
+        (INTERVALS_1D["3_4"], INTERVALS_1D["1_2"], "__le__", False),  # PRECEDED_BY
+        # __eq__: True when EQUAL
+        (INTERVALS_1D["1_2"], INTERVALS_1D["1_2"], "__eq__", True),  # EQUAL
+        (INTERVALS_1D["2_2"], INTERVALS_1D["2_2"], "__eq__", True),  # EQUAL (singletons)
+        (INTERVALS_1D["1_2"], INTERVALS_1D["3_4"], "__eq__", False),  # PRECEDES
+        (INTERVALS_1D["1_3"], INTERVALS_1D["2_4"], "__eq__", False),  # OVERLAPS
+        # __gt__: True when PRECEDED_BY
+        (INTERVALS_1D["3_4"], INTERVALS_1D["1_2"], "__gt__", True),  # PRECEDED_BY
+        (INTERVALS_1D["1_2"], INTERVALS_1D["3_4"], "__gt__", False),  # PRECEDES
+        (INTERVALS_1D["3_5"], INTERVALS_1D["1_3"], "__gt__", False),  # MET_BY
+        (INTERVALS_1D["1_2"], INTERVALS_1D["1_2"], "__gt__", False),  # EQUAL
+        # __ge__: True when PRECEDED_BY, MET_BY, or EQUAL
+        (INTERVALS_1D["3_4"], INTERVALS_1D["1_2"], "__ge__", True),  # PRECEDED_BY
+        (INTERVALS_1D["3_5"], INTERVALS_1D["1_3"], "__ge__", True),  # MET_BY
+        (INTERVALS_1D["1_2"], INTERVALS_1D["1_2"], "__ge__", True),  # EQUAL
+        (INTERVALS_1D["1_2"], INTERVALS_1D["3_4"], "__ge__", False),  # PRECEDES
+        (INTERVALS_1D["1_3"], INTERVALS_1D["2_4"], "__ge__", False),  # OVERLAPS
+    ]
+)
+def dunder_comparison_pair(request):
+    """Parametrized fixture for testing dunder comparison operators."""
+    return request.param
+
+
+def test_interval_dunder_comparison_operators(dunder_comparison_pair):
+    """Tests Interval comparison operators (<, <=, ==, >=, >) return correct booleans."""
+    a, b, op, expected = dunder_comparison_pair
+
+    if op == "__lt__":
+        result = a < b
+    elif op == "__le__":
+        result = a <= b
+    elif op == "__eq__":
+        result = a == b
+    elif op == "__gt__":
+        result = a > b
+    elif op == "__ge__":
+        result = a >= b
+    else:
+        raise ValueError(f"Unknown operator: {op}")
+
+    assert jnp.all(result == expected), (
+        f"Expected {a} {op} {b} to be {expected}, got {result}"
+    )
 
 
 def test_interval_compare_broadcasting(broadcasting_pair):
@@ -364,114 +528,3 @@ def test_my_comparison_natif_succeeds(interval_evals, grad_method, f_my_compare)
         validate_elementwise_overapproximation(
             grad_method(false_branch), interval_evals, out_grad
         )
-
-
-# =============================================================================
-# Tests for IntervalRelation Type
-# =============================================================================
-
-
-class TestIntervalRelationType:
-    """Tests for the IntervalRelation class itself."""
-
-    def test_relation_constants_exist(self):
-        """Tests that all 13 relation constants are defined."""
-        relations = [
-            IntervalRelation.PRECEDES,
-            IntervalRelation.MEETS,
-            IntervalRelation.OVERLAPS,
-            IntervalRelation.STARTS,
-            IntervalRelation.DURING,
-            IntervalRelation.FINISHES,
-            IntervalRelation.EQUAL,
-            IntervalRelation.PRECEDED_BY,
-            IntervalRelation.MET_BY,
-            IntervalRelation.OVERLAPPED_BY,
-            IntervalRelation.STARTED_BY,
-            IntervalRelation.CONTAINS,
-            IntervalRelation.FINISHED_BY,
-        ]
-        for rel in relations:
-            assert isinstance(rel, IntervalRelation)
-
-    def test_relation_constants_unique(self):
-        """Tests that all 13 relation constants have unique values."""
-        relations = [
-            IntervalRelation.PRECEDES,
-            IntervalRelation.MEETS,
-            IntervalRelation.OVERLAPS,
-            IntervalRelation.STARTS,
-            IntervalRelation.DURING,
-            IntervalRelation.FINISHES,
-            IntervalRelation.EQUAL,
-            IntervalRelation.PRECEDED_BY,
-            IntervalRelation.MET_BY,
-            IntervalRelation.OVERLAPPED_BY,
-            IntervalRelation.STARTED_BY,
-            IntervalRelation.CONTAINS,
-            IntervalRelation.FINISHED_BY,
-        ]
-        values = [int(r) for r in relations]
-        assert len(values) == len(set(values))
-
-    def test_bitwise_or(self):
-        """Tests that bitwise OR combines relations correctly."""
-        combined = IntervalRelation.PRECEDES | IntervalRelation.MEETS
-        assert isinstance(combined, IntervalRelation)
-        assert IntervalRelation.PRECEDES in combined
-        assert IntervalRelation.MEETS in combined
-        assert IntervalRelation.EQUAL not in combined
-
-    def test_bitwise_and(self):
-        """Tests that bitwise AND intersects relations correctly."""
-        combined = IntervalRelation.PRECEDES | IntervalRelation.MEETS
-        result = combined & IntervalRelation.PRECEDES
-        assert isinstance(result, IntervalRelation)
-        assert int(result) == int(IntervalRelation.PRECEDES)
-
-    def test_matches_method(self):
-        """Tests the matches method for checking relation membership."""
-        mask = IntervalRelation.PRECEDES | IntervalRelation.MEETS
-        assert IntervalRelation.PRECEDES.matches(mask)
-        assert IntervalRelation.MEETS.matches(mask)
-        assert not IntervalRelation.EQUAL.matches(mask)
-
-    def test_composite_relations(self):
-        """Tests the composite relation class methods."""
-        before = IntervalRelation.BEFORE()
-        assert IntervalRelation.PRECEDES in before
-        assert IntervalRelation.MEETS in before
-
-        after = IntervalRelation.AFTER()
-        assert IntervalRelation.PRECEDED_BY in after
-        assert IntervalRelation.MET_BY in after
-
-        subset = IntervalRelation.SUBSET()
-        assert IntervalRelation.STARTS in subset
-        assert IntervalRelation.DURING in subset
-        assert IntervalRelation.FINISHES in subset
-        assert IntervalRelation.EQUAL in subset
-
-        superset = IntervalRelation.SUPERSET()
-        assert IntervalRelation.STARTED_BY in superset
-        assert IntervalRelation.CONTAINS in superset
-        assert IntervalRelation.FINISHED_BY in superset
-        assert IntervalRelation.EQUAL in superset
-
-    def test_shape_property(self):
-        """Tests that shape property works correctly."""
-        scalar_rel = IntervalRelation.EQUAL
-        assert scalar_rel.shape == ()
-
-        array_vals = jnp.array([1, 2, 4])
-        array_rel = IntervalRelation(array_vals)
-        assert array_rel.shape == (3,)
-
-    def test_pytree_registration(self):
-        """Tests that IntervalRelation works with JAX pytree operations."""
-        rel = IntervalRelation.PRECEDES
-        leaves, treedef = jax.tree_util.tree_flatten(rel)
-        reconstructed = jax.tree_util.tree_unflatten(treedef, leaves)
-
-        assert isinstance(reconstructed, IntervalRelation)
-        assert int(reconstructed) == int(rel)

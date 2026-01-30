@@ -114,11 +114,11 @@ class IntervalRelation:
         return self.__xor__(other)
 
     # Comparison
-    def __eq__(self, other) -> jax.Array:
+    def __eq__(self, other):
         other_val = other.value if isinstance(other, IntervalRelation) else other
         return self.value == other_val
 
-    def __ne__(self, other) -> jax.Array:
+    def __ne__(self, other):
         other_val = other.value if isinstance(other, IntervalRelation) else other
         return self.value != other_val
 
@@ -445,7 +445,7 @@ ad.defjvp(irx_lt_p, _irx_lt_jvp_x, _irx_lt_jvp_y, _irx_lt_jvp_rm)
 
 
 # Inclusion function for interval comparison
-def _inclusion_irx_lt_p(x, y, relation_mask) -> jax.Array:
+def _inclusion_compare(x, y, relation_mask) -> jax.Array:
     """Inclusion function for interval-aware less-than comparison.
 
     This is called when natif encounters irx_lt_p with Interval arguments.
@@ -466,7 +466,7 @@ def _inclusion_irx_lt_p(x, y, relation_mask) -> jax.Array:
     return relation.matches(relation_mask)
 
 
-nif.inclusion_registry[irx_lt_p] = _inclusion_irx_lt_p
+nif.inclusion_registry[irx_lt_p] = _inclusion_compare
 
 
 # =============================================================================
@@ -477,11 +477,6 @@ nif.inclusion_registry[irx_lt_p] = _inclusion_irx_lt_p
 _LT_MASK = IntervalRelation.PRECEDES
 _LE_MASK = IntervalRelation.PRECEDES | IntervalRelation.MEETS | IntervalRelation.EQUAL
 _EQ_MASK = IntervalRelation.EQUAL
-_GT_MASK = IntervalRelation.PRECEDED_BY
-_GE_MASK = (
-    IntervalRelation.PRECEDED_BY | IntervalRelation.MET_BY | IntervalRelation.EQUAL
-)
-_NE_MASK = ~IntervalRelation.EQUAL & IntervalRelation.ALL()
 
 
 def lt(
@@ -513,3 +508,30 @@ def lt(
     """
 
     return irx_lt_p.bind(jnp.asarray(x), jnp.asarray(y), relation_mask.value)
+
+
+# Attach comparison operators to Interval class
+
+
+def intvl_lt(self, other: Interval) -> Bool[Array, "*dims"]:
+    return _inclusion_compare(self, other, relation_mask=_LT_MASK)
+
+
+Interval.__lt__ = lambda self, other: _inclusion_compare(
+    self, other, relation_mask=_LT_MASK
+)
+Interval.__le__ = lambda self, other: _inclusion_compare(
+    self, other, relation_mask=_LE_MASK
+)
+Interval.__eq__ = lambda self, other: _inclusion_compare(
+    self, other, relation_mask=_EQ_MASK
+)
+# Interval.__gt__ = lambda self, other: _inclusion_compare(
+#     self, other, relation_mask=_GT_MASK
+# )
+# Interval.__ge__ = lambda self, other: _inclusion_compare(
+#     self, other, relation_mask=_GE_MASK
+# )
+# Interval.__ne__ = lambda self, other: _inclusion_compare(
+#     self, other, relation_mask=_NE_MASK
+# )
