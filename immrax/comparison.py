@@ -187,50 +187,15 @@ class IntervalRelation:
     CONTAINS: "IntervalRelation"
     FINISHED_BY: "IntervalRelation"
 
-    @classmethod
-    def BEFORE(cls) -> "IntervalRelation":
-        """A is strictly before B (PRECEDES | MEETS)."""
-        return cls.PRECEDES | cls.MEETS
-
-    @classmethod
-    def AFTER(cls) -> "IntervalRelation":
-        """A is strictly after B (PRECEDED_BY | MET_BY)."""
-        return cls.PRECEDED_BY | cls.MET_BY
-
-    @classmethod
-    def OVERLAPPING(cls) -> "IntervalRelation":
-        """A and B overlap (all except PRECEDES, PRECEDED_BY, MEETS, MET_BY)."""
-        return (
-            cls.OVERLAPS
-            | cls.STARTS
-            | cls.DURING
-            | cls.FINISHES
-            | cls.EQUAL
-            | cls.OVERLAPPED_BY
-            | cls.STARTED_BY
-            | cls.CONTAINS
-            | cls.FINISHED_BY
-        )
-
-    @classmethod
-    def SUBSET(cls) -> "IntervalRelation":
-        """A is a subset of B (STARTS | DURING | FINISHES | EQUAL)."""
-        return cls.STARTS | cls.DURING | cls.FINISHES | cls.EQUAL
-
-    @classmethod
-    def SUPERSET(cls) -> "IntervalRelation":
-        """A is a superset of B (STARTED_BY | CONTAINS | FINISHED_BY | EQUAL)."""
-        return cls.STARTED_BY | cls.CONTAINS | cls.FINISHED_BY | cls.EQUAL
-
-    @classmethod
-    def ALL(cls) -> "IntervalRelation":
-        """All possible relations."""
-        return cls((1 << 13) - 1)
-
-    @classmethod
-    def NONE(cls) -> "IntervalRelation":
-        """No relations."""
-        return cls(0)
+    # Useful combined bitflag constants (endpoint inclusive)
+    BEFORE: "IntervalRelation"
+    AFTER: "IntervalRelation"
+    SUBSET: "IntervalRelation"
+    SUPERSET: "IntervalRelation"
+    INTERSECTING: "IntervalRelation"
+    DISJOINT: "IntervalRelation"
+    ALL: "IntervalRelation"
+    NONE: "IntervalRelation"
 
 
 # Initialize class-level constants
@@ -248,6 +213,24 @@ IntervalRelation.STARTED_BY = IntervalRelation(_STARTED_BY)
 IntervalRelation.CONTAINS = IntervalRelation(_CONTAINS)
 IntervalRelation.FINISHED_BY = IntervalRelation(_FINISHED_BY)
 
+IntervalRelation.ALL = IntervalRelation((1 << 13) - 1)
+IntervalRelation.NONE = IntervalRelation(0)
+IntervalRelation.BEFORE = IntervalRelation.PRECEDES | IntervalRelation.MEETS
+IntervalRelation.AFTER = IntervalRelation.PRECEDED_BY | IntervalRelation.MET_BY
+IntervalRelation.DISJOINT = IntervalRelation.PRECEDES | IntervalRelation.PRECEDED_BY
+IntervalRelation.INTERSECTING = IntervalRelation.ALL ^ IntervalRelation.DISJOINT
+IntervalRelation.SUBSET = (
+    IntervalRelation.STARTS
+    | IntervalRelation.DURING
+    | IntervalRelation.FINISHES
+    | IntervalRelation.EQUAL
+)
+IntervalRelation.SUPERSET = (
+    IntervalRelation.STARTED_BY
+    | IntervalRelation.CONTAINS
+    | IntervalRelation.FINISHED_BY
+    | IntervalRelation.EQUAL
+)
 
 # =============================================================================
 # interval_compare: Compute Allen relation between two intervals
@@ -303,44 +286,18 @@ def interval_compare(a: Interval, b: Interval) -> IntervalRelation:
 
     # Determine relation based on endpoint comparisons
     # Each relation is mutually exclusive, so we build the result by selecting
-
-    # PRECEDES: A.upper < B.lower
     precedes = au_lt_bl
-
-    # MEETS: A.upper == B.lower (and A.lower < B.lower implied)
     meets = au_eq_bl & al_lt_bl
-
-    # OVERLAPS: A.lower < B.lower, A.upper > B.lower, A.upper < B.upper
     overlaps = al_lt_bl & au_gt_bl & au_lt_bu
-
-    # STARTS: A.lower == B.lower, A.upper < B.upper
     starts = al_eq_bl & au_lt_bu
-
-    # DURING: A.lower > B.lower, A.upper < B.upper
     during = al_gt_bl & au_lt_bu
-
-    # FINISHES: A.lower > B.lower, A.upper == B.upper
     finishes = al_gt_bl & au_eq_bu
-
-    # EQUAL: A.lower == B.lower, A.upper == B.upper
     equal = al_eq_bl & au_eq_bu
-
-    # PRECEDED_BY: B.upper < A.lower (converse of PRECEDES)
     preceded_by = al_gt_bu
-
-    # MET_BY: B.upper == A.lower (converse of MEETS)
     met_by = al_eq_bu & au_gt_bu
-
-    # OVERLAPPED_BY: B.lower < A.lower < B.upper < A.upper
     overlapped_by = al_gt_bl & al_lt_bu & au_gt_bu
-
-    # STARTED_BY: A.lower == B.lower, A.upper > B.upper (converse of STARTS)
     started_by = al_eq_bl & au_gt_bu
-
-    # CONTAINS: A.lower < B.lower, A.upper > B.upper (converse of DURING)
     contains = al_lt_bl & au_gt_bu
-
-    # FINISHED_BY: A.lower < B.lower, A.upper == B.upper (converse of FINISHES)
     finished_by = al_lt_bl & au_eq_bu
 
     # Build result using conditional selection
@@ -474,9 +431,6 @@ nif.inclusion_registry[irx_lt_p] = _inclusion_compare
 # =============================================================================
 
 # Default relation masks for standard comparisons
-_LT_MASK = IntervalRelation.PRECEDES
-_LE_MASK = IntervalRelation.PRECEDES | IntervalRelation.MEETS | IntervalRelation.EQUAL
-_EQ_MASK = IntervalRelation.EQUAL
 
 
 def lt(
@@ -512,26 +466,12 @@ def lt(
 
 # Attach comparison operators to Interval class
 
-
-def intvl_lt(self, other: Interval) -> Bool[Array, "*dims"]:
-    return _inclusion_compare(self, other, relation_mask=_LT_MASK)
-
-
 Interval.__lt__ = lambda self, other: _inclusion_compare(
-    self, other, relation_mask=_LT_MASK
+    self, other, relation_mask=IntervalRelation.PRECEDES
 )
 Interval.__le__ = lambda self, other: _inclusion_compare(
-    self, other, relation_mask=_LE_MASK
+    self, other, relation_mask=IntervalRelation.BEFORE | IntervalRelation.EQUAL
 )
 Interval.__eq__ = lambda self, other: _inclusion_compare(
-    self, other, relation_mask=_EQ_MASK
+    self, other, relation_mask=IntervalRelation.EQUAL
 )
-# Interval.__gt__ = lambda self, other: _inclusion_compare(
-#     self, other, relation_mask=_GT_MASK
-# )
-# Interval.__ge__ = lambda self, other: _inclusion_compare(
-#     self, other, relation_mask=_GE_MASK
-# )
-# Interval.__ne__ = lambda self, other: _inclusion_compare(
-#     self, other, relation_mask=_NE_MASK
-# )

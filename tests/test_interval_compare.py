@@ -78,21 +78,21 @@ class TestIntervalRelationType:
 
     def test_composite_relations(self):
         """Tests the composite relation class methods."""
-        before = IntervalRelation.BEFORE()
+        before = IntervalRelation.BEFORE
         assert IntervalRelation.PRECEDES in before
         assert IntervalRelation.MEETS in before
 
-        after = IntervalRelation.AFTER()
+        after = IntervalRelation.AFTER
         assert IntervalRelation.PRECEDED_BY in after
         assert IntervalRelation.MET_BY in after
 
-        subset = IntervalRelation.SUBSET()
+        subset = IntervalRelation.SUBSET
         assert IntervalRelation.STARTS in subset
         assert IntervalRelation.DURING in subset
         assert IntervalRelation.FINISHES in subset
         assert IntervalRelation.EQUAL in subset
 
-        superset = IntervalRelation.SUPERSET()
+        superset = IntervalRelation.SUPERSET
         assert IntervalRelation.STARTED_BY in superset
         assert IntervalRelation.CONTAINS in superset
         assert IntervalRelation.FINISHED_BY in superset
@@ -249,7 +249,12 @@ def test_interval_compare_allen_relations(allen_relation_pair):
         (INTERVALS_1D["3_4"], INTERVALS_1D["1_2"], "__le__", False),  # PRECEDED_BY
         # __eq__: True when EQUAL
         (INTERVALS_1D["1_2"], INTERVALS_1D["1_2"], "__eq__", True),  # EQUAL
-        (INTERVALS_1D["2_2"], INTERVALS_1D["2_2"], "__eq__", True),  # EQUAL (singletons)
+        (
+            INTERVALS_1D["2_2"],
+            INTERVALS_1D["2_2"],
+            "__eq__",
+            True,
+        ),  # EQUAL (singletons)
         (INTERVALS_1D["1_2"], INTERVALS_1D["3_4"], "__eq__", False),  # PRECEDES
         (INTERVALS_1D["1_3"], INTERVALS_1D["2_4"], "__eq__", False),  # OVERLAPS
         # __gt__: True when PRECEDED_BY
