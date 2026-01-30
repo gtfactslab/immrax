@@ -1,10 +1,10 @@
-from typing import List
+from typing import Callable, Iterable, List, Tuple
+
 import jax
-from jax.tree_util import register_pytree_node_class
 import jax.numpy as jnp
-from typing import Tuple, Iterable
-from jaxtyping import ArrayLike
 import numpy as onp
+from jax.tree_util import register_pytree_node_class
+from jaxtyping import Array, ArrayLike, Bool
 
 
 @register_pytree_node_class
@@ -100,6 +100,12 @@ class Interval:
         return interval(
             jnp.minimum(self.lower, other.lower), jnp.maximum(self.upper, other.upper)
         )
+
+    # Comparison operators using Allen's interval algebra
+    # Forward declarations - implementations provided by immrax.comparison
+    __lt__: Callable[["Interval", "Interval"], Bool[Array, "*dims"]]
+    __le__: Callable[["Interval", "Interval"], Bool[Array, "*dims"]]
+    __eq__: Callable[["Interval", "Interval"], Bool[Array, "*dims"]]
 
     def __str__(self) -> str:
         # return (
