@@ -356,23 +356,12 @@ mlir.register_lowering(irx_lt_p, _irx_lt_lowering)
 
 # Batching rule for vmap
 def _irx_lt_batching(vector_arg_values, batch_axes):
-    """Batching rule: vmap over the comparison."""
-    x, y, relation_mask = vector_arg_values
-    x_bdim, y_bdim, rm_bdim = batch_axes
+    """Batching rule: vmap over the comparison.
 
-    # Broadcast relation_mask if not batched but others are
-    if rm_bdim is None and (x_bdim is not None or y_bdim is not None):
-        # relation_mask is not batched, replicate it
-        result = jax.vmap(
-            lambda xi, yi: irx_lt_p.bind(xi, yi, relation_mask),
-            in_axes=(x_bdim, y_bdim),
-        )(x, y)
-    else:
-        result = jax.vmap(
-            lambda xi, yi, rmi: irx_lt_p.bind(xi, yi, rmi),
-            in_axes=(x_bdim, y_bdim, rm_bdim),
-        )(x, y, relation_mask)
-
+    This rule vmaps over the implementation function directly to avoid infinite
+    recursion that would occur if we called irx_lt_p.bind inside the batching rule.
+    """
+    result = jax.vmap(_irx_lt_impl, in_axes=batch_axes)(*vector_arg_values)
     return result, 0
 
 

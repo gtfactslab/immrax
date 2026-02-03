@@ -488,6 +488,71 @@ def interval_evals(request):
     return request.param
 
 
+# =============================================================================
+# Tests for vmap compatibility
+# =============================================================================
+
+
+def test_irx_lt_vmap_no_recursion():
+    """Tests that irx.lt works correctly with jax.vmap without causing RecursionError.
+
+    This test verifies that the batching rule for irx_lt_p does not recursively
+    call itself when used inside a vmap-transformed function.
+    """
+
+    def compare_fn(x, y):
+        return irx.lt(x, y)
+
+    # Create batched inputs
+    xs = jnp.array([1.0, 2.0, 3.0])
+    ys = jnp.array([2.0, 1.0, 3.0])
+
+    # This should NOT cause a RecursionError
+    vmapped_compare = jax.vmap(compare_fn)
+    result = vmapped_compare(xs, ys)
+
+    # Verify correct results: 1<2=True, 2<1=False, 3<3=False
+    expected = jnp.array([True, False, False])
+    assert jnp.all(result == expected), f"Expected {expected}, got {result}"
+
+
+def test_irx_lt_vmap_with_relation_mask():
+    """Tests that irx.lt with custom relation_mask works correctly with jax.vmap."""
+
+    def compare_fn(x, y):
+        # Use BEFORE mask (PRECEDES | MEETS) instead of just PRECEDES
+        return irx.lt(x, y, relation_mask=IntervalRelation.BEFORE)
+
+    xs = jnp.array([1.0, 2.0, 3.0])
+    ys = jnp.array([2.0, 2.0, 3.0])
+
+    vmapped_compare = jax.vmap(compare_fn)
+    result = vmapped_compare(xs, ys)
+
+    # For scalars, BEFORE is just x < y or x == y (meeting), but standard < applies
+    # 1<2=True, 2<2=False, 3<3=False
+    expected = jnp.array([True, False, False])
+    assert jnp.all(result == expected), f"Expected {expected}, got {result}"
+
+
+def test_irx_lt_vmap_nested():
+    """Tests that irx.lt works with nested vmap transformations."""
+
+    def compare_fn(x, y):
+        return irx.lt(x, y)
+
+    # 2D batched inputs
+    xs = jnp.array([[1.0, 2.0], [3.0, 4.0]])
+    ys = jnp.array([[2.0, 1.0], [3.0, 5.0]])
+
+    # Nested vmap
+    double_vmapped = jax.vmap(jax.vmap(compare_fn))
+    result = double_vmapped(xs, ys)
+
+    expected = jnp.array([[True, False], [False, True]])
+    assert jnp.all(result == expected), f"Expected {expected}, got {result}"
+
+
 def test_array_gradients(array_evals, grad_method, f_my_compare, f_jax_compare):
     my_cmp, _, _ = f_my_compare
     jax_cmp, _, _ = f_jax_compare
