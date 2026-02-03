@@ -150,6 +150,7 @@ _add_passthrough_to_registry(lax.scatter_p)
 _add_passthrough_to_registry(lax.scatter_add_p)
 _add_passthrough_to_registry(lax.scatter_max_p)
 _add_passthrough_to_registry(lax.scatter_min_p)
+_add_passthrough_to_registry(lax.cond_p)
 if hasattr(lax, "select_p"):
     _add_passthrough_to_registry(lax.select_p)
 if hasattr(lax, "select_n_p"):
