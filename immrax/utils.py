@@ -1,25 +1,24 @@
-from math import exp, floor, log
 import time
-from typing import Callable, Tuple, Literal
+from functools import partial
+from itertools import product
+from math import exp, floor, log
+from typing import Callable, Literal, Tuple
 
 import jax
-from jax._src.traceback_util import api_boundary
-from jax._src.util import wraps
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import numpy as onp
-from pypoman import plot_polygon
-from scipy.spatial import HalfspaceIntersection
 import shapely.geometry as sg
 import shapely.ops as so
+from jax._src.traceback_util import api_boundary
+from jax._src.util import wraps
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from pypoman import plot_polygon
+from scipy.spatial import HalfspaceIntersection
 
 import immrax as irx
-from immrax.inclusion import interval, Corner, Interval, all_corners, i2lu, i2ut, ut2i
+from immrax.inclusion import Corner, Interval, all_corners, i2lu, i2ut, interval, ut2i
 from immrax.system import Trajectory
-
-from itertools import product
-from functools import partial
 
 # ================================================================================
 # Function wrappers
@@ -184,6 +183,7 @@ def get_half_intervals(x: Interval, N=1, ut=False):
 # Math
 # ================================================================================
 
+
 # @partial(jax.jit,static_argnums=(1,))
 def get_partitions_ut(x: jax.Array, N: int) -> jax.Array:
     n = len(x) // 2
@@ -202,6 +202,7 @@ def get_partitions_ut(x: jax.Array, N: int) -> jax.Array:
         part_ = jnp.array([xc[A[i, j] + 1][j] for j in range(n)])
         ret.append(jnp.concatenate((_part, part_)))
     return jnp.array(ret)
+
 
 def gen_ics(x0, N, key=jax.random.key(0)):
     # X = np.empty((N, len(x0)))
@@ -276,21 +277,32 @@ def get_sparse_corners(x: Interval, verbose=False, **kwargs):
 
     return gsc
 
+
 @api_boundary
 @partial(jax.jit, static_argnums=(1,))
-def get_rohn_corners (A: Interval, sign: Literal['+', '-'] = '+') :
+def get_rohn_corners(A: Interval, sign: Literal["+", "-"] = "+"):
     """Gets the 2^n corners of [A] which upper or lower bound x^T A x depending on the chosen sign (+/-)"""
-    if A.shape[0] != A.shape[1] or len(A.shape) != 2 :
-        raise Exception(f'A should be a square matrix, got {A.shape}')
+    if A.shape[0] != A.shape[1] or len(A.shape) != 2:
+        raise Exception(f"A should be a square matrix, got {A.shape}")
     n = A.shape[0]
     Ac = A.center
     Ap = A.pert
 
-    if sign == '+' :
-        return jnp.asarray([Ac + jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s)) for s in product(*[[-1, +1] for i in range(n)])])
-    elif sign == '-' :
-        return jnp.asarray([Ac - jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s)) for s in product(*[[-1, +1] for i in range(n)])])
-    else :
+    if sign == "+":
+        return jnp.asarray(
+            [
+                Ac + jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s))
+                for s in product(*[[-1, +1] for i in range(n)])
+            ]
+        )
+    elif sign == "-":
+        return jnp.asarray(
+            [
+                Ac - jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s))
+                for s in product(*[[-1, +1] for i in range(n)])
+            ]
+        )
+    else:
         raise Exception("pm should be '+' or '-'.")
 
 
@@ -331,6 +343,11 @@ def angular_sweep(N: int):
 def check_containment(x, y):
     """Checks if the interval x is contained in the interval y.
 
+    Uses interval-aware comparison to determine the containment relation:
+    - Compares x against y using the new interval comparison operators
+    - x is contained in y if x.lower >= y.lower AND x.upper <= y.upper
+    - x is outside y if x.lower > y.upper OR x.upper < y.lower
+
     Returns
     -------
     int
@@ -338,14 +355,21 @@ def check_containment(x, y):
         -1 if x is fully outside of y
         0 if x is partially contained in y
     """
+    from immrax.comparison import IntervalRelation, interval_compare
+
     x = interval(x)
     y = interval(y)
-    fully_contained = jnp.logical_and(
-        jnp.all(x.lower >= y.lower), jnp.all(x.upper <= y.upper)
-    ).astype(int)
-    fully_outside = jnp.logical_or(
-        jnp.any(x.lower > y.upper), jnp.any(x.upper < y.lower)
-    ).astype(int)
+
+    # Use interval_compare to get Allen's relation
+    relation = interval_compare(x, y)
+
+    # Check containment element-wise
+    is_contained = relation.matches(IntervalRelation.SUBSET)
+    is_outside = relation.matches(IntervalRelation.DISJOINT)
+
+    fully_contained = jnp.all(is_contained).astype(int)
+    fully_outside = jnp.any(is_outside).astype(int)
+
     return fully_contained - fully_outside
 
 
