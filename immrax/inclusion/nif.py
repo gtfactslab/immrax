@@ -198,15 +198,21 @@ Natively, we cannot pass in pytrees like we are trying here.
 
 
 def _inclusion_pjit_p(*args, **bind_params) -> Interval:
-    """For now, this ignores a pjit_p and returns the evaluation of the jaxpr."""
-    # TODO: Do we need to implement consts here?
+    """Handles jit_p (jax >= 0.9) / pjit_p (jax < 0.9) by recursing into the inner jaxpr.
+
+    Constants are always inlined by JAX as literal values in the inner jaxpr, so
+    consts is always [] here.
+    """
     bind_jaxpr = bind_params.pop("jaxpr")
     if isinstance(bind_jaxpr, jax.extend.core.ClosedJaxpr):
         bind_jaxpr = bind_jaxpr.jaxpr
     return natif_jaxpr(bind_jaxpr, [], *args)
 
 
-inclusion_registry[jax._src.pjit.pjit_p] = _inclusion_pjit_p
+# jax >= 0.9 renamed pjit_p to jit_p
+_jit_primitive = getattr(jax._src.pjit, 'jit_p', getattr(jax._src.pjit, 'pjit_p', None))
+if _jit_primitive is not None:
+    inclusion_registry[_jit_primitive] = _inclusion_pjit_p
 
 
 def _inclusion_scan_p(*args, **bind_params) -> Interval:

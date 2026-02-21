@@ -39,12 +39,19 @@ conda activate immrax
 pip install immrax
 ```
 
-If you have cuda-enabled hardware you wish to utilize, please install the `cuda` optional dependency group.
+### CUDA support
+
+`immrax` supports CUDA via JAX. To enable GPU acceleration, install the appropriate JAX CUDA build for your CUDA version *before* installing `immrax`:
 
 ```shell
-...
-pip install immrax[cuda]
+# CUDA 12
+pip install "jax[cuda12]"
+
+# CUDA 13
+pip install "jax[cuda13]"
 ```
+
+See the [JAX installation guide](https://jax.readthedocs.io/en/latest/installation.html) for further details.
 
 To test if the installation process worked, run the `compare.py` example. The additional `examples` optional dependency group contains some dependencies needed for the more complex examples; be sure to also install it if you want to run the others.
 
