@@ -363,3 +363,201 @@ def test_general_fn_contains_output(fn, ix, relu_mode):
         f"[{relu_mode}] upper bound violated.\n"
         f"  max output: {outputs.max(axis=0)}\n  bound: {result.upper}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Tests: sigmoid/logistic linear relaxation correctness
+# ---------------------------------------------------------------------------
+
+_SIGMOID_INTERVALS = [
+    pytest.param((-2.0, -0.5), id="neg-neg"),        # fully convex region
+    pytest.param((0.5, 2.0),   id="pos-pos"),         # fully concave region
+    pytest.param((-1.0, 1.0),  id="sym-mixed"),       # symmetric straddles inflection
+    pytest.param((-1.0, 2.0),  id="mixed-wide-pos"),  # |u| > |l|
+    pytest.param((-2.0, 0.5),  id="mixed-wide-neg"),  # |l| > |u|
+    pytest.param((-3.0, 3.0),  id="large-sym"),       # large symmetric
+    pytest.param((-0.01, 0.01), id="tiny"),           # near-degenerate interval
+]
+
+N_DENSE = 2000  # dense grid for pointwise bound checks
+
+
+@pytest.mark.parametrize("lu", _SIGMOID_INTERVALS)
+def test_logistic_upper_bound_valid(lu):
+    """Chord-based sigmoid upper affine bound is >= sigma(x) for all x in [l, u]."""
+    l_val, u_val = lu
+    ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
+    lb = linbp(jax.nn.sigmoid, relu_mode='same-slope')(ix)
+
+    alpha_u, beta_u = float(lb.uA[0, 0]), float(lb.ub[0])
+    xs = jnp.linspace(l_val, u_val, N_DENSE)
+    upper_line = alpha_u * xs + beta_u
+    sig = jax.nn.sigmoid(xs)
+
+    tol = 1e-5
+    violation = jnp.max(sig - upper_line)
+    assert violation <= tol, (
+        f"Sigmoid upper bound violated on [{l_val}, {u_val}].\n"
+        f"  alpha_u={alpha_u:.6f}, beta_u={beta_u:.6f}\n"
+        f"  max violation: {float(violation):.2e}"
+    )
+
+
+@pytest.mark.parametrize("lu", _SIGMOID_INTERVALS)
+def test_logistic_lower_bound_valid(lu):
+    """Chord-based sigmoid lower affine bound is <= sigma(x) for all x in [l, u]."""
+    l_val, u_val = lu
+    ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
+    lb = linbp(jax.nn.sigmoid, relu_mode='same-slope')(ix)
+
+    alpha_l, beta_l = float(lb.lA[0, 0]), float(lb.lb[0])
+    xs = jnp.linspace(l_val, u_val, N_DENSE)
+    lower_line = alpha_l * xs + beta_l
+    sig = jax.nn.sigmoid(xs)
+
+    tol = 1e-5
+    violation = jnp.max(lower_line - sig)
+    assert violation <= tol, (
+        f"Sigmoid lower bound violated on [{l_val}, {u_val}].\n"
+        f"  alpha_l={alpha_l:.6f}, beta_l={beta_l:.6f}\n"
+        f"  max violation: {float(violation):.2e}"
+    )
+
+
+@pytest.mark.parametrize("lu", _SIGMOID_INTERVALS)
+def test_logistic_nontrivial_slope(lu):
+    """The sigmoid relaxation preserves a non-zero slope (lA != 0)."""
+    l_val, u_val = lu
+    ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
+    lb = linbp(jax.nn.sigmoid, relu_mode='same-slope')(ix)
+
+    assert float(jnp.abs(lb.lA[0, 0])) > 1e-8, (
+        f"Sigmoid lA should be non-zero on [{l_val}, {u_val}], got {float(lb.lA[0, 0])}"
+    )
+
+
+@pytest.mark.parametrize("lu", _SIGMOID_INTERVALS)
+def test_tanh_upper_bound_valid(lu):
+    """Chord-based tanh (2*sigmoid(2x)-1) upper bound is valid."""
+    l_val, u_val = lu
+    ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
+    tanh_fn = lambda x: 2 * jax.nn.sigmoid(2 * x) - 1
+    lb = linbp(tanh_fn, relu_mode='same-slope')(ix)
+
+    alpha_u, beta_u = float(lb.uA[0, 0]), float(lb.ub[0])
+    xs = jnp.linspace(l_val, u_val, N_DENSE)
+    upper_line = alpha_u * xs + beta_u
+    tanh_vals = jnp.tanh(xs)
+
+    tol = 1e-5
+    violation = jnp.max(tanh_vals - upper_line)
+    assert violation <= tol, (
+        f"Tanh upper bound violated on [{l_val}, {u_val}].\n"
+        f"  max violation: {float(violation):.2e}"
+    )
+
+
+@pytest.mark.parametrize("lu", _SIGMOID_INTERVALS)
+def test_tanh_lower_bound_valid(lu):
+    """Chord-based tanh (2*sigmoid(2x)-1) lower bound is valid."""
+    l_val, u_val = lu
+    ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
+    tanh_fn = lambda x: 2 * jax.nn.sigmoid(2 * x) - 1
+    lb = linbp(tanh_fn, relu_mode='same-slope')(ix)
+
+    alpha_l, beta_l = float(lb.lA[0, 0]), float(lb.lb[0])
+    xs = jnp.linspace(l_val, u_val, N_DENSE)
+    lower_line = alpha_l * xs + beta_l
+    tanh_vals = jnp.tanh(xs)
+
+    tol = 1e-5
+    violation = jnp.max(lower_line - tanh_vals)
+    assert violation <= tol, (
+        f"Tanh lower bound violated on [{l_val}, {u_val}].\n"
+        f"  max violation: {float(violation):.2e}"
+    )
+
+
+@pytest.mark.parametrize("lu", _SIGMOID_INTERVALS)
+def test_logistic_concrete_bounds_valid(lu):
+    """Concrete bounds l, u from logistic handler contain sigma([l_val, u_val])."""
+    l_val, u_val = lu
+    ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
+    lb = linbp(jax.nn.sigmoid, relu_mode='same-slope')(ix)
+
+    sig_l, sig_u = float(jax.nn.sigmoid(l_val)), float(jax.nn.sigmoid(u_val))
+    tol = 1e-6
+    assert float(lb.l[0]) <= sig_l + tol, (
+        f"Concrete lower {lb.l[0]:.6f} > sigma(l) = {sig_l:.6f}"
+    )
+    assert float(lb.u[0]) >= sig_u - tol, (
+        f"Concrete upper {lb.u[0]:.6f} < sigma(u) = {sig_u:.6f}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests: LinearBound input to linbp
+# ---------------------------------------------------------------------------
+
+def test_linbp_accepts_linearbound_input(arch_act, net_key):
+    """linbp's returned function accepts a LinearBound and produces a valid result."""
+    arch, activation = arch_act
+    n_in, n_out = arch[0], arch[-1]
+    net = _build_net(arch, activation, jax.random.PRNGKey(net_key))
+    ix = _make_interval('small', n_in)
+
+    # Get a LinearBound from the first call
+    lb_in = linbp(net, relu_mode='adaptive')(ix)
+
+    # Build a trivial identity function to re-propagate through
+    identity = lambda x: x
+    lb_out = linbp(identity, relu_mode='adaptive')(lb_in)
+
+    # Identity should leave the LinearBound unchanged
+    assert jnp.allclose(lb_out.lA, lb_in.lA, atol=1e-6)
+    assert jnp.allclose(lb_out.uA, lb_in.uA, atol=1e-6)
+    assert jnp.allclose(lb_out.lb, lb_in.lb, atol=1e-6)
+    assert jnp.allclose(lb_out.ub, lb_in.ub, atol=1e-6)
+
+
+def test_linbp_chained_contains_output(arch_act, net_key):
+    """Chaining two linbp calls via LinearBound gives valid bounds."""
+    arch, activation = arch_act
+    n_in, n_out = arch[0], arch[-1]
+
+    # Build two separate networks of the same width to chain
+    net1 = _build_net([n_in, 6, 4], activation, jax.random.PRNGKey(net_key))
+    net2 = _build_net([4, 4, n_out], activation, jax.random.PRNGKey(net_key + 100))
+    chained = lambda x: net2(net1(x))
+
+    ix = _make_interval('small', n_in)
+
+    # Chain via LinearBound: linbp(net2)(linbp(net1)(ix))
+    lb1 = linbp(net1, relu_mode='adaptive')(ix)
+    lb2 = linbp(net2, relu_mode='adaptive')(lb1)
+
+    # Concretize to an interval
+    from immrax.inclusion.linbp import _concretize
+    result = _concretize(lb2, ix.lower, ix.upper)
+
+    # Sample and verify containment
+    samples = _sample_in_interval(ix, N_SAMPLES, jax.random.PRNGKey(42))
+    outputs = jax.vmap(chained)(samples)
+
+    tol = 1e-5
+    assert jnp.all(result.lower - tol <= outputs.min(axis=0)), (
+        f"Chained lower bound violated.\n"
+        f"  bound: {result.lower}\n  min output: {outputs.min(axis=0)}"
+    )
+    assert jnp.all(outputs.max(axis=0) <= result.upper + tol), (
+        f"Chained upper bound violated.\n"
+        f"  max output: {outputs.max(axis=0)}\n  bound: {result.upper}"
+    )
+
+
+def test_resolve_linbp_input_type_error():
+    """_resolve_linbp_input raises TypeError for unsupported inputs."""
+    from immrax.inclusion.linbp import _resolve_linbp_input
+    import pytest
+    with pytest.raises(TypeError, match="Interval or LinearBound"):
+        _resolve_linbp_input(jnp.array([1.0, 2.0]))
