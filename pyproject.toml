@@ -10,10 +10,6 @@ pythonpath = ["."]
 
 [tool.ruff]
 
-exclude = [
-	"immrax/_vendor/**"
-]
-
 [tool.ruff.lint]
 
 ignore = ["E731"] # We like lambda functions
@@ -34,14 +30,6 @@ dependencies = [
     "equinox >= 0.12.2",
     "immutabledict >= 4.2.0",
     "linrax >= 0.1.0",
-	# jax_verify dependencies.
-	"absl-py",
-	"cvxpy",
-	"dm-tree",
-	"optax",
-	"dm-haiku",
-	"einshape",
-	"ml_collections",
 ]
 
 [project.urls]
