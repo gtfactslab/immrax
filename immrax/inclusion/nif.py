@@ -52,7 +52,6 @@ def natif(
 
     """
 
-    @jit
     @wraps(f)
     def wrapped(*args, **kwargs):
         """Natural inclusion function.
