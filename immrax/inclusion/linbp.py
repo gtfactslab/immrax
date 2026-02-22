@@ -600,26 +600,64 @@ linbp_registry[lax.min_p] = _linbp_min_p
 
 
 def _linbp_logistic_p(x, *, relu_mode, **kwargs):
-    """Sigmoid handler using IBP (concrete bounds only).
+    """Sigmoid handler using a chord-based linear relaxation.
 
-    Sigmoid is S-shaped (convex then concave), so a chord is not a valid
-    upper or lower bound for a general interval crossing the inflection point.
-    We fall back to interval arithmetic: drop the linear coefficients and
-    record only concrete [σ(l), σ(u)] bounds.  This is conservative but
-    always correct.
+    For sigmoid σ on [l, u] we use the chord slope α = (σ(u)−σ(l))/(u−l)
+    as the common linear coefficient (preserving linear information from
+    earlier layers).  The tightest valid upper/lower intercepts for slope α
+    are achieved at the critical points where σ'(x*) = α, i.e.
+        σ(x*) = (1 ± √(1−4α)) / 2
+    giving x* = log(σ(x*)/(1−σ(x*))).
+
+    Upper intercept β_u = max_{x∈[l,u]} (σ(x) − α·x)
+      → achieved at x*_upper (≥ 0, concave region) if it lies in [l, u],
+        otherwise at the chord intercept (= σ(l)−α·l).
+
+    Lower intercept β_l = min_{x∈[l,u]} (σ(x) − α·x)
+      → achieved at x*_lower (≤ 0, convex region) if it lies in [l, u],
+        otherwise at the chord intercept.
+
+    Since α ≥ 0, the lA/uA slots keep their linear meaning (lA is used for
+    the lower bound, uA for the upper bound), scaled by α.
     """
-    l_out = jax.nn.sigmoid(x.l)
-    u_out = jax.nn.sigmoid(x.u)
-    n_in = x.n_in
-    S = x.l.shape
-    return LinearBound(
-        lA=jnp.zeros((*S, n_in)),
-        lb=l_out,
-        uA=jnp.zeros((*S, n_in)),
-        ub=u_out,
-        l=l_out,
-        u=u_out,
-    )
+    l, u = x.l, x.u
+    sig_l, sig_u = jax.nn.sigmoid(l), jax.nn.sigmoid(u)
+
+    # Chord slope α ∈ (0, 0.25]; falls back to σ'(l) for degenerate intervals.
+    degenerate = jnp.abs(u - l) < 1e-8
+    safe_denom = jnp.where(degenerate, 1.0, u - l)
+    alpha = jnp.where(degenerate, sig_l * (1.0 - sig_l), (sig_u - sig_l) / safe_denom)
+
+    # Chord intercept (= σ(l)−α·l = σ(u)−α·u by construction)
+    beta_chord = sig_l - alpha * l
+
+    # Critical sigmoid values where σ'(x*) = α → σ(x*)(1−σ(x*)) = α
+    # disc = √(1−4α) ≥ 0 because α ≤ max(σ') = 0.25
+    disc = jnp.sqrt(jnp.clip(1.0 - 4.0 * alpha, 0.0))
+
+    # Upper critical point in concave region (x*_upper ≥ 0)
+    sig_xu = (1.0 + disc) / 2.0
+    x_upper = jnp.log(sig_xu) - jnp.log(1.0 - sig_xu)   # logit
+    beta_u_crit = sig_xu - alpha * x_upper
+
+    # Lower critical point in convex region (x*_lower ≤ 0)
+    sig_xl = (1.0 - disc) / 2.0
+    x_lower = jnp.log(sig_xl) - jnp.log(1.0 - sig_xl)   # logit
+    beta_l_crit = sig_xl - alpha * x_lower
+
+    # Use the critical-point intercept only when the critical point is in [l, u].
+    # x*_upper ≥ 0 ≥ l always, so the only check needed is x*_upper ≤ u.
+    # x*_lower ≤ 0 ≤ u always, so the only check needed is x*_lower ≥ l.
+    beta_u = jnp.where(x_upper <= u, beta_u_crit, beta_chord)
+    beta_l = jnp.where(x_lower >= l, beta_l_crit, beta_chord)
+
+    # α ≥ 0, so upper bound uses uA_x (upper side) and lower bound uses lA_x.
+    uA = alpha[..., None] * x.uA
+    ub = alpha * x.ub + beta_u
+    lA = alpha[..., None] * x.lA
+    lb = alpha * x.lb + beta_l
+
+    return LinearBound(lA=lA, lb=lb, uA=uA, ub=ub, l=sig_l, u=sig_u)
 
 
 linbp_registry[lax.logistic_p] = _linbp_logistic_p
@@ -669,10 +707,48 @@ if _custom_jvp_call_p is not None:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_linbp_input(inp):
+    """Normalize a linbp input to (lb_init, trace_point, x_lb, x_ub).
+
+    Parameters
+    ----------
+    inp : Interval or LinearBound
+        - Interval: converted to an identity LinearBound that represents
+          y = x_in exactly.  x_lb/x_ub are set so tighten_bounds works.
+        - LinearBound: passed through as-is.  x_lb/x_ub are None, which
+          disables tighten_bounds (the original input interval is unknown).
+
+    Returns
+    -------
+    lb_init : LinearBound
+    trace_point : jax.Array
+        A concrete array with the shape of f's input, used to trace the Jaxpr.
+    x_lb, x_ub : jax.Array or None
+        Original input box corners for bound tightening.
+    """
+    if isinstance(inp, Interval):
+        n_in = inp.lower.size
+        lb_init = LinearBound(
+            lA=jnp.eye(n_in),
+            lb=jnp.zeros(n_in),
+            uA=jnp.eye(n_in),
+            ub=jnp.zeros(n_in),
+            l=inp.lower,
+            u=inp.upper,
+        )
+        return lb_init, inp.lower, inp.lower, inp.upper
+    elif isinstance(inp, LinearBound):
+        # inp.l has the shape of the function's input variable; use it to
+        # trace the Jaxpr.  x_lb/x_ub are unknown so tightening is skipped.
+        return inp, inp.l, None, None
+    else:
+        raise TypeError(f"linbp wrapped function expects Interval or LinearBound, got {type(inp)}")
+
+
 def linbp(f, relu_mode: str = "adaptive", tighten_bounds: bool = True):
     """Function transformation: forward linear bound propagation through f.
 
-    Returns a JIT-compiled function that maps an Interval to a LinearBound.
+    Returns a function that maps an Interval or LinearBound to a LinearBound.
 
     Parameters
     ----------
@@ -688,31 +764,23 @@ def linbp(f, relu_mode: str = "adaptive", tighten_bounds: bool = True):
         If True (default), after each linear layer the concrete bounds l, u are
         intersected with the affine-evaluated bounds: l ← max(l, lA·x̲ + lb),
         u ← min(u, uA·x̄ + ub).  This gives tighter neuron-status classification
-        at subsequent activations.  If False, l/u are pure IBP bounds.
+        at subsequent activations.  Only applied when the input is an Interval
+        (when the input is a LinearBound the original box is unknown).
 
     Returns
     -------
-    Callable[[Interval], LinearBound]
-        A JIT-compiled function mapping an input Interval to a LinearBound
-        representing affine bounds: lA @ x + lb <= f(x) <= uA @ x + ub
-        for all x in ix.
+    Callable[[Interval | LinearBound], LinearBound]
+        Maps an input Interval or LinearBound to a LinearBound representing
+        affine bounds: lA @ x + lb <= f(x) <= uA @ x + ub for all x in ix.
     """
 
-    def wrapped(ix: Interval) -> LinearBound:
-        closed_jaxpr = eqx.filter_make_jaxpr(f)(ix.lower)[0]
-        n_in = ix.lower.size
-        lb_init = LinearBound(
-            lA=jnp.eye(n_in),
-            lb=jnp.zeros(n_in),
-            uA=jnp.eye(n_in),
-            ub=jnp.zeros(n_in),
-            l=ix.lower,
-            u=ix.upper,
-        )
+    def wrapped(inp) -> LinearBound:
+        lb_init, trace_point, x_lb, x_ub = _resolve_linbp_input(inp)
+        closed_jaxpr = eqx.filter_make_jaxpr(f)(trace_point)[0]
         outs = _linbp_jaxpr(
             closed_jaxpr.jaxpr, closed_jaxpr.literals, lb_init,
             relu_mode=relu_mode, tighten_bounds=tighten_bounds,
-            x_lb=ix.lower, x_ub=ix.upper,
+            x_lb=x_lb, x_ub=x_ub,
         )
         return outs[0] if len(outs) == 1 else outs
 
