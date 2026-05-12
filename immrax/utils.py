@@ -276,22 +276,48 @@ def get_sparse_corners(x: Interval, verbose=False, **kwargs):
 
     return gsc
 
+# @api_boundary
+# @partial(jax.jit, static_argnums=(1,))
+# def get_rohn_corners (A: Interval, sign: Literal['+', '-'] = '+') :
+#     """Gets the 2^n corners of [A] which upper or lower bound x^T A x depending on the chosen sign (+/-)"""
+#     if A.shape[0] != A.shape[1] or len(A.shape) != 2 :
+#         raise Exception(f'A should be a square matrix, got {A.shape}')
+#     n = A.shape[0]
+#     Ac = A.center
+#     Ap = A.pert
+
+#     if sign == '+' :
+#         return jnp.asarray([Ac + jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s)) for s in product(*[[-1, +1] for i in range(n)])])
+#     elif sign == '-' :
+#         return jnp.asarray([Ac - jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s)) for s in product(*[[-1, +1] for i in range(n)])])
+#     else :
+#         raise Exception("pm should be '+' or '-'.")
+
 @api_boundary
 @partial(jax.jit, static_argnums=(1,))
-def get_rohn_corners (A: Interval, sign: Literal['+', '-'] = '+') :
+def get_rohn_corners(A: Interval, sign: Literal["+", "-"] = "+"):
     """Gets the 2^n corners of [A] which upper or lower bound x^T A x depending on the chosen sign (+/-)"""
-    if A.shape[0] != A.shape[1] or len(A.shape) != 2 :
-        raise Exception(f'A should be a square matrix, got {A.shape}')
+    if A.shape[0] != A.shape[1] or len(A.shape) != 2:
+        raise Exception(f"A should be a square matrix, got {A.shape}")
     n = A.shape[0]
     Ac = A.center
     Ap = A.pert
 
-    if sign == '+' :
-        return jnp.asarray([Ac + jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s)) for s in product(*[[-1, +1] for i in range(n)])])
-    elif sign == '-' :
-        return jnp.asarray([Ac - jnp.diag(jnp.asarray(s)) @ Ap @ jnp.diag(jnp.asarray(s)) for s in product(*[[-1, +1] for i in range(n)])])
-    else :
+    # All 2^n sign vectors via bit extraction: bit j of i gives sign j.
+    # 2**n is a compile-time constant (n = A.shape[0] is static).
+    indices = jnp.arange(2**n)                                    # (2^n,)
+    signs = 2 * ((indices[:, None] >> jnp.arange(n)) & 1) - 1    # (2^n, n)
+    # Outer product: diag(s) @ M @ diag(s) = (s[:,None]*s[None,:])*M
+    sign_matrices = signs[:, :, None] * signs[:, None, :]         # (2^n, n, n)
+
+    if sign == "+":
+        return Ac + sign_matrices * Ap
+    elif sign == "-":
+        return Ac - sign_matrices * Ap
+    else:
         raise Exception("pm should be '+' or '-'.")
+
+ 
 
 
 def null_space(A, rcond=None, dim_null: int | None = None):
