@@ -43,7 +43,7 @@ class ParametricEmbedding(ABC):
             _description_
         """
 
-    @partial(jax.jit, static_argnums=(0, 4), static_argnames=("solver", "f_kwargs", "inputs"))
+    @partial(jax.jit, static_argnums=(0, 4), static_argnames=("solver", "f_kwargs", "inputs", "max_steps"))
     def compute_reachset(
         self,
         t0: Union[Integer, Float],
@@ -54,6 +54,7 @@ class ParametricEmbedding(ABC):
         *,
         solver: Union[Literal["euler", "rk45", "tsit5"], AbstractSolver] = "tsit5",
         f_kwargs: immutabledict = immutabledict({}),
+        max_steps: int = 4096,
         **kwargs,
     ):
         def func(t, x, args):
@@ -76,7 +77,7 @@ class ParametricEmbedding(ABC):
 
         saveat = SaveAt(t0=True, t1=True, steps=True)
         return diffeqsolve(
-            term, solver, t0, tf, dt, (pt0, aux0), saveat=saveat, **kwargs
+            term, solver, t0, tf, dt, (pt0, aux0), saveat=saveat, max_steps=max_steps, **kwargs
         )
         # return func(t0, (pt0, aux0), None)
 
