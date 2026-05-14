@@ -255,7 +255,14 @@ def _inclusion_add_p(x: Interval, y: Interval) -> Interval:
 inclusion_registry[lax.add_p] = _inclusion_add_p
 inclusion_registry[ad_util.add_any_p] = _inclusion_add_p
 Interval.__add__ = _inclusion_add_p
+Interval.__radd__ = lambda x, y: _inclusion_add_p(y, x)
 
+
+# HACK
+def _inclusion_floor (x: Interval) -> Interval :
+    # return Interval(jnp.floor(x.lower), jnp.floor(x.upper)) 
+    return jnp.floor(x.lower)
+inclusion_registry[lax.floor_p] = _inclusion_floor
 
 def _inclusion_sub_p(x: Interval, y: Interval) -> Interval:
     if isinstance(x, Interval) and isinstance(y, Interval):
@@ -270,6 +277,7 @@ def _inclusion_sub_p(x: Interval, y: Interval) -> Interval:
 
 inclusion_registry[lax.sub_p] = _inclusion_sub_p
 Interval.__sub__ = _inclusion_sub_p
+Interval.__rsub__ = lambda x, y: _inclusion_sub_p(y, x)
 
 
 def _inclusion_neg_p(x: Interval) -> Interval:
@@ -304,6 +312,7 @@ def _inclusion_mul_p(x: Interval, y: Interval) -> Interval:
 
 inclusion_registry[lax.mul_p] = _inclusion_mul_p
 Interval.__mul__ = _inclusion_mul_p
+Interval.__rmul__ = lambda x, y: _inclusion_mul_p(y, x)
 
 
 def _inclusion_div_p(x: Interval, y: Interval) -> Interval:
@@ -319,7 +328,7 @@ def _inclusion_div_p(x: Interval, y: Interval) -> Interval:
 
 inclusion_registry[lax.div_p] = _inclusion_div_p
 Interval.__truediv__ = _inclusion_div_p
-
+Interval.__rtruediv__ = lambda x,y: _inclusion_div_p(y, x)
 
 def _inclusion_reciprocal_p(x: Interval) -> Interval:
     if not isinstance(x, Interval):
