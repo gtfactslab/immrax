@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Tuple
 
 import jax
@@ -9,8 +10,8 @@ from jaxtyping import ArrayLike
 from ...embedding import embed
 from ...inclusion import (
     Interval,
-    icopy,
     i2ut,
+    icopy,
     interval,
     jacM,
     mjacM,
@@ -18,9 +19,53 @@ from ...inclusion import (
     standard_permutation,
 )
 from ...neural import fastlin
-from ..parametope import Parametope
 from ..embedding import ParametricEmbedding
-from functools import partial
+from ..parametope import Parametope
+
+SAFETY_HEURISTICS = {
+    "barrier_LICQ": lambda alpha: jnp.linalg.det(
+        alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True)
+    ),
+    "condition_number": lambda alpha: (
+        1 / jnp.minimum(jnp.linalg.cond(alpha), jnp.array(10000, dtype=alpha.dtype))
+    ),
+    "normalized_condition_number": lambda alpha: (
+        1
+        / jnp.minimum(
+            jnp.linalg.cond(alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True)),
+            jnp.finfo(alpha.dtype).max / 2,
+        )
+    ),
+}
+
+CLASS_K_FUNCTIONS = {
+    "identity": lambda x: x,
+    "cube": lambda x: x**3,
+    "atan": lambda x: jnp.arctan(x),
+    "frac": lambda x: x / (2*x + 1),
+    "sqrt": lambda x: jnp.sqrt(x),
+    "exp": lambda x: jnp.exp(x) - 1
+}
+
+
+def _cbf_qp_solve(alpha, u0, kap, safety_heuristic_fn, class_k_fn):
+    u0flat = u0.reshape(
+        -1
+    )  # temporarily flatten to get basis for tangent space more easily (in unroll)
+    k = kap * class_k_fn(safety_heuristic_fn(alpha))
+
+    unroll = lambda v: jax.jvp(safety_heuristic_fn, (alpha,), (v.reshape(alpha.shape),))
+    pLgh, Lgh = jax.vmap(unroll)(jnp.eye(alpha.size))
+
+    # jax.debug.breakpoint()
+
+    ustar = jnp.where(
+        Lgh @ u0flat + k >= 0.0,
+        jnp.zeros_like(u0flat),
+        -(Lgh @ u0flat + k) * Lgh.T / (Lgh @ Lgh.T),
+    ).reshape(alpha.shape)
+    return ustar
+
 
 @register_pytree_node_class
 class AffineParametope(Parametope):
@@ -137,50 +182,22 @@ class AdjointEmbedding(ParametricEmbedding):
         else:
             u0 = jnp.zeros_like(-alpha @ J)
 
-        u0flat = u0.reshape(-1)
 
         # CBF: Enforce pairwise independence on the rows of alpha
+        enable_cbf = kwargs.get("enable_cbf", False)
+        safety_heuristic_key = kwargs.get("safety_heuristic", "condition_number")
+        class_k_key = kwargs.get("class_K", "atan")
 
-        PENALTY = 0
-
-        if PENALTY == 0:
+        if not enable_cbf:
             ustar = jnp.zeros_like(u0)
-
-        elif PENALTY == 1:
-
-            def soft_overmax(x, eps=1e-5):
-                return jnp.max(jnp.exp(x) / jnp.sum(jnp.exp(x)))
-
-            def barrier_LICQ(alpha):
-                # Normalize rows of alpha
-                return jnp.linalg.det(
-                    alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True)
-                )
-                # return jnp.linalg.slogdet(alpha / jnp.linalg.norm(alpha, axis=1, keepdims=True))[1]
-
-            balpha = barrier_LICQ(alpha)
-            k = self.kap * balpha**3
-
-            pLfh, Lfh = jax.jvp(barrier_LICQ, (alpha,), (u0,))
-            unroll = lambda v: jax.jvp(
-                barrier_LICQ, (alpha,), (v.reshape(alpha.shape),)
+        else:
+            ustar = _cbf_qp_solve(
+                alpha,
+                u0,
+                self.kap,
+                SAFETY_HEURISTICS[safety_heuristic_key],
+                CLASS_K_FUNCTIONS[class_k_key],
             )
-            pLgh, Lgh = jax.vmap(unroll)(jnp.eye(alpha.size))
-
-            # Solution to QP
-            ustar = jnp.where(
-                Lfh + Lgh @ u0flat + k >= 0.0,
-                jnp.zeros_like(u0flat),  # constraint inactive
-                -(Lfh + Lgh @ u0flat + k) * Lgh.T / (Lgh @ Lgh.T),
-            ).reshape(alpha.shape)
-        elif PENALTY == 2:
-            ustar = jnp.zeros_like(u0)
-
-            def soft(H):
-                HHT = H @ H.T
-                return jnp.sum((HHT - jnp.eye(H.shape[0])) ** 2)
-
-            ustar = -self.kap * jax.grad(soft)(alpha)
 
         ## Offset Dynamics given ustar
 

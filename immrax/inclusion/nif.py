@@ -1,9 +1,8 @@
-from functools import wraps
+from functools import partial, wraps
 from typing import Any, Callable, Sequence
 
 import equinox as eqx
 import jax
-from jax._src.debugging import debug_callback_p
 import jax.numpy as jnp
 from jax import jit, lax, vmap
 from jax._src import ad_util, config, source_info_util
@@ -16,13 +15,13 @@ from jax._src.core import (
     last_used,
     typecheck,
 )
+from jax._src.debugging import debug_callback_p
+from jax._src.lax import linalg as LA
 from jax._src.util import safe_map
 from jax.extend.core import Primitive
-from jax._src.lax import linalg as LA
 
 # TODO: import only necessary things
 from immrax.inclusion.interval import Interval, interval
-from functools import partial
 
 """
 This file implements the Natural Inclusion Function as an interpreter of Jaxprs.
@@ -55,8 +54,7 @@ def natif(
     @jit
     @wraps(f)
     def wrapped(*args, **kwargs):
-        """Natural inclusion function.
-        """
+        """Natural inclusion function."""
         # Traverse the args and kwargs, replacing intervals with lower bounds.
         # Convert args to at least jax.Array when they are not interval
         getlower = lambda x: x.lower if isinstance(x, Interval) else jnp.asarray(x)
@@ -152,12 +150,12 @@ _add_passthrough_to_registry(lax.scatter_p)
 _add_passthrough_to_registry(lax.scatter_add_p)
 _add_passthrough_to_registry(lax.scatter_max_p)
 _add_passthrough_to_registry(lax.scatter_min_p)
+_add_passthrough_to_registry(lax.cond_p)
 if hasattr(lax, "select_p"):
     _add_passthrough_to_registry(lax.select_p)
 if hasattr(lax, "select_n_p"):
     _add_passthrough_to_registry(lax.select_n_p)
 _add_passthrough_to_registry(lax.iota_p)
-_add_passthrough_to_registry(lax.eq_p)
 _add_passthrough_to_registry(lax.convert_element_type_p)
 _add_passthrough_to_registry(lax.reduce_max_p)
 _add_passthrough_to_registry(lax.reduce_min_p)
@@ -166,9 +164,6 @@ _add_passthrough_to_registry(lax.min_p)
 _add_passthrough_to_registry(lax.exp_p)
 _add_passthrough_to_registry(lax.reduce_sum_p)
 _add_passthrough_to_registry(lax.pad_p)
-_add_passthrough_to_registry(lax.ne_p)
-_add_passthrough_to_registry(lax.lt_p)
-_add_passthrough_to_registry(lax.lt_to_p)
 _add_passthrough_to_registry(debug_callback_p)
 
 """
@@ -584,17 +579,21 @@ inclusion_registry[lax.pow_p] = _inclusion_pow_p
 # inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
 _add_passthrough_to_registry(lax.tanh_p)
 
-def _inclusion_log_p(x: Interval, accuracy=None) -> Interval :
+
+def _inclusion_log_p(x: Interval, accuracy=None) -> Interval:
     ol = jnp.where((x.lower < 0), -jnp.inf, jnp.log(x.lower))
     ou = jnp.where((x.lower < 0), -jnp.inf, jnp.log(x.upper))
     return Interval(ol, ou)
 
+
 inclusion_registry[lax.log_p] = _inclusion_log_p
 
-def _inclusion_log1p_p(x: Interval, accuracy=None) -> Interval :
+
+def _inclusion_log1p_p(x: Interval, accuracy=None) -> Interval:
     ol = jnp.where((x.lower < -1), -jnp.inf, jnp.log1p(x.lower))
     ou = jnp.where((x.lower < -1), -jnp.inf, jnp.log1p(x.upper))
     return Interval(ol, ou)
+
 
 inclusion_registry[lax.log1p_p] = _inclusion_log1p_p
 
@@ -723,3 +722,41 @@ def _inclusion_triangular_solve(
 inclusion_registry[LA.triangular_solve_p] = _inclusion_triangular_solve
 
 # natif(lambda A, b, left_side=True, lower=True, transpose_a=False, conjugate_a=False, unit_diagonal=False: _manual_triangular_solve(A, b, left_side=left_side, lower=lower, transpose_a=transpose_a, conjugate_a=conjugate_a, unit_diagonal=unit_diagonal))
+
+
+# =============================================================================
+# Guards against native JAX comparison primitives
+# =============================================================================
+# Native JAX comparisons (e.g., a < b) are ambiguous for intervals because
+# interval comparison requires specifying which Allen relation to check.
+# Users should use immrax.comparison functions (lt, le, eq, etc.) or the
+# Interval comparison operators which use sensible defaults.
+
+
+def _make_comparison_guard(primitive_name: str) -> Callable:
+    """Creates a guard function that raises NotImplementedError for comparison primitives."""
+
+    def _guard(*args, **kwargs):
+        raise NotImplementedError(
+            f"Native JAX comparison '{primitive_name}' is ambiguous for intervals.\n\n"
+            f"Interval comparison involves 13 possible Allen relations (PRECEDES, MEETS, "
+            f"OVERLAPS, etc.), and a simple True/False answer requires specifying which "
+            f"relations constitute 'True'.\n\n"
+            f"Use one of the following instead:\n"
+            f"  - Interval operators: a < b, a <= b, a == b, a >= b, a > b\n"
+            f"    (These use sensible defaults: < means PRECEDES, == means EQUAL, etc.)\n"
+            f"  - immrax.comparison.lt(a, b, relation_mask=...) for custom relation masks\n"
+            f"  - immrax.comparison.interval_compare(a, b) to get the full Allen relation\n\n"
+            f"See immrax.comparison for IntervalRelation constants and documentation."
+        )
+
+    return _guard
+
+
+# Register guards for all native JAX comparison primitives
+inclusion_registry[lax.lt_p] = _make_comparison_guard("lt")
+inclusion_registry[lax.le_p] = _make_comparison_guard("le")
+inclusion_registry[lax.eq_p] = _make_comparison_guard("eq")
+inclusion_registry[lax.ne_p] = _make_comparison_guard("ne")
+inclusion_registry[lax.gt_p] = _make_comparison_guard("gt")
+inclusion_registry[lax.ge_p] = _make_comparison_guard("ge")
