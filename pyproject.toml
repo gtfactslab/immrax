@@ -1,35 +1,21 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.metadata]
-allow-direct-references = true
-
-[tool.pytest.ini_options]
-pythonpath = ["."]
-
-[tool.ruff]
-
-[tool.ruff.lint]
-
-ignore = ["E731"] # We like lambda functions
-
 [project]
 name = "immrax"
-version = "0.3.6"
+version = "0.3.7b1"
+description = "Fast, guaranteed reachable set over-approximation using interval analysis"
 readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.11"
 
 dependencies = [
-    "shapely ~= 2.0.6",
-    "matplotlib ~= 3.9.2",
-    "pypoman ~= 1.1.0",
-    "tabulate ~= 0.9.0",
-    "jax >= 0.6.1",
-    "jaxtyping >= 0.2.33",
-    "diffrax >= 0.7.0",
-    "equinox >= 0.12.2",
-    "immutabledict >= 4.2.0",
-    "linrax >= 0.1.0",
+    "diffrax>=0.7.0",
+    "equinox>=0.12.2",
+    "immutabledict>=4.2.0",
+    "jax>=0.6.1",
+    "jaxtyping>=0.2.33",
+    "linrax~=0.3.0",
+    "matplotlib~=3.9.2",
+    "pypoman~=1.1.0",
+    "shapely~=2.0.6",
+    "tabulate~=0.9.0",
 ]
 
 [project.urls]
@@ -39,10 +25,45 @@ dependencies = [
 "Source Code" = "https://github.com/gtfactslab/immrax"
 
 [project.optional-dependencies]
+cuda12 = [
+    "jax[cuda12]>=0.6.1",
+]
+cuda13 = [
+    "jax[cuda13]>=0.7.0",
+]
 examples = [
-    "casadi ~= 3.6.7",
-    "control ~= 0.10.1",
-    # "cyipopt ~= 1.5.0", # This is a pain to install manually, better to do with conda
-    "ipykernel ~= 6.29.5",
-    "ipympl ~= 0.9.7"
+    "casadi~=3.6.7",
+    "control~=0.10.1",
+    "ipykernel~=6.29.5",
+    "ipympl~=0.9.7",
+]
+
+[tool.uv]
+conflicts = [
+    [
+        {extra = "cuda12"},
+        {extra = "cuda13"},
+    ],
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+
+[tool.ruff.lint]
+
+ignore = [
+	"E731", # We like lambda functions
+	"F722", # jaxtyping dimension annotations
 ]
