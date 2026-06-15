@@ -35,9 +35,9 @@ def _build_net(arch: list[int], activation: str, key: jax.Array):
     activation = 'relu' | 'sigmoid' | 'tanh'
     """
     act_fns = {
-        'relu': jax.nn.relu,
-        'sigmoid': jax.nn.sigmoid,
-        'tanh': lambda x: 2 * jax.nn.sigmoid(2 * x) - 1,
+        "relu": jax.nn.relu,
+        "sigmoid": jax.nn.sigmoid,
+        "tanh": lambda x: 2 * jax.nn.sigmoid(2 * x) - 1,
     }
     act_fn = act_fns[activation]
     layers = []
@@ -54,12 +54,12 @@ def _build_net(arch: list[int], activation: str, key: jax.Array):
 # ---------------------------------------------------------------------------
 
 _ARCH_ACTIVATION_PARAMS = [
-    pytest.param(([2, 4, 1], 'relu'),    id="2-4-1/relu"),
-    pytest.param(([3, 8, 4, 2], 'relu'), id="3-8-4-2/relu"),
-    pytest.param(([2, 4, 2], 'relu'),    id="2-4-2/relu"),
-    pytest.param(([2, 6, 1], 'sigmoid'), id="2-6-1/sigmoid"),
-    pytest.param(([2, 6, 2], 'tanh'),    id="2-6-2/tanh"),
-    pytest.param(([4, 8, 4, 2], 'relu'), id="4-8-4-2/relu"),
+    pytest.param(([2, 4, 1], "relu"), id="2-4-1/relu"),
+    pytest.param(([3, 8, 4, 2], "relu"), id="3-8-4-2/relu"),
+    pytest.param(([2, 4, 2], "relu"), id="2-4-2/relu"),
+    pytest.param(([2, 6, 1], "sigmoid"), id="2-6-1/sigmoid"),
+    pytest.param(([2, 6, 2], "tanh"), id="2-6-2/tanh"),
+    pytest.param(([4, 8, 4, 2], "relu"), id="4-8-4-2/relu"),
 ]
 
 _NET_KEY_PARAMS = [
@@ -69,16 +69,16 @@ _NET_KEY_PARAMS = [
 ]
 
 _INPUT_INTERVAL_PARAMS = [
-    pytest.param('unit',  id="unit-box"),   # [-1,1]^n
-    pytest.param('small', id="small-box"),  # center±0.2
-    pytest.param('asym',  id="asym-box"),   # asymmetric
+    pytest.param("unit", id="unit-box"),  # [-1,1]^n
+    pytest.param("small", id="small-box"),  # center±0.2
+    pytest.param("asym", id="asym-box"),  # asymmetric
 ]
 
 
 def _make_interval(kind: str, n_in: int) -> irx.Interval:
-    if kind == 'unit':
+    if kind == "unit":
         return interval(jnp.full(n_in, -1.0), jnp.full(n_in, 1.0))
-    elif kind == 'small':
+    elif kind == "small":
         center = jnp.arange(1, n_in + 1, dtype=jnp.float32) * 0.5
         return irx.icentpert(center, 0.2)
     else:  # asym
@@ -115,29 +115,30 @@ def net_and_ix(arch_act, net_key, input_kind):
 # Tests: LinearBound / linbp
 # ---------------------------------------------------------------------------
 
+
 def test_linbp_returns_linearbound(arch_act, net_key):
     arch, activation = arch_act
     net = _build_net(arch, activation, jax.random.PRNGKey(net_key))
     n_in, n_out = arch[0], arch[-1]
-    ix = _make_interval('unit', n_in)
+    ix = _make_interval("unit", n_in)
 
-    lb = linbp(net, relu_mode='adaptive')(ix)
+    lb = linbp(net, relu_mode="adaptive")(ix)
 
     assert isinstance(lb, LinearBound)
     assert lb.lA.shape == (n_out, n_in)
     assert lb.uA.shape == (n_out, n_in)
     assert lb.lb.shape == (n_out,)
     assert lb.ub.shape == (n_out,)
-    assert lb.l.shape  == (n_out,)
-    assert lb.u.shape  == (n_out,)
+    assert lb.l.shape == (n_out,)
+    assert lb.u.shape == (n_out,)
 
 
 def test_linbp_pytree(arch_act, net_key):
     """LinearBound survives a JAX pytree round-trip."""
     arch, activation = arch_act
     net = _build_net(arch, activation, jax.random.PRNGKey(net_key))
-    ix = _make_interval('unit', arch[0])
-    lb = linbp(net, relu_mode='adaptive')(ix)
+    ix = _make_interval("unit", arch[0])
+    lb = linbp(net, relu_mode="adaptive")(ix)
 
     leaves, treedef = jax.tree_util.tree_flatten(lb)
     lb2 = jax.tree_util.tree_unflatten(treedef, leaves)
@@ -155,8 +156,8 @@ def test_linbp_bounds_valid(arch_act, net_key):
     """
     arch, activation = arch_act
     net = _build_net(arch, activation, jax.random.PRNGKey(net_key))
-    ix = _make_interval('small', arch[0])
-    lb = linbp(net, relu_mode='adaptive')(ix)
+    ix = _make_interval("small", arch[0])
+    lb = linbp(net, relu_mode="adaptive")(ix)
 
     assert jnp.all(lb.l <= lb.u), "Concrete lower must be <= upper"
 
@@ -164,6 +165,7 @@ def test_linbp_bounds_valid(arch_act, net_key):
 # ---------------------------------------------------------------------------
 # Tests: crown() overapproximation
 # ---------------------------------------------------------------------------
+
 
 def test_crown_output_type(net_and_ix):
     net, ix = net_and_ix
@@ -238,6 +240,7 @@ def test_crown_pointwise_contains(net_and_ix):
 # Tests: fastlin() overapproximation
 # ---------------------------------------------------------------------------
 
+
 def test_fastlin_output_type(net_and_ix):
     net, ix = net_and_ix
     fl_fn = fastlin(net)
@@ -284,12 +287,15 @@ def test_fastlin_contains_output(net_and_ix):
     )
 
 
-@pytest.mark.parametrize("arch_act,net_key", [
-    (([2, 4, 1], 'relu'), 0),
-    (([3, 8, 4, 2], 'relu'), 1),
-    (([2, 4, 2], 'relu'), 7),
-    (([4, 8, 4, 2], 'relu'), 0),
-])
+@pytest.mark.parametrize(
+    "arch_act,net_key",
+    [
+        (([2, 4, 1], "relu"), 0),
+        (([3, 8, 4, 2], "relu"), 1),
+        (([2, 4, 2], "relu"), 7),
+        (([4, 8, 4, 2], "relu"), 0),
+    ],
+)
 def test_fastlin_symmetric_matrix(arch_act, net_key):
     """FastLin uses lA == uA (the shared ReLU slope is the same for upper/lower).
 
@@ -298,9 +304,9 @@ def test_fastlin_symmetric_matrix(arch_act, net_key):
     """
     arch, activation = arch_act
     net = _build_net(arch, activation, jax.random.PRNGKey(net_key))
-    ix = _make_interval('unit', arch[0])
+    ix = _make_interval("unit", arch[0])
 
-    lb = linbp(net, relu_mode='same-slope')(ix)
+    lb = linbp(net, relu_mode="same-slope")(ix)
     assert jnp.allclose(lb.lA, lb.uA, atol=1e-6), (
         "FastLin should have lA == uA (parallel upper/lower slopes)"
     )
@@ -370,13 +376,13 @@ def test_general_fn_contains_output(fn, ix, relu_mode):
 # ---------------------------------------------------------------------------
 
 _SIGMOID_INTERVALS = [
-    pytest.param((-2.0, -0.5), id="neg-neg"),        # fully convex region
-    pytest.param((0.5, 2.0),   id="pos-pos"),         # fully concave region
-    pytest.param((-1.0, 1.0),  id="sym-mixed"),       # symmetric straddles inflection
-    pytest.param((-1.0, 2.0),  id="mixed-wide-pos"),  # |u| > |l|
-    pytest.param((-2.0, 0.5),  id="mixed-wide-neg"),  # |l| > |u|
-    pytest.param((-3.0, 3.0),  id="large-sym"),       # large symmetric
-    pytest.param((-0.01, 0.01), id="tiny"),           # near-degenerate interval
+    pytest.param((-2.0, -0.5), id="neg-neg"),  # fully convex region
+    pytest.param((0.5, 2.0), id="pos-pos"),  # fully concave region
+    pytest.param((-1.0, 1.0), id="sym-mixed"),  # symmetric straddles inflection
+    pytest.param((-1.0, 2.0), id="mixed-wide-pos"),  # |u| > |l|
+    pytest.param((-2.0, 0.5), id="mixed-wide-neg"),  # |l| > |u|
+    pytest.param((-3.0, 3.0), id="large-sym"),  # large symmetric
+    pytest.param((-0.01, 0.01), id="tiny"),  # near-degenerate interval
 ]
 
 N_DENSE = 2000  # dense grid for pointwise bound checks
@@ -387,7 +393,7 @@ def test_logistic_upper_bound_valid(lu):
     """Chord-based sigmoid upper affine bound is >= sigma(x) for all x in [l, u]."""
     l_val, u_val = lu
     ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
-    lb = linbp(jax.nn.sigmoid, relu_mode='same-slope')(ix)
+    lb = linbp(jax.nn.sigmoid, relu_mode="same-slope")(ix)
 
     alpha_u, beta_u = float(lb.uA[0, 0]), float(lb.ub[0])
     xs = jnp.linspace(l_val, u_val, N_DENSE)
@@ -408,7 +414,7 @@ def test_logistic_lower_bound_valid(lu):
     """Chord-based sigmoid lower affine bound is <= sigma(x) for all x in [l, u]."""
     l_val, u_val = lu
     ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
-    lb = linbp(jax.nn.sigmoid, relu_mode='same-slope')(ix)
+    lb = linbp(jax.nn.sigmoid, relu_mode="same-slope")(ix)
 
     alpha_l, beta_l = float(lb.lA[0, 0]), float(lb.lb[0])
     xs = jnp.linspace(l_val, u_val, N_DENSE)
@@ -429,7 +435,7 @@ def test_logistic_nontrivial_slope(lu):
     """The sigmoid relaxation preserves a non-zero slope (lA != 0)."""
     l_val, u_val = lu
     ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
-    lb = linbp(jax.nn.sigmoid, relu_mode='same-slope')(ix)
+    lb = linbp(jax.nn.sigmoid, relu_mode="same-slope")(ix)
 
     assert float(jnp.abs(lb.lA[0, 0])) > 1e-8, (
         f"Sigmoid lA should be non-zero on [{l_val}, {u_val}], got {float(lb.lA[0, 0])}"
@@ -442,7 +448,7 @@ def test_tanh_upper_bound_valid(lu):
     l_val, u_val = lu
     ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
     tanh_fn = lambda x: 2 * jax.nn.sigmoid(2 * x) - 1
-    lb = linbp(tanh_fn, relu_mode='same-slope')(ix)
+    lb = linbp(tanh_fn, relu_mode="same-slope")(ix)
 
     alpha_u, beta_u = float(lb.uA[0, 0]), float(lb.ub[0])
     xs = jnp.linspace(l_val, u_val, N_DENSE)
@@ -463,7 +469,7 @@ def test_tanh_lower_bound_valid(lu):
     l_val, u_val = lu
     ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
     tanh_fn = lambda x: 2 * jax.nn.sigmoid(2 * x) - 1
-    lb = linbp(tanh_fn, relu_mode='same-slope')(ix)
+    lb = linbp(tanh_fn, relu_mode="same-slope")(ix)
 
     alpha_l, beta_l = float(lb.lA[0, 0]), float(lb.lb[0])
     xs = jnp.linspace(l_val, u_val, N_DENSE)
@@ -483,7 +489,7 @@ def test_logistic_concrete_bounds_valid(lu):
     """Concrete bounds l, u from logistic handler contain sigma([l_val, u_val])."""
     l_val, u_val = lu
     ix = irx.interval(jnp.array([l_val]), jnp.array([u_val]))
-    lb = linbp(jax.nn.sigmoid, relu_mode='same-slope')(ix)
+    lb = linbp(jax.nn.sigmoid, relu_mode="same-slope")(ix)
 
     sig_l, sig_u = float(jax.nn.sigmoid(l_val)), float(jax.nn.sigmoid(u_val))
     tol = 1e-6
@@ -499,19 +505,20 @@ def test_logistic_concrete_bounds_valid(lu):
 # Tests: LinearBound input to linbp
 # ---------------------------------------------------------------------------
 
+
 def test_linbp_accepts_linearbound_input(arch_act, net_key):
     """linbp's returned function accepts a LinearBound and produces a valid result."""
     arch, activation = arch_act
     n_in, n_out = arch[0], arch[-1]
     net = _build_net(arch, activation, jax.random.PRNGKey(net_key))
-    ix = _make_interval('small', n_in)
+    ix = _make_interval("small", n_in)
 
     # Get a LinearBound from the first call
-    lb_in = linbp(net, relu_mode='adaptive')(ix)
+    lb_in = linbp(net, relu_mode="adaptive")(ix)
 
     # Build a trivial identity function to re-propagate through
     identity = lambda x: x
-    lb_out = linbp(identity, relu_mode='adaptive')(lb_in)
+    lb_out = linbp(identity, relu_mode="adaptive")(lb_in)
 
     # Identity should leave the LinearBound unchanged
     assert jnp.allclose(lb_out.lA, lb_in.lA, atol=1e-6)
@@ -530,14 +537,15 @@ def test_linbp_chained_contains_output(arch_act, net_key):
     net2 = _build_net([4, 4, n_out], activation, jax.random.PRNGKey(net_key + 100))
     chained = lambda x: net2(net1(x))
 
-    ix = _make_interval('small', n_in)
+    ix = _make_interval("small", n_in)
 
     # Chain via LinearBound: linbp(net2)(linbp(net1)(ix))
-    lb1 = linbp(net1, relu_mode='adaptive')(ix)
-    lb2 = linbp(net2, relu_mode='adaptive')(lb1)
+    lb1 = linbp(net1, relu_mode="adaptive")(ix)
+    lb2 = linbp(net2, relu_mode="adaptive")(lb1)
 
     # Concretize to an interval
     from immrax.inclusion.linbp import _concretize
+
     result = _concretize(lb2, ix.lower, ix.upper)
 
     # Sample and verify containment
@@ -559,5 +567,6 @@ def test_resolve_linbp_input_type_error():
     """_resolve_linbp_input raises TypeError for unsupported inputs."""
     from immrax.inclusion.linbp import _resolve_linbp_input
     import pytest
+
     with pytest.raises(TypeError, match="Interval or LinearBound"):
         _resolve_linbp_input(jnp.array([1.0, 2.0]))

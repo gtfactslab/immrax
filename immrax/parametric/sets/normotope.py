@@ -137,15 +137,15 @@ class NormotopeEmbedding(ParametricEmbedding):
 
         self.NT = nt0.__class__
 
-        if isinstance(nt0, L2Normotope) :
-            self.gsc = partial(get_rohn_corners, sign='+')
+        if isinstance(nt0, L2Normotope):
+            self.gsc = partial(get_rohn_corners, sign="+")
         elif not no_gsc:
             ix0 = nt0.iover()
             M = self.Mf(0.0, ix0, centers=((jnp.zeros(1), nt0.ox),))[0][1]
             self.gsc = get_sparse_corners(interval(M))
         else:
             self.gsc = get_corners
-        
+
         return None
 
     # @partial(jax.jit, static_argnums=(0,), static_argnames=("perm", "adjoint"))

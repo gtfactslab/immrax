@@ -95,11 +95,11 @@ class NeuralNetwork(eqx.Module, Control):
                     mods.append(nn.Lambda(lambda x: 2 * jax.nn.sigmoid(2 * x) - 1))
                 elif a.lower() == "logsig":
                     mods.append(nn.Lambda(jax.nn.log_sigmoid))
-                elif a.lower() == 'softplus' :
+                elif a.lower() == "softplus":
                     # jax.nn.softplus uses a custom jvp call
                     # mods.append(nn.Lambda(jax.nn.softplus))
                     # mods.append(nn.Lambda(lambda x : jnp.log(1 + jnp.exp(x))))
-                    mods.append(nn.Lambda(lambda x : jnp.log1p(jnp.exp(x))))
+                    mods.append(nn.Lambda(lambda x: jnp.log1p(jnp.exp(x))))
 
         self.seq = nn.Sequential(mods)
 
@@ -115,10 +115,10 @@ class NeuralNetwork(eqx.Module, Control):
 
     def save(self, verbose=True):
         savepath = self.dir.joinpath("model.eqx")
-        if verbose :
+        if verbose:
             print(f"Saving model to {savepath}...", end="")
         eqx.tree_serialise_leaves(savepath, self.seq)
-        if verbose :
+        if verbose:
             print(" done.")
 
     # def load (self, path) :
@@ -205,7 +205,7 @@ class CROWNResult(namedtuple("CROWNResult", ["lC", "uC", "ld", "ud"])):
 def crown(
     f: Callable[..., jax.Array], out_len: int = None
 ) -> Callable[..., CROWNResult]:
-    lb_fn = linbp(f, relu_mode='adaptive')
+    lb_fn = linbp(f, relu_mode="adaptive")
 
     def F(ix: Interval) -> CROWNResult:
         lb = lb_fn(ix)
@@ -235,7 +235,7 @@ class FastlinResult(namedtuple("FastlinResult", ["C", "ld", "ud"])):
 def fastlin(
     f: Callable[..., jax.Array], out_len: int = None
 ) -> Callable[..., FastlinResult]:
-    lb_fn = linbp(f, relu_mode='same-slope')
+    lb_fn = linbp(f, relu_mode="same-slope")
 
     def F(ix: Interval) -> FastlinResult:
         lb = lb_fn(ix)

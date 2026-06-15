@@ -22,6 +22,7 @@ from ..parametope import Parametope
 from ..embedding import ParametricEmbedding
 from functools import partial
 
+
 @register_pytree_node_class
 class AffineParametope(Parametope):
     r"""Defines a parametope with the particular structured nonlinearity
