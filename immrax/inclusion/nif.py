@@ -22,6 +22,7 @@ from jax._src.lax import linalg as LA
 
 # TODO: import only necessary things
 from immrax.inclusion.interval import Interval, interval
+from immrax.inclusion._jax_compat import split_bind_params, jit_primitive
 from functools import partial
 
 """
@@ -89,7 +90,7 @@ def natif_jaxpr(jaxpr: Jaxpr, consts, *args, propagate_source_info=True) -> list
     safe_map(write, jaxpr.invars, args)
     lu = last_used(jaxpr)
     for eqn in jaxpr.eqns:
-        subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+        subfuns, bind_params = split_bind_params(eqn.primitive, eqn.params)
         name_stack = source_info_util.current_name_stack() + eqn.source_info.name_stack
         traceback = eqn.source_info.traceback if propagate_source_info else None
         with source_info_util.user_context(traceback, name_stack=name_stack):
@@ -207,10 +208,8 @@ def _inclusion_pjit_p(*args, **bind_params) -> Interval:
     return natif_jaxpr(bind_jaxpr, [], *args)
 
 
-# jax >= 0.9 renamed pjit_p to jit_p
-_jit_primitive = getattr(jax._src.pjit, "jit_p", getattr(jax._src.pjit, "pjit_p", None))
-if _jit_primitive is not None:
-    inclusion_registry[_jit_primitive] = _inclusion_pjit_p
+if jit_primitive is not None:
+    inclusion_registry[jit_primitive] = _inclusion_pjit_p
 
 
 def _inclusion_scan_p(*args, **bind_params) -> Interval:
@@ -284,7 +283,8 @@ inclusion_registry[lax.neg_p] = _inclusion_neg_p
 Interval.__neg__ = _inclusion_neg_p
 
 
-def _inclusion_mul_p(x: Interval, y: Interval) -> Interval:
+def _inclusion_mul_p(x: Interval, y: Interval, *, out_dtype=None) -> Interval:
+    # jax >= 0.10 binds mul_p with an out_dtype param; ignored for interval arithmetic
     if isinstance(x, Interval) and isinstance(y, Interval):
         _1 = x.lower * y.lower
         _2 = x.lower * y.upper

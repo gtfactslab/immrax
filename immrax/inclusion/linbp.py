@@ -19,6 +19,7 @@ from jax._src.util import safe_map
 from jax.tree_util import register_pytree_node_class
 
 from immrax.inclusion.interval import Interval, interval
+from immrax.inclusion._jax_compat import split_bind_params, jit_primitive
 
 """
 Forward linear bound propagation through a JAX function via Jaxpr interpretation.
@@ -132,7 +133,10 @@ def _linbp_jaxpr(
             return a
         concrete = _concretize(a, x_lb, x_ub)
         return LinearBound(
-            a.lA, a.lb, a.uA, a.ub,
+            a.lA,
+            a.lb,
+            a.uA,
+            a.ub,
             jnp.maximum(a.l, concrete.lower),
             jnp.minimum(a.u, concrete.upper),
         )
@@ -150,8 +154,8 @@ def _linbp_jaxpr(
             if any(isinstance(v, LinearBound) for v in invars):
                 if eqn.primitive not in linbp_registry:
                     raise NotImplementedError(f"{eqn.primitive} not in linbp_registry")
-                # Pass eqn.params directly (avoids get_bind_params moving things like
-                # call_jaxpr/num_consts out of kwargs and into subfuns).
+                # Pass eqn.params directly (avoids split_bind_params moving things
+                # like call_jaxpr/num_consts out of kwargs and into subfuns).
                 # Only recursive primitives (jit_p, custom_jvp_call_p) need
                 # tighten_bounds/x_lb/x_ub — they forward them to nested jaxpr calls.
                 if eqn.primitive in _linbp_recursive_prims:
@@ -159,7 +163,10 @@ def _linbp_jaxpr(
                 else:
                     extra = {}
                 ans = linbp_registry[eqn.primitive](
-                    *invars, relu_mode=relu_mode, **extra, **eqn.params,
+                    *invars,
+                    relu_mode=relu_mode,
+                    **extra,
+                    **eqn.params,
                 )
                 if tighten_bounds and eqn.primitive in _linbp_tighten_prims:
                     if eqn.primitive.multiple_results:
@@ -167,7 +174,7 @@ def _linbp_jaxpr(
                     else:
                         ans = _tighten(ans)
             else:
-                subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+                subfuns, bind_params = split_bind_params(eqn.primitive, eqn.params)
                 ans = eqn.primitive.bind(*subfuns, *invars, **bind_params)
         if eqn.primitive.multiple_results:
             safe_map(write, eqn.outvars, ans)
@@ -481,8 +488,8 @@ def _linbp_max_p(x, y, *, relu_mode, **kwargs):
 
     l, u = lb_in.l, lb_in.u
 
-    on = l >= c        # always above threshold: max(x, c) = x
-    off = u <= c       # always below threshold: max(x, c) = c
+    on = l >= c  # always above threshold: max(x, c) = x
+    off = u <= c  # always below threshold: max(x, c) = c
     active = ~on & ~off
 
     safe_denom = jnp.where(active, u - l, 1.0)
@@ -517,7 +524,9 @@ def _linbp_max_p(x, y, *, relu_mode, **kwargs):
     lA = alpha_l[..., None] * lb_in.lA
     lb = alpha_l * lb_in.lb + beta_l
 
-    return LinearBound(lA=lA, lb=lb, uA=uA, ub=ub, l=jnp.maximum(l, c), u=jnp.maximum(u, c))
+    return LinearBound(
+        lA=lA, lb=lb, uA=uA, ub=ub, l=jnp.maximum(l, c), u=jnp.maximum(u, c)
+    )
 
 
 linbp_registry[lax.max_p] = _linbp_max_p
@@ -557,8 +566,8 @@ def _linbp_min_p(x, y, *, relu_mode, **kwargs):
 
     l, u = lb_in.l, lb_in.u
 
-    on = u <= c        # always below threshold: min(x, c) = x
-    off = l >= c       # always above threshold: min(x, c) = c
+    on = u <= c  # always below threshold: min(x, c) = x
+    off = l >= c  # always above threshold: min(x, c) = c
     active = ~on & ~off
 
     safe_denom = jnp.where(active, u - l, 1.0)
@@ -593,7 +602,9 @@ def _linbp_min_p(x, y, *, relu_mode, **kwargs):
     lA = alpha_l[..., None] * lb_in.lA
     lb = alpha_l * lb_in.lb + beta_l
 
-    return LinearBound(lA=lA, lb=lb, uA=uA, ub=ub, l=jnp.minimum(l, c), u=jnp.minimum(u, c))
+    return LinearBound(
+        lA=lA, lb=lb, uA=uA, ub=ub, l=jnp.minimum(l, c), u=jnp.minimum(u, c)
+    )
 
 
 linbp_registry[lax.min_p] = _linbp_min_p
@@ -637,12 +648,12 @@ def _linbp_logistic_p(x, *, relu_mode, **kwargs):
 
     # Upper critical point in concave region (x*_upper ≥ 0)
     sig_xu = (1.0 + disc) / 2.0
-    x_upper = jnp.log(sig_xu) - jnp.log(1.0 - sig_xu)   # logit
+    x_upper = jnp.log(sig_xu) - jnp.log(1.0 - sig_xu)  # logit
     beta_u_crit = sig_xu - alpha * x_upper
 
     # Lower critical point in convex region (x*_lower ≤ 0)
     sig_xl = (1.0 - disc) / 2.0
-    x_lower = jnp.log(sig_xl) - jnp.log(1.0 - sig_xl)   # logit
+    x_lower = jnp.log(sig_xl) - jnp.log(1.0 - sig_xl)  # logit
     beta_l_crit = sig_xl - alpha * x_lower
 
     # Use the critical-point intercept only when the critical point is in [l, u].
@@ -663,23 +674,39 @@ def _linbp_logistic_p(x, *, relu_mode, **kwargs):
 linbp_registry[lax.logistic_p] = _linbp_logistic_p
 
 
-def _linbp_jit_p(*args, relu_mode, tighten_bounds=True, x_lb=None, x_ub=None, **bind_params):
+def _linbp_jit_p(
+    *args, relu_mode, tighten_bounds=True, x_lb=None, x_ub=None, **bind_params
+):
     """Handle jit_p (jax >= 0.9) / pjit_p (jax < 0.9) by recursing."""
     bind_jaxpr = bind_params.pop("jaxpr")
     if isinstance(bind_jaxpr, jax.extend.core.ClosedJaxpr):
         bind_jaxpr = bind_jaxpr.jaxpr
-    return _linbp_jaxpr(bind_jaxpr, [], *args, relu_mode=relu_mode,
-                        tighten_bounds=tighten_bounds, x_lb=x_lb, x_ub=x_ub)
+    return _linbp_jaxpr(
+        bind_jaxpr,
+        [],
+        *args,
+        relu_mode=relu_mode,
+        tighten_bounds=tighten_bounds,
+        x_lb=x_lb,
+        x_ub=x_ub,
+    )
 
 
-_jit_primitive = getattr(jax._src.pjit, "jit_p", getattr(jax._src.pjit, "pjit_p", None))
-if _jit_primitive is not None:
-    linbp_registry[_jit_primitive] = _linbp_jit_p
-    _linbp_recursive_prims.add(_jit_primitive)
+if jit_primitive is not None:
+    linbp_registry[jit_primitive] = _linbp_jit_p
+    _linbp_recursive_prims.add(jit_primitive)
 
 
-def _linbp_custom_jvp_call_p(*args, relu_mode, call_jaxpr, num_consts,
-                             tighten_bounds=True, x_lb=None, x_ub=None, **bind_params):
+def _linbp_custom_jvp_call_p(
+    *args,
+    relu_mode,
+    call_jaxpr,
+    num_consts,
+    tighten_bounds=True,
+    x_lb=None,
+    x_ub=None,
+    **bind_params,
+):
     """Handle custom_jvp_call by evaluating the primal call_jaxpr only."""
     if isinstance(call_jaxpr, jax.extend.core.ClosedJaxpr):
         consts = call_jaxpr.consts
@@ -691,8 +718,13 @@ def _linbp_custom_jvp_call_p(*args, relu_mode, call_jaxpr, num_consts,
     extra_consts = list(args[:num_consts])
     actual_args = args[num_consts:]
     return _linbp_jaxpr(
-        inner_jaxpr, consts + extra_consts, *actual_args, relu_mode=relu_mode,
-        tighten_bounds=tighten_bounds, x_lb=x_lb, x_ub=x_ub,
+        inner_jaxpr,
+        consts + extra_consts,
+        *actual_args,
+        relu_mode=relu_mode,
+        tighten_bounds=tighten_bounds,
+        x_lb=x_lb,
+        x_ub=x_ub,
     )
 
 
@@ -742,7 +774,9 @@ def _resolve_linbp_input(inp):
         # trace the Jaxpr.  x_lb/x_ub are unknown so tightening is skipped.
         return inp, inp.l, None, None
     else:
-        raise TypeError(f"linbp wrapped function expects Interval or LinearBound, got {type(inp)}")
+        raise TypeError(
+            f"linbp wrapped function expects Interval or LinearBound, got {type(inp)}"
+        )
 
 
 def linbp(f, relu_mode: str = "adaptive", tighten_bounds: bool = True):
@@ -778,9 +812,13 @@ def linbp(f, relu_mode: str = "adaptive", tighten_bounds: bool = True):
         lb_init, trace_point, x_lb, x_ub = _resolve_linbp_input(inp)
         closed_jaxpr = eqx.filter_make_jaxpr(f)(trace_point)[0]
         outs = _linbp_jaxpr(
-            closed_jaxpr.jaxpr, closed_jaxpr.literals, lb_init,
-            relu_mode=relu_mode, tighten_bounds=tighten_bounds,
-            x_lb=x_lb, x_ub=x_ub,
+            closed_jaxpr.jaxpr,
+            closed_jaxpr.literals,
+            lb_init,
+            relu_mode=relu_mode,
+            tighten_bounds=tighten_bounds,
+            x_lb=x_lb,
+            x_ub=x_ub,
         )
         return outs[0] if len(outs) == 1 else outs
 
