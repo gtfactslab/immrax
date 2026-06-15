@@ -20,7 +20,6 @@ from ...inclusion import (
 from ...neural import fastlin
 from ..parametope import Parametope
 from ..embedding import ParametricEmbedding
-from functools import partial
 
 
 @register_pytree_node_class

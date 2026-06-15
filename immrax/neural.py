@@ -6,7 +6,6 @@ import equinox as eqx
 import equinox.nn as nn
 import jax
 import jax.numpy as jnp
-from jax import jit
 from jaxtyping import Float, Integer
 
 from immrax.control import Control, ControlledSystem
@@ -184,7 +183,7 @@ class NeuralNetwork(eqx.Module, Control):
         return self(x)
 
 
-from immrax.inclusion.linbp import LinearBound, linbp
+from immrax.inclusion.linbp import linbp
 
 
 class CROWNResult(namedtuple("CROWNResult", ["lC", "uC", "ld", "ud"])):
