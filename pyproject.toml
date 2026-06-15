@@ -49,6 +49,8 @@ conflicts = [
 [dependency-groups]
 dev = [
     "pytest>=9.1.0",
+    "ruff>=0.15.17",
+    "twine>=6.2.0",
 ]
 
 [build-system]
