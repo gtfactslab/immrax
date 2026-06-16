@@ -6,9 +6,11 @@ Inclusion function transformations are composable with existing JAX transformati
 
 For more information, please see the full [documentation](https://immrax.readthedocs.io).
 
-## Dependencies
+## Installation
 
-`immrax` depends on the library `pypoman`, which internally uses `pycddlib` as a wrapper around [the cdd library](https://people.inf.ethz.ch/fukudak/cdd_home/). For this wrapper to function properly, you must install `cdd` to your system. On Ubuntu, the relevant packages can be installed with
+### System Dependencies
+
+`immrax` depends on the library `pypoman`, which internally uses `pycddlib` as a wrapper around [the cdd library](https://people.inf.ethz.ch/fukudak/cdd_home/).  For this wrapper to function properly, you must install `cdd` to your system.  On Ubuntu, the relevant packages can be installed with
 
 ```bash
 apt-get install -y libcdd-dev libgmp-dev
@@ -20,18 +22,7 @@ On Arch linux, you can use
 pacman -S cddlib
 ```
 
-## Installation
-
-### Setting up a `conda` environment
-
-We recommend installing JAX and `immrax` into a `conda` environment ([miniconda](https://docs.conda.io/projects/miniconda/en/latest/)).
-
-```shell
-conda create -n immrax python=3.12
-conda activate immrax
-```
-
-### Installing immrax
+### Package
 
 `immrax` is available as a package on PyPI and can be installed with `pip`.
 
@@ -39,28 +30,52 @@ conda activate immrax
 pip install immrax
 ```
 
-### CUDA support
+We recommend you use a python virtual environment (e.g. through `pip`, `conda`, `uv`, etc.).
 
-`immrax` supports CUDA via JAX. To enable GPU acceleration, install the appropriate JAX CUDA build for your CUDA version *before* installing `immrax`:
+### Hardware Acceleration
+
+`immrax` supports hardware acceleration through JAX.  You can install the `cuda12` or `cuda13` extras it supplies directly, or manually choose a different JAX accelerator. (Our development machines are all currently CUDA based; other methods are untested.)
 
 ```shell
-# CUDA 12
-pip install "jax[cuda12]"
-
-# CUDA 13
-pip install "jax[cuda13]"
+pip install "jax[rocm7-local]"
 ```
 
 See the [JAX installation guide](https://jax.readthedocs.io/en/latest/installation.html) for further details.
 
-To test if the installation process worked, run the `compare.py` example. The additional `examples` optional dependency group contains some dependencies needed for the more complex examples; be sure to also install it if you want to run the others.
+## Development
+
+Simply clone this repo to get started with `immrax` development.  We manage dependencies with [`uv`](https://docs.astral.sh/uv/); to create a virtual environment with everything you need run
 
 ```shell
-cd examples
-python compare.py
+uv sync
 ```
 
-This should return the outputs of different inclusion functions as well as their runtimes.
+The above comments on [system dependencies](#system-dependencies) still apply.
+
+### Examples
+
+To test if the installation process worked, run the `compare.py` example.  This should return the outputs of different inclusion functions as well as their runtimes.
+
+```shell
+uv run examples/compare.py
+```
+
+The additional `examples` extra contains some dependencies needed for the more complex examples; be sure to also install it if you want to run the others.
+
+### Other Tooling
+
+We have a useful (though not yet comprehensive) test suite that can be run with
+
+```shell
+uv run pytest
+```
+
+Automatic linting and formatting is done with `ruff`
+
+```shell
+uv run ruff check # lint all project files, report only
+uv run ruff format # autoformat all project files
+```
 
 ## Citation
 
