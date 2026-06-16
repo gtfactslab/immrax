@@ -77,6 +77,14 @@ uv run ruff check # lint all project files, report only
 uv run ruff format # autoformat all project files
 ```
 
+This repo also ships a tracked git pre-commit hook that runs `ruff check --fix` and `ruff format` on staged Python files automatically. Enable it once per clone with
+
+```shell
+git config core.hooksPath .githooks
+```
+
+The hook is non-blocking: it applies safe fixes and formatting, warns if any unfixable lint issues remain, and lets the commit proceed.
+
 ## Citation
 
 If you find this library useful, please cite our paper with the following bibtex entry.

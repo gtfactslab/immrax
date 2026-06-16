@@ -1,0 +1,16 @@
+#!/bin/sh
+# Pre-commit hook: auto-lint and format staged Python files with ruff (via uv).
+# Non-blocking: safe fixes are applied automatically, unfixable issues only warn.
+# Activate once per clone with: git config core.hooksPath .githooks
+
+staged=$(git diff --cached --name-only --diff-filter=ACM -- '*.py')
+[ -z "$staged" ] && exit 0
+
+if ! uv run ruff check --fix $staged; then
+	echo "warning: ruff left unfixable lint issues above; committing anyway." >&2
+fi
+
+uv run ruff format $staged
+git add $staged
+
+exit 0
