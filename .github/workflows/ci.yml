@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libcdd-dev libgmp-dev
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install project (CPU)
+        run: uv sync
+
+      - name: Run tests
+        id: tests
+        continue-on-error: true
+        run: uv run pytest --junitxml=report.xml
+
+      - name: Summarize test results
+        id: testresults
+        run: |
+          uv run python - <<'PY' >> "$GITHUB_OUTPUT"
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("report.xml").getroot()
+          suites = root.findall("testsuite") if root.tag == "testsuites" else [root]
+          tests = failures = errors = skipped = 0
+          for s in suites:
+              tests += int(s.get("tests", 0))
+              failures += int(s.get("failures", 0))
+              errors += int(s.get("errors", 0))
+              skipped += int(s.get("skipped", 0))
+          total = tests - skipped
+          passed = total - failures - errors
+          color = "brightgreen" if (failures + errors) == 0 else "red"
+          print(f"passed={passed}")
+          print(f"total={total}")
+          print(f"color={color}")
+          PY
+
+      - name: Run sanity example (compare.py)
+        id: sanity
+        continue-on-error: true
+        run: uv run examples/compare.py
+
+      - name: Summarize sanity result
+        id: sanityresult
+        run: |
+          if [ "${{ steps.sanity.outcome }}" = "success" ]; then
+            echo "message=pass" >> "$GITHUB_OUTPUT"
+            echo "color=brightgreen" >> "$GITHUB_OUTPUT"
+          else
+            echo "message=fail" >> "$GITHUB_OUTPUT"
+            echo "color=red" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish badges
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir badges-out
+          cat > badges-out/tests.json <<EOF
+          {"schemaVersion":1,"label":"tests","message":"${{ steps.testresults.outputs.passed }}/${{ steps.testresults.outputs.total }}","color":"${{ steps.testresults.outputs.color }}"}
+          EOF
+          cat > badges-out/sanity.json <<EOF
+          {"schemaVersion":1,"label":"sanity check","message":"${{ steps.sanityresult.outputs.message }}","color":"${{ steps.sanityresult.outputs.color }}"}
+          EOF
+          cd badges-out
+          git init -q
+          git checkout -q -b badges
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -q -m "Update badges [skip ci]"
+          git push -fq "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" badges
+
+      - name: Fail if tests failed
+        if: steps.tests.outcome == 'failure'
+        run: exit 1
