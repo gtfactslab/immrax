@@ -6,8 +6,6 @@ import equinox as eqx
 import equinox.nn as nn
 import jax
 import jax.numpy as jnp
-from jax import jit
-from jax._src.traceback_util import api_boundary
 from jaxtyping import Float, Integer
 
 from immrax.control import Control, ControlledSystem
@@ -96,11 +94,11 @@ class NeuralNetwork(eqx.Module, Control):
                     mods.append(nn.Lambda(lambda x: 2 * jax.nn.sigmoid(2 * x) - 1))
                 elif a.lower() == "logsig":
                     mods.append(nn.Lambda(jax.nn.log_sigmoid))
-                elif a.lower() == 'softplus' :
+                elif a.lower() == "softplus":
                     # jax.nn.softplus uses a custom jvp call
                     # mods.append(nn.Lambda(jax.nn.softplus))
                     # mods.append(nn.Lambda(lambda x : jnp.log(1 + jnp.exp(x))))
-                    mods.append(nn.Lambda(lambda x : jnp.log1p(jnp.exp(x))))
+                    mods.append(nn.Lambda(lambda x: jnp.log1p(jnp.exp(x))))
 
         self.seq = nn.Sequential(mods)
 
@@ -116,10 +114,10 @@ class NeuralNetwork(eqx.Module, Control):
 
     def save(self, verbose=True):
         savepath = self.dir.joinpath("model.eqx")
-        if verbose :
+        if verbose:
             print(f"Saving model to {savepath}...", end="")
         eqx.tree_serialise_leaves(savepath, self.seq)
-        if verbose :
+        if verbose:
             print(" done.")
 
     # def load (self, path) :
@@ -185,60 +183,7 @@ class NeuralNetwork(eqx.Module, Control):
         return self(x)
 
 
-"""
-The following code was adapted from ________.
-"""
-
-from . import jax_verify as jv
-
-bound_propagation = jv.src.bound_propagation
-bound_utils = jv.src.bound_utils
-concretization = jv.src.concretization
-synthetic_primitives = jv.src.synthetic_primitives
-backward_crown = jv.src.linear.backward_crown
-linear_relaxations = jv.src.linear.linear_relaxations
-
-
-def to_jv_interval(x: Interval) -> jv.IntervalBound:
-    return jv.IntervalBound(x.lower, x.upper)
-
-
-class LinFunExtractionConcretizer(concretization.BackwardConcretizer):
-    """Linear function extractor.
-
-    Given an objective over an output, extract the corresponding linear
-    function over a target node.
-    The relation between the output node and the target node are obtained by
-    propagating backward the `base_transform`.
-    """
-
-    def __init__(self, base_transform, target_index, obj):
-        self._base_transform = base_transform
-        self._target_index = target_index
-        self._obj = obj
-
-    def should_handle_as_subgraph(self, primitive):
-        return self._base_transform.should_handle_as_subgraph(primitive)
-
-    def concretize_args(self, primitive):
-        return self._base_transform.concretize_args(primitive)
-
-    def concrete_bound(self, graph, inputs, env, node_ref):
-        initial_lin_expression = linear_relaxations.LinearExpression(
-            self._obj, jnp.zeros(self._obj.shape[:1])
-        )
-        target_linfun, _ = graph.backward_propagation(
-            self._base_transform,
-            env,
-            {node_ref: initial_lin_expression},
-            [self._target_index],
-        )
-        return target_linfun
-
-
-""" 
-End of adapted code from ________.
-"""
+from immrax.inclusion.linbp import linbp
 
 
 class CROWNResult(namedtuple("CROWNResult", ["lC", "uC", "ld", "ud"])):
@@ -259,216 +204,13 @@ class CROWNResult(namedtuple("CROWNResult", ["lC", "uC", "ld", "ud"])):
 def crown(
     f: Callable[..., jax.Array], out_len: int = None
 ) -> Callable[..., CROWNResult]:
-    if out_len is None:
-        try:
-            # If f is a NeuralNetwork object, has this property.
-            out_len = f.out_len
-        except:
-            # raise Exception('need obj or out_len')
-            pass
+    lb_fn = linbp(f, relu_mode="adaptive")
 
-    obj = (
-        jnp.vstack([jnp.eye(out_len), -jnp.eye(out_len)])
-        if out_len is not None
-        else None
-    )
-
-    def F(bound):
-        """Run CROWN but return linfuns rather than concretized IntervalBounds.
-
-        Parameters
-        ----------
-        bound :
-            Bounds on the inputs of the function.
-
-        Returns
-        -------
-
-
-        """
-
-        bound = to_jv_interval(bound)
-
-        # As we want to extract some linfuns that are in the middle of two linear
-        # layers, we want to avoid the linear operator fusion.
-        simplifier_composition = synthetic_primitives.simplifier_composition
-        default_simplifier_without_linear = simplifier_composition(
-            synthetic_primitives.activation_simplifier,
-            synthetic_primitives.hoist_constant_computations,
-        )
-
-        # We are first going to obtain intermediate bounds for all the activation
-        # of the network, so that the backward propagation of the extraction can be
-        # done.
-        bound_retriever_algorithm = bound_utils.BoundRetrieverAlgorithm(
-            concretization.BackwardConcretizingAlgorithm(
-                backward_crown.backward_crown_concretizer
-            )
-        )
-        # BoundRetrieverAlgorithm wraps an existing algorithm and captures all of
-        # the intermediate bound it generates.
-        bound_propagation.bound_propagation(
-            bound_retriever_algorithm,
-            f,
-            bound,
-            graph_simplifier=default_simplifier_without_linear,
-        )
-        intermediate_bounds = bound_retriever_algorithm.concrete_bounds
-        # Now that we have extracted all intermediate bounds, we create a
-        # FixedBoundApplier. This is a forward transform that pretends to compute
-        # bounds, but actually just look them up in a dict of precomputed bounds.
-        fwd_bound_applier = bound_utils.FixedBoundApplier(intermediate_bounds)
-
-        # # Let's define what node we are interested in capturing linear functions
-        # # for. If needed, this could be extracted and given as argument to this
-        # # function, or as a callback that would compute which nodes to target.
-        # input_indices = [(i,) for i, _ in enumerate(bounds)]
-        # # We're propagating to the first input.
-        # target_index = input_indices[0]
-
-        target_index = (0,)
-
-        # Create the concretizer. See the class definition above. The definition
-        # of a "concretized_bound" for this one is "Obj linear function
-        # reformulated as a linear function of target index".
-        # Note: If there is a need to handle a network with multiple output, it
-        # should be easy to extend by making obj here a dict mapping output node to
-        # objective on that output node.
-        extracting_concretizer = LinFunExtractionConcretizer(
-            backward_crown.backward_crown_transform, target_index, obj
-        )
-        # BackwardAlgorithmForwardConcretization uses:
-        #  - A forward transform to compute all intermediate bounds (here a bound
-        #    applier that just look them up).
-        #  - A backward concretizer to compute all final bounds (which we have here
-        #    defined as the linear function of the target index).
-        fwd_bwd_alg = concretization.BackwardAlgorithmForwardConcretization
-        lin_fun_extractor_algorithm = fwd_bwd_alg(
-            fwd_bound_applier, extracting_concretizer
-        )
-        # We get one target_linfuns per output.
-        target_linfuns, _ = bound_propagation.bound_propagation(
-            lin_fun_extractor_algorithm,
-            f,
-            bound,
-            graph_simplifier=default_simplifier_without_linear,
-        )
-
-        return CROWNResult(
-            lC=target_linfuns[0].lin_coeffs[:out_len, :],
-            uC=-target_linfuns[0].lin_coeffs[out_len:, :],
-            ld=target_linfuns[0].offset[:out_len],
-            ud=-target_linfuns[0].offset[out_len:],
-        )
-        # return target_linfuns
+    def F(ix: Interval) -> CROWNResult:
+        lb = lb_fn(ix)
+        return CROWNResult(lC=lb.lA, uC=lb.uA, ld=lb.lb, ud=lb.ub)
 
     return F
-
-
-# def crown (net) :
-#     def _relu_linprop (l, u) :
-#         # branch = jnp.array(l < 0, "int32") + 2*jnp.array(u > 0, "int32")
-#         # case0 = lambda : (0., 0., -jnp.inf, jnp.inf) # l > 0, u < 0, Impossible
-#         # case1 = lambda : (0., 0., 0., 0.) # l < 0, u < 0, ReLU is inactive
-#         # case2 = lambda : (1., 1., 0., 0.) # l < 0, u > 0, ReLU is active
-#         # ola = u/(u - l)
-#         # case3 = lambda : (ola, 0., -ola*l, 0.) # l < 0, u > 0, ReLU is active.
-#         # return lax.switch (branch, (case0, case1, case2, case3))
-#         on = l >= 0.
-#         active = jnp.logical_and(l < 0., u >= 0.)
-#         ua = on.astype(jnp.float32) + active.astype(jnp.float32) * (u / (u - l))
-#         ub = active.astype(jnp.float32) * (-ua * l)
-#         la = (ua >= 0.5).astype(jnp.float32)
-#         lb = jnp.zeros_like(ub)
-#         return la, ua, lb, ub
-#     def newcrown (ix) :
-#         lx = [ix.lower]
-#         ux = [ix.upper]
-
-#         # # IBP forward pass
-
-#         # for i, layer in enumerate(net.seq) :
-#         #     if isinstance (layer, nn.Linear) :
-#         #         # lux = irx.natif(layer)(interval(lx[i], ux[i]))
-#         #         # lx.append(lux.lower)
-#         #         # ux.append(lux.upper)
-#         #         Wp = jnp.clip(layer.weight, 0, jnp.inf); Wn = jnp.clip(layer.weight, -jnp.inf, 0)
-#         #         lx.append(Wp @ lx[i] + Wn @ ux[i] + layer.bias)
-#         #         ux.append(Wp @ ux[i] + Wn @ lx[i] + layer.bias)
-
-#         #     elif isinstance (layer, nn.Lambda) :
-#         #         if layer.fn == jax.nn.relu :
-#         #             lx.append(jnp.maximum(lx[i], 0))
-#         #             ux.append(jnp.maximum(ux[i], 0))
-
-#         # CROWN forward pass
-
-#         lC = jnp.eye(len(lx[0]))
-#         uC = jnp.eye(len(ux[0]))
-#         ld = jnp.zeros(len(lx[0]))
-#         ud = jnp.zeros(len(ux[0]))
-
-#         for i, layer in enumerate(net.seq) :
-#             if isinstance (layer, nn.Linear) :
-#                 W = layer.weight
-#                 b = layer.bias
-#                 Wp, Wn = jnp.clip(W, 0, jnp.inf), jnp.clip(W, -jnp.inf, 0)
-#                 _lC = Wp @ lC + Wn @ uC
-#                 _uC = Wp @ uC + Wn @ lC
-#                 _ld = Wp @ ld + Wn @ ud + b
-#                 _ud = Wp @ ud + Wn @ ld + b
-#                 _lCp = jnp.clip(_lC, 0, jnp.inf); _lCn = jnp.clip(_lC, -jnp.inf, 0)
-#                 _uCp = jnp.clip(_uC, 0, jnp.inf); _uCn = jnp.clip(_uC, -jnp.inf, 0)
-#                 # lx.append(jnp.maximum(_lCp @ ix.lower + _lCn @ ix.upper + _ld, Wp @ lx[i] + Wn @ ux[i] + b))
-#                 # ux.append(jnp.minimum(_uCp @ ix.upper + _uCn @ ix.lower + _ud, Wp @ ux[i] + Wn @ lx[i] + b))
-#                 lx.append(_lCp @ ix.lower + _lCn @ ix.upper + _ld)
-#                 ux.append(_uCp @ ix.upper + _uCn @ ix.lower + _ud)
-#                 lC, uC, ld, ud = _lC, _uC, _ld, _ud
-#             elif isinstance (layer, nn.Lambda) :
-#                 if layer.fn == jax.nn.relu :
-#                     lCp = jnp.clip(lC, 0, jnp.inf); lCn = jnp.clip(lC, -jnp.inf, 0)
-#                     l_con = jnp.maximum(lCp @ ix.lower + lCn @ ix.upper + ld, lx[i])
-#                     uCp = jnp.clip(uC, 0, jnp.inf); uCn = jnp.clip(uC, -jnp.inf, 0)
-#                     u_con = jnp.minimum(uCp @ ix.upper + uCn @ ix.lower + ud, ux[i])
-#                     la, ua, lb, ub = _relu_linprop(l_con, u_con)
-#                     lC = (lC.T * la).T
-#                     uC = (uC.T * ua).T
-#                     ld = lb + la*ld
-#                     ud = ub + ua*ud
-#                     lx.append(jnp.minimum(lx[i], 0))
-#                     ux.append(jnp.maximum(ux[i], 0))
-
-#         # CROWN backward pass
-
-#         lC = jnp.eye(len(lx[-1]))
-#         uC = jnp.eye(len(ux[-1]))
-#         ld = jnp.zeros(len(lx[-1]))
-#         ud = jnp.zeros(len(ux[-1]))
-
-#         for i in range(len(net.seq)-1, -1, -1) :
-#             layer = net.seq[i]
-#             if isinstance (layer, nn.Linear) :
-#                 W = layer.weight
-#                 b = layer.bias
-#                 _lC = lC @ W
-#                 _uC = uC @ W
-#                 _ld = lC @ b + ld
-#                 _ud = uC @ b + ud
-#                 lC, uC, ld, ud = _lC, _uC, _ld, _ud
-
-#             elif isinstance (layer, nn.Lambda) :
-#                 if layer.fn == jax.nn.relu :
-#                     la, ua, lb, ub = _relu_linprop(lx[i], ux[i])
-#                     lCp = jnp.clip(lC, 0, jnp.inf); lCn = jnp.clip(lC, -jnp.inf, 0)
-#                     uCp = jnp.clip(uC, 0, jnp.inf); uCn = jnp.clip(uC, -jnp.inf, 0)
-#                     _lC = lCp * la + lCn * ua
-#                     _uC = uCp * ua + uCn * la
-#                     _ld = lCp @ lb + lCn @ ub + ld
-#                     _ud = uCp @ ub + uCn @ lb + ud
-#                     lC, uC, ld, ud = _lC, _uC, _ld, _ud
-
-#         return CROWNResult(lC, uC, ld, ud)
-# return newcrown
 
 
 class FastlinResult(namedtuple("FastlinResult", ["C", "ld", "ud"])):
@@ -492,107 +234,11 @@ class FastlinResult(namedtuple("FastlinResult", ["C", "ld", "ud"])):
 def fastlin(
     f: Callable[..., jax.Array], out_len: int = None
 ) -> Callable[..., FastlinResult]:
-    if out_len is None:
-        try:
-            # If f is a NeuralNetwork object, has this property.
-            out_len = f.out_len
-        except:
-            # raise Exception('need obj or out_len')
-            pass
+    lb_fn = linbp(f, relu_mode="same-slope")
 
-    obj = (
-        jnp.vstack([jnp.eye(out_len), -jnp.eye(out_len)])
-        if out_len is not None
-        else None
-    )
-
-    @jit
-    @api_boundary
-    def F(bound):
-        """Run CROWN but return linfuns rather than concretized IntervalBounds.
-
-        Parameters
-        ----------
-        bound :
-            bounds on the inputs of the function.
-
-        """
-
-        bound = to_jv_interval(bound)
-
-        # As we want to extract some linfuns that are in the middle of two linear
-        # layers, we want to avoid the linear operator fusion.
-        simplifier_composition = synthetic_primitives.simplifier_composition
-        default_simplifier_without_linear = simplifier_composition(
-            synthetic_primitives.activation_simplifier,
-            synthetic_primitives.hoist_constant_computations,
-        )
-
-        # We are first going to obtain intermediate bounds for all the activation
-        # of the network, so that the backward propagation of the extraction can be
-        # done.
-        bound_retriever_algorithm = bound_utils.BoundRetrieverAlgorithm(
-            concretization.BackwardConcretizingAlgorithm(
-                backward_crown.backward_fastlin_concretizer
-            )
-        )
-
-        # BoundRetrieverAlgorithm wraps an existing algorithm and captures all of
-        # the intermediate bound it generates.
-        bound_propagation.bound_propagation(
-            bound_retriever_algorithm,
-            f,
-            bound,
-            graph_simplifier=default_simplifier_without_linear,
-        )
-        intermediate_bounds = bound_retriever_algorithm.concrete_bounds
-        # Now that we have extracted all intermediate bounds, we create a
-        # FixedBoundApplier. This is a forward transform that pretends to compute
-        # bounds, but actually just look them up in a dict of precomputed bounds.
-        fwd_bound_applier = bound_utils.FixedBoundApplier(intermediate_bounds)
-
-        # # Let's define what node we are interested in capturing linear functions
-        # # for. If needed, this could be extracted and given as argument to this
-        # # function, or as a callback that would compute which nodes to target.
-        # input_indices = [(i,) for i, _ in enumerate(bounds)]
-        # # We're propagating to the first input.
-        # target_index = input_indices[0]
-
-        target_index = (0,)
-
-        # Create the concretizer. See the class definition above. The definition
-        # of a "concretized_bound" for this one is "Obj linear function
-        # reformulated as a linear function of target index".
-        # Note: If there is a need to handle a network with multiple output, it
-        # should be easy to extend by making obj here a dict mapping output node to
-        # objective on that output node.
-        extracting_concretizer = LinFunExtractionConcretizer(
-            backward_crown.backward_fastlin_transform, target_index, obj
-        )
-        # BackwardAlgorithmForwardConcretization uses:
-        #  - A forward transform to compute all intermediate bounds (here a bound
-        #    applier that just look them up).
-        #  - A backward concretizer to compute all final bounds (which we have here
-        #    defined as the linear function of the target index).
-        fwd_bwd_alg = concretization.BackwardAlgorithmForwardConcretization
-        lin_fun_extractor_algorithm = fwd_bwd_alg(
-            fwd_bound_applier, extracting_concretizer
-        )
-        # We get one target_linfuns per output.
-        target_linfuns, _ = bound_propagation.bound_propagation(
-            lin_fun_extractor_algorithm,
-            f,
-            bound,
-            graph_simplifier=default_simplifier_without_linear,
-        )
-
-        return FastlinResult(
-            C=target_linfuns[0].lin_coeffs[:out_len, :],
-            ld=target_linfuns[0].offset[:out_len],
-            ud=-target_linfuns[0].offset[out_len:],
-        )
-
-        # return target_linfuns
+    def F(ix: Interval) -> FastlinResult:
+        lb = lb_fn(ix)
+        return FastlinResult(C=lb.lA, ld=lb.lb, ud=lb.ub)
 
     return F
 

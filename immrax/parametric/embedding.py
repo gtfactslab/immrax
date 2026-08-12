@@ -43,7 +43,9 @@ class ParametricEmbedding(ABC):
             _description_
         """
 
-    @partial(jax.jit, static_argnums=(0, 4), static_argnames=("solver", "f_kwargs", "inputs"))
+    @partial(
+        jax.jit, static_argnums=(0, 4), static_argnames=("solver", "f_kwargs", "inputs")
+    )
     def compute_reachset(
         self,
         t0: Union[Integer, Float],

@@ -22,6 +22,7 @@ from jax._src.lax import linalg as LA
 
 # TODO: import only necessary things
 from immrax.inclusion.interval import Interval, interval
+from immrax.inclusion._jax_compat import split_bind_params, jit_primitive
 from functools import partial
 
 """
@@ -52,11 +53,9 @@ def natif(
 
     """
 
-    @jit
     @wraps(f)
     def wrapped(*args, **kwargs):
-        """Natural inclusion function.
-        """
+        """Natural inclusion function."""
         # Traverse the args and kwargs, replacing intervals with lower bounds.
         # Convert args to at least jax.Array when they are not interval
         getlower = lambda x: x.lower if isinstance(x, Interval) else jnp.asarray(x)
@@ -91,7 +90,7 @@ def natif_jaxpr(jaxpr: Jaxpr, consts, *args, propagate_source_info=True) -> list
     safe_map(write, jaxpr.invars, args)
     lu = last_used(jaxpr)
     for eqn in jaxpr.eqns:
-        subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+        subfuns, bind_params = split_bind_params(eqn.primitive, eqn.params)
         name_stack = source_info_util.current_name_stack() + eqn.source_info.name_stack
         traceback = eqn.source_info.traceback if propagate_source_info else None
         with source_info_util.user_context(traceback, name_stack=name_stack):
@@ -198,15 +197,19 @@ Natively, we cannot pass in pytrees like we are trying here.
 
 
 def _inclusion_pjit_p(*args, **bind_params) -> Interval:
-    """For now, this ignores a pjit_p and returns the evaluation of the jaxpr."""
-    # TODO: Do we need to implement consts here?
+    """Handles jit_p (jax >= 0.9) / pjit_p (jax < 0.9) by recursing into the inner jaxpr.
+
+    Constants are always inlined by JAX as literal values in the inner jaxpr, so
+    consts is always [] here.
+    """
     bind_jaxpr = bind_params.pop("jaxpr")
     if isinstance(bind_jaxpr, jax.extend.core.ClosedJaxpr):
         bind_jaxpr = bind_jaxpr.jaxpr
     return natif_jaxpr(bind_jaxpr, [], *args)
 
 
-inclusion_registry[jax._src.pjit.pjit_p] = _inclusion_pjit_p
+if jit_primitive is not None:
+    inclusion_registry[jit_primitive] = _inclusion_pjit_p
 
 
 def _inclusion_scan_p(*args, **bind_params) -> Interval:
@@ -280,7 +283,8 @@ inclusion_registry[lax.neg_p] = _inclusion_neg_p
 Interval.__neg__ = _inclusion_neg_p
 
 
-def _inclusion_mul_p(x: Interval, y: Interval) -> Interval:
+def _inclusion_mul_p(x: Interval, y: Interval, *, out_dtype=None) -> Interval:
+    # jax >= 0.10 binds mul_p with an out_dtype param; ignored for interval arithmetic
     if isinstance(x, Interval) and isinstance(y, Interval):
         _1 = x.lower * y.lower
         _2 = x.lower * y.upper
@@ -584,17 +588,21 @@ inclusion_registry[lax.pow_p] = _inclusion_pow_p
 # inclusion_registry[lax.tanh_p] = _inclusion_tanh_p
 _add_passthrough_to_registry(lax.tanh_p)
 
-def _inclusion_log_p(x: Interval, accuracy=None) -> Interval :
+
+def _inclusion_log_p(x: Interval, accuracy=None) -> Interval:
     ol = jnp.where((x.lower < 0), -jnp.inf, jnp.log(x.lower))
     ou = jnp.where((x.lower < 0), -jnp.inf, jnp.log(x.upper))
     return Interval(ol, ou)
 
+
 inclusion_registry[lax.log_p] = _inclusion_log_p
 
-def _inclusion_log1p_p(x: Interval, accuracy=None) -> Interval :
+
+def _inclusion_log1p_p(x: Interval, accuracy=None) -> Interval:
     ol = jnp.where((x.lower < -1), -jnp.inf, jnp.log1p(x.lower))
     ou = jnp.where((x.lower < -1), -jnp.inf, jnp.log1p(x.upper))
     return Interval(ol, ou)
+
 
 inclusion_registry[lax.log1p_p] = _inclusion_log1p_p
 
