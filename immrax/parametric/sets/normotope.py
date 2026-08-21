@@ -4,7 +4,7 @@ from jax.tree_util import register_pytree_node_class
 from jaxtyping import Array, ArrayLike, Float
 from matplotlib.axes import Axes
 
-from ...inclusion import Interval, interval, icentpert, i2centpert, mjacM
+from ...inclusion import Interval, interval, icentpert, i2centpert, mjacM, interval_intersect
 from ...system import System
 from ..parametope import Parametope
 from ..embedding import ParametricEmbedding
@@ -124,12 +124,13 @@ class Normotope(Parametope):
 
 
 class NormotopeEmbedding(ParametricEmbedding):
-    def __init__(self, sys: System):
+    def __init__(self, sys: System, bounds: Interval | None = None):
         super().__init__(sys)
         self.Df_x = jax.jacfwd(sys.f, 1)
         self.Mf = mjacM(sys.f)
         self.NT = None
         self.gsc = None
+        self.bounds = bounds
 
     def _initialize(self, nt0: Normotope, *, no_gsc=False) -> ArrayLike:
         if not isinstance(nt0, Normotope):
@@ -168,8 +169,10 @@ class NormotopeEmbedding(ParametricEmbedding):
         else:
             H_dot = Ut
 
+        nt_inter = interval_intersect([nt.iover(), self.bounds]) if self.bounds is not None else nt.iover()
+
         MM = self.Mf(
-            t, nt.iover(), centers=((jnp.zeros(1), nt.ox),), permutations=perm
+            t, nt_inter, centers=((jnp.zeros(1), nt.ox),), permutations=perm
         )[0]
         Mx = MM[1]
 
