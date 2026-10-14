@@ -1,6 +1,6 @@
 [project]
 name = "immrax"
-version = "0.3.7b1"
+version = "0.3.8"
 description = "Fast, guaranteed reachable set over-approximation using interval analysis"
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.11"
